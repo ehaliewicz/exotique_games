@@ -239,7 +239,7 @@ float puck_pos_y = 0.0f;
 const float puck_pos_z = NEAR_ARENA+0.5f;
 int bricks_left;
 
-int hard_mode = 1;
+int hard_mode = 0;
 
 void game_load(ExotiqueInterface *ei) {
     int c, s, l;

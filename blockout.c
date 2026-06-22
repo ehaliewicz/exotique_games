@@ -109,6 +109,7 @@ void swap_matrix_rows(int *row_a, int* row_b) {
         row_b[i] = tmp;
     }
 }
+
 void negate_row(int *row) {
     int i;
     for(i = 0; i < 4; i++) {
@@ -987,6 +988,134 @@ typedef enum {
     DONT_HIGHLIGHT_EDGE
 } edge_draw;
 
+float absf(float x) {
+    if(x < 0) {
+        return -x;
+    } else {
+        return x;
+    }
+}
+
+void draw_line(
+    ExotiqueInterface *ei,
+    Projected pa, Projected pb,
+    u8 color
+) {
+
+    
+    float x1,x2,y1,y2;
+    float dy,dx;
+    int int_x1, int_x2, cur_int_x;
+    int int_y1, int_y2, cur_int_y;
+    float cur_y, cur_x;
+    /* skip if any vert is behind camera */
+    if (pa.z_view < NEAR || pb.z_view < NEAR) { 
+        return;
+    }
+    x1 = pa.x;
+    x2 = pb.x;
+
+    y1 = pa.y;
+    y2 = pb.y;
+
+
+
+    if(x2 < x1) {
+        float tmp = x2;
+        x2 = x1;
+        x1 = tmp;
+        tmp = y2;
+        y2 = y1;
+        y1 = tmp;
+    }
+
+    dy = absf(y2-y1);
+    dx = absf(x2-x1);
+    if(dy > dx) {
+        float dx_per_y;
+        if(y1 > y2) {
+            float tmp = y2;
+            y2 = y1;
+            y1 = tmp;
+            tmp = x2;
+            x2 = x1;
+            x1 = tmp;
+            dy = y2-y1;
+            dx = x2-x1;
+        }
+
+        dx_per_y = dx/dy;
+
+        int_y1 = (int)y1;
+        int_y2 = (int)y2;
+
+        cur_x = x1;
+        cur_int_y = int_y1;
+        for(; cur_int_y < int_y2; cur_int_y++) {
+            int int_x = (int)cur_x;
+            cur_x += dx_per_y;
+            ei->screen[cur_int_y*WIDTH+int_x] = color; 
+            ei->screen[cur_int_y*WIDTH+int_x+1] = color; 
+        }
+    } else {
+        float dy_per_x = dy/dx;
+
+        int_x1 = (int)x1;
+        int_x2 = (int)x2;
+
+        cur_int_x = int_x1;
+        cur_y = y1;
+        for(; cur_int_x < int_x2; cur_int_x++) {
+            int int_y = (int)cur_y;
+            cur_y += dy_per_x;
+            ei->screen[int_y*WIDTH+cur_int_x] = color; 
+            ei->screen[(int_y+1)*WIDTH+cur_int_x] = color; 
+        }
+
+    }
+
+}
+
+void draw_quad_wireframe(ExotiqueInterface *ei, 
+    f32* v1, f32 *v2, f32 *v3, f32 *v4,
+    u8 color) {
+
+    /* 
+    v1   v2
+     
+    v3   v4
+    */
+
+    float ax = v1[0];
+    float ay = v1[1];
+    float az = v1[2];
+    float bx = v2[0];
+    float by = v2[1];
+    float bz = v2[2];
+    float cx = v3[0];
+    float cy = v3[1];
+    float cz = v3[2];
+    float dx = v4[0];
+    float dy = v4[1];
+    float dz = v4[2];
+
+
+    Projected pa, pb, pc, pd;
+
+    project(ax, ay, az, &pa);
+    project(bx, by, bz, &pb);
+    project(cx, cy, cz, &pc);
+    project(dx, dy, dz, &pd);
+
+    draw_line(ei, pa, pb, color);
+    draw_line(ei, pc, pd, color);
+    draw_line(ei, pb, pc, color);
+    draw_line(ei, pa, pd, color);
+    
+
+}
+
+
 static void draw_quad(ExotiqueInterface *ei,
     f32 *v1, f32 *v2, f32 *v3, f32 *v4,
     u8 color, f32 brightness, edge_draw edge, int draw_back_side) {
@@ -1192,24 +1321,30 @@ void draw_block(ExotiqueInterface *ei, u8 color, f32 x, f32 y, f32 z, f32 half_r
     sub_vec(ldn, half_forward_z_vec, ldn);
 
 
+    if((DRAW_EDGE_ONLY || DRAW_EDGE_ONLY_HALF_BRIGHT)) { 
+        
+        u8 final_color = (u8)(scaled_color + NUM_SHADES-1);
+        draw_quad_wireframe(ei, lun, run, rdn, ldn, final_color);
+        draw_quad_wireframe(ei, ldn, rdn, rdf, ldf, final_color);
+        draw_quad_wireframe(ei, luf, ruf, run, lun, final_color);
+        draw_quad_wireframe(ei, ldf, luf, lun, ldn, final_color);
+        draw_quad_wireframe(ei, rdn, run, ruf, rdf, final_color);
+    } else {
+        /* front */ 
+        draw_quad(ei, lun, run, rdn, ldn, scaled_color, 1.0f, edge, draw_back_side);
 
+        /* bot */
+        draw_quad(ei, ldn, rdn, rdf, ldf, scaled_color, 0.6f, edge, draw_back_side);
+        
+        /* top */
+        draw_quad(ei, luf, ruf, run, lun, scaled_color, 0.6f, edge, draw_back_side);
 
+        /* left */
+        draw_quad(ei, ldf, luf, lun, ldn, scaled_color, 0.6f, edge, draw_back_side);
 
-
-    /* front */ 
-    draw_quad(ei, lun, run, rdn, ldn, scaled_color, 1.0f, edge, draw_back_side);
-
-    /* bot */
-    draw_quad(ei, ldn, rdn, rdf, ldf, scaled_color, 0.6f, edge, draw_back_side);
-    
-    /* top */
-    draw_quad(ei, luf, ruf, run, lun, scaled_color, 0.6f, edge, draw_back_side);
-
-    /* left */
-    draw_quad(ei, ldf, luf, lun, ldn, scaled_color, 0.6f, edge, draw_back_side);
-
-    /* right */
-    draw_quad(ei, rdn, run, ruf, rdf, scaled_color, 0.6f, edge, draw_back_side);
+        /* right */
+        draw_quad(ei, rdn, run, ruf, rdf, scaled_color, 0.6f, edge, draw_back_side);
+    }
 }
 
 void draw_level(ExotiqueInterface *ei) {

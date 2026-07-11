@@ -85,9 +85,10 @@ def format_double(tup):
     x,y = tup
     return "{" + ".x = {}f, .y = {}f".format(x,y) + "}"
 
+import sys
 if __name__ == '__main__':
-    motorcycle_obj = "./src/models/Honda_Shadow_RS_2010.obj"
-    verts, faces = parse("./src/models/mahjong_tile.obj")
+    obj = sys.argv[1]
+    verts, faces = parse("./models/{}.obj".format(obj))
     
     print("obj_vertex vertexes[] = {")
     for (vert, uv, norm) in verts:

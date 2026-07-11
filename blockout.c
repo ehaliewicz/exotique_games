@@ -56,6 +56,56 @@ f32 sinf(f32 x) {
     return (f32)sin((double)x);
 }
 
+f32 fabsf(f32 x) {
+    if(x < 0.0f) { return -x; }
+    return x;
+}
+
+f32 fast_atan2(f32 y, f32 x) {
+    const f32 PI_4 = (f32)M_PI * 0.25f;
+    const f32 PI_3_4 = (f32)M_PI * 0.75f;
+
+    f32 abs_y = fabsf(y) + 1e-10f;
+    f32 angle;
+
+    if (x >= 0.0f)
+    {
+        f32 r = (x - abs_y) / (x + abs_y);
+        angle = PI_4 - PI_4 * r;
+    }
+    else
+    {
+        f32 r = (x + abs_y) / (abs_y - x);
+        angle = PI_3_4 - PI_4 * r;
+    }
+
+    return (y < 0.0f) ? -angle : angle;
+}
+
+static inline f32 faster_asin(f32 x) {
+    f32 x2 = x * x;
+    return x * (1.5707963f + x2 * (-0.2145988f + x2 * 0.0889789f));
+}
+
+f32 fast_asin(f32 x) {
+
+    f32 ax = fabsf(x);
+
+    // Polynomial approximation
+    f32 a = 
+        -0.0187293f * ax +
+         0.0742610f;
+
+    a = a * ax - 0.2121144f;
+    a = a * ax + 1.5707288f;
+
+    a *= my_sqrt(1.0f - ax);
+
+    return (x >= 0.0f)
+        ? PI * 0.5f - a
+        : a - PI * 0.5f;
+}
+
 #define NUM_COLORS 8
 #define NUM_SHADES 16
 u8 init_colors[NUM_COLORS][3] = {

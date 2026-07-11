@@ -264,13 +264,13 @@ if __name__ == '__main__':
     for idx in range(len(palette)):
         palette[idx] = (palette[idx]<<8)|0xFF # shift left and add alphas
         col_idx_map[palette[idx]] = idx
-    #img = Image.open("./src/models/tex_256_colors.png")
-    #img = Image.open("./src/models/skybox2_256.png")
+    #img = Image.open("./models/tex_256_colors.png")
+    #img = Image.open("./models/skybox2_256.png")
 
     #print(sys.argv[1])
     #exit(1) 
     tex_name = sys.argv[1]
-    img = Image.open("./src/models/mahjong_texture_{}_256.png".format(tex_name))
+    img = Image.open("./models/mahjong_texture_{}_256.png".format(tex_name))
     (x,y) = img.size
     
     print("#ifndef TEXTURE_{}_H".format(tex_name))

@@ -4,7 +4,7 @@ SETLOCAL EnableDelayedExpansion
 REM ============================================================
 REM  Paths -- adjust if your layout differs
 REM ============================================================
-SET GCC=C:\msys64\mingw64\bin\gcc.exe
+SET GCC=C:\msys64\ucrt64\bin\gcc.exe
 
 REM SDL2 dev package layout (MinGW flavour):
 REM   <SDL2_DIR>\include\SDL2\SDL.h   <- headers
@@ -19,7 +19,8 @@ SET ARCH=64
 REM ============================================================
 REM  Warning flags  (split across two variables; cmd line-length limit)
 REM ============================================================
-SET EXTRA_CFLAGS=-DSDL_MAIN_HANDLED -Waggregate-return -Warith-conversion -Wcast-align=strict -Wcast-qual -Wconversion -Wdouble-promotion -Wduplicated-branches -Wduplicated-cond -Wfloat-equal -Wformat=2 -Wlogical-op -Wmissing-include-dirs -Wnull-dereference -Wstrict-aliasing=2 -Wstrict-overflow=2 -Wswitch-default -Wswitch-enum -Wundef -Wuninitialized -Wwrite-strings
+REM -Waggregate-return
+SET EXTRA_CFLAGS=-DSDL_MAIN_HANDLED -Warith-conversion -Wcast-align=strict -Wcast-qual -Wconversion -Wdouble-promotion -Wduplicated-branches -Wduplicated-cond -Wfloat-equal -Wformat=2 -Wlogical-op -Wmissing-include-dirs -Wnull-dereference -Wstrict-aliasing=2 -Wstrict-overflow=2 -Wswitch-default -Wswitch-enum -Wundef -Wuninitialized -Wwrite-strings
 SET CFLAGS=-Wall -Wextra -Wpedantic -Wshadow -Werror -Wfatal-errors %EXTRA_CFLAGS%
 
 REM ============================================================
@@ -36,7 +37,7 @@ SET GAME=%~n1
 REM ============================================================
 REM  Compile exotique.c
 REM ============================================================
-"%GCC%" -c %CFLAGS% -std=c23 -Os ^
+"%GCC%" -c %CFLAGS% -std=c2x -Os ^
     -I "%SDL2_INC%" -D_REENTRANT ^
     exotique.c
 IF ERRORLEVEL 1 (
@@ -48,7 +49,7 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM -nostdlib -nostdinc -nodefaultlibs -nolibc -ffreestanding ^
-"%GCC%" -c %CFLAGS% -std=c89 -O3 -fno-strict-aliasing ^
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -fno-strict-aliasing ^
     -I ".." ^
     ^
     -D ARCH=%ARCH% ^

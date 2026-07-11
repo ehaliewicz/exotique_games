@@ -996,6 +996,14 @@ float absf(float x) {
     }
 }
 
+int my_round(float y) {
+    if(y < 0.0f) {
+        return (int)(y-0.5f);
+    } else {
+        return (int)(y+0.5f);
+    }
+}
+
 void draw_line(
     ExotiqueInterface *ei,
     Projected pa, Projected pb,
@@ -1004,10 +1012,11 @@ void draw_line(
 
     
     float x1,x2,y1,y2;
-    float dy,dx;
+    float dy,dx,dy_per_x,dx_per_y;
     int int_x1, int_x2, cur_int_x;
     int int_y1, int_y2, cur_int_y;
-    float cur_y, cur_x;
+    float cur_y, cur_x, tmp;
+
     /* skip if any vert is behind camera */
     if (pa.z_view < NEAR || pb.z_view < NEAR) { 
         return;
@@ -1018,10 +1027,65 @@ void draw_line(
     y1 = pa.y;
     y2 = pb.y;
 
+    #define SWAP(a,b) { \
+        tmp = (a);      \
+        (a) = (b);      \
+        (b) = (tmp);    \
+    } while(0);
 
+
+
+    dy = (y2-y1);
+    dx = (x2-x1);
+    
+    if(absf(dy) > absf(dx)) {
+        /* draw vertical major line */
+        if(y2 < y1) {
+            SWAP(y2, y1);
+            SWAP(x2, x1);
+            dy = -dy;
+            dx = -dx;
+        }
+        int_y1 = (int)y1;
+        cur_int_y = int_y1;
+        int_y2 = (int)y2;
+        dx_per_y = dx / dy;  
+        for(; cur_int_y < int_y2; cur_int_y++) {
+            float exact_x = (float)(cur_int_y-int_y1)*dx_per_y + x1;
+            u8 half_color = (u8)(color-NUM_SHADES/2);
+            cur_int_x = my_round(exact_x);
+            ei->screen[cur_int_y*WIDTH + (cur_int_x-1)] = half_color;
+            ei->screen[cur_int_y*WIDTH + cur_int_x] = color;
+            ei->screen[cur_int_y*WIDTH + (cur_int_x-1)] = half_color;
+
+        }
+    } else {
+        /* draw horizontal major line */
+
+        if(x2 < x1) {
+            SWAP(x2,x1);
+            SWAP(y2,y1);
+            dy = -dy;
+            dx = -dx;
+        }
+        int_x1 = (int)x1;
+        cur_int_x = int_x1;
+        int_x2 = (int)x2;
+        dy_per_x = dy / dx;
+        for(; cur_int_x < int_x2; cur_int_x++) {
+            u8 half_color = (u8)(color-NUM_SHADES/2);
+            float exact_y = (float)(cur_int_x-int_x1)*dy_per_x + y1;
+            cur_int_y = my_round(exact_y);
+            ei->screen[(cur_int_y-1)*WIDTH + cur_int_x] = half_color;
+            ei->screen[cur_int_y*WIDTH + cur_int_x] = color;
+            ei->screen[(cur_int_y+1)*WIDTH + cur_int_x] = half_color;
+        }
+    }
+    #undef SWAP
+    return;
 
     if(x2 < x1) {
-        float tmp = x2;
+        tmp = x2;
         x2 = x1;
         x1 = tmp;
         tmp = y2;
@@ -1032,9 +1096,8 @@ void draw_line(
     dy = absf(y2-y1);
     dx = absf(x2-x1);
     if(dy > dx) {
-        float dx_per_y;
         if(y1 > y2) {
-            float tmp = y2;
+            tmp = y2;
             y2 = y1;
             y1 = tmp;
             tmp = x2;
@@ -1058,7 +1121,7 @@ void draw_line(
             ei->screen[cur_int_y*WIDTH+int_x+1] = color; 
         }
     } else {
-        float dy_per_x = dy/dx;
+        dy_per_x = dy/dx;
 
         int_x1 = (int)x1;
         int_x2 = (int)x2;
@@ -1321,7 +1384,7 @@ void draw_block(ExotiqueInterface *ei, u8 color, f32 x, f32 y, f32 z, f32 half_r
     sub_vec(ldn, half_forward_z_vec, ldn);
 
 
-    if((DRAW_EDGE_ONLY || DRAW_EDGE_ONLY_HALF_BRIGHT)) { 
+    if((edge == DRAW_EDGE_ONLY || edge == DRAW_EDGE_ONLY_HALF_BRIGHT)) { 
         
         u8 final_color = (u8)(scaled_color + NUM_SHADES-1);
         draw_quad_wireframe(ei, lun, run, rdn, ldn, final_color);

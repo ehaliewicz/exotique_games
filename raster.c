@@ -482,6 +482,32 @@ typedef struct {
     compress_type compressed;
 } texture;
 
+void pixel_shader(f32 inv_z, f32 w0, f32 w1, f32 w2, f32 v0u_over_z, f32 v0v_over_z, f32 v1u_over_z, f32 v1v_over_z, f32 v2u_over_z, f32 v2v_over_z, f32 recip_area, u8* texels, int tex_width, int tex_height, u8* lit_pal_ptr, u8* color_ptr, f32* zbuf_ptr) {
+    f32 z = 1.0f / inv_z;
+                        
+    f32 u_over_z = (w0 * v0u_over_z + w1 * v1u_over_z + w2 * v2u_over_z) * recip_area;
+    f32 v_over_z = (w0 * v0v_over_z + w1 * v1v_over_z + w2 * v2v_over_z) * recip_area;
+    f32 u = (u_over_z * z);
+    f32 v = (v_over_z * z);
+    
+    i32 int_u = (i32)fast_floor(u * (f32)tex_width);// & 1023;
+    i32 int_v = (i32)fast_floor(v * (f32)tex_height);// & 1023;
+    int_u &= (tex_width-1);
+    int_v &= (tex_height-1);
+    u8 tex_pal_idx = texels[((tex_height-1)-int_v)*tex_width+int_u];
+
+    // linearly interpolate brightness calculated at each vertex
+    // c0/c1/c2 are brightness values
+    //f32 diffuse = (w0 * c0 + w1 * c1 + w2 * c2) * recip_area;
+
+    //diffuse = CLAMP(diffuse, 0.0f, 1.0f);
+    //u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
+    //u8 pal_idx = light_remap_table[quantized_brightness][tex_pal_idx];
+    u8 pal_idx = lit_pal_ptr[tex_pal_idx];// light_remap_table[16][WHITE];
+
+    *color_ptr = pal_idx;
+    *zbuf_ptr = inv_z;
+}
 
 // returns 1 if drew a pixel, 0 otherwise
 int triangle_v2(
@@ -619,30 +645,7 @@ int triangle_v2(
                 f32 inv_z = (w0 * iz0 + w1 * iz1 +  w2 * iz2) * recip_area;
                 
                 if(inv_z >= zbuf_row[x - minx]) {
-                    f32 z = 1.0f / inv_z;
-                        
-                    f32 u_over_z = (w0 * v0u_over_z + w1 * v1u_over_z + w2 * v2u_over_z) * recip_area;
-                    f32 v_over_z = (w0 * v0v_over_z + w1 * v1v_over_z + w2 * v2v_over_z) * recip_area;
-                    f32 u = (u_over_z * z);
-                    f32 v = (v_over_z * z);
-                    
-                    i32 int_u = (i32)fast_floor(u * (f32)tex_width);// & 1023;
-                    i32 int_v = (i32)fast_floor(v * (f32)tex_height);// & 1023;
-                    int_u &= (tex_width-1);
-                    int_v &= (tex_height-1);
-                    u8 tex_pal_idx = texels[((tex_height-1)-int_v)*tex_width+int_u];
-
-                    // linearly interpolate brightness calculated at each vertex
-                    // c0/c1/c2 are brightness values
-                    //f32 diffuse = (w0 * c0 + w1 * c1 + w2 * c2) * recip_area;
-
-                    //diffuse = CLAMP(diffuse, 0.0f, 1.0f);
-                    //u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-                    //u8 pal_idx = light_remap_table[quantized_brightness][tex_pal_idx];
-                    u8 pal_idx = lit_pal_ptr[tex_pal_idx];// light_remap_table[16][WHITE];
-
-                    row[x - minx] = pal_idx;
-                    zbuf_row[x - minx] = inv_z;
+                    pixel_shader(inv_z, w0, w1, w2, v0u_over_z, v0v_over_z, v1u_over_z, v1v_over_z, v2u_over_z, v2v_over_z, recip_area, texels, tex_width, tex_height, lit_pal_ptr, row+x-minx, zbuf_row+x-minx);
                     drew_pixel = 1;
                 }
             }

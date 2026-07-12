@@ -532,7 +532,7 @@ sdl_load(GameManager* gm)
     exotique_panic(gm);
   }
 
-  if (!(sm->renderer = SDL_CreateRenderer(sm->window, -1, SDL_RENDERER_PRESENTVSYNC)))
+  if (!(sm->renderer = SDL_CreateRenderer(sm->window, -1, 0))) //SDL_RENDERER_PRESENTVSYNC)))
   {
     SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't create a 2D rendering context for a window: %s", SDL_GetError());
     exotique_panic(gm);

@@ -492,6 +492,7 @@ int triangle_v2(
     i32 start_x, i32 end_x,
     i32 start_y, i32 end_y) {
 
+    (void)tex;
     // swap everything for first two vertexes (actual vertex positions and attributes)
     
     f32 iz0 = tri_attributes->inv_z1;
@@ -506,6 +507,14 @@ int triangle_v2(
     f32 c0 = tri_attributes->c1;
     f32 c1 = tri_attributes->c0;
     f32 c2 = tri_attributes->c2;
+    f32 avg_c = (c0+c1+c2)/3.0f;
+    
+    //f32 diffuse = (w0 * c0 + w1 * c1 + w2 * c2) * recip_area;
+
+    f32 diffuse = CLAMP(avg_c, 0.0f, 1.0f);
+    u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
+    u8* lit_pal_ptr = light_remap_table[quantized_brightness];
+
 
 
     int drew_pixel = 0;
@@ -544,6 +553,8 @@ int triangle_v2(
     // Triangle area
     //
     i32 area = (dx01 * dy20 - dy01 * dx20);
+    // barycentric weights weights (scaled by area)
+    f32 recip_area = 1.0f / (f32)area;
 
     
     // bounding box of triangle (not so good for larger triangles)
@@ -602,8 +613,6 @@ int triangle_v2(
         for (i32 x = minx; x < maxx; x++) {
             if (!((cx01 | cx12 | cx20)>>31)) { // check the sign bit
 
-                // barycentric weights weights (scaled by area)
-                f32 recip_area = 1.0f / (f32)area;
                 f32 w0 = (f32)ex12;
                 f32 w1 = (f32)ex20;
                 f32 w2 = (f32)ex01;
@@ -625,14 +634,12 @@ int triangle_v2(
 
                     // linearly interpolate brightness calculated at each vertex
                     // c0/c1/c2 are brightness values
-                    f32 diffuse =(w0 * c0 + w1 * c1 + w2 * c2) / (f32)area;
+                    //f32 diffuse = (w0 * c0 + w1 * c1 + w2 * c2) * recip_area;
 
-                    diffuse = CLAMP(diffuse, 0.0f, 1.0f);
-                    u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-
-
-                    
-                    u8 pal_idx = light_remap_table[quantized_brightness][tex_pal_idx];
+                    //diffuse = CLAMP(diffuse, 0.0f, 1.0f);
+                    //u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
+                    //u8 pal_idx = light_remap_table[quantized_brightness][tex_pal_idx];
+                    u8 pal_idx = lit_pal_ptr[tex_pal_idx];// light_remap_table[16][WHITE];
 
                     row[x - minx] = pal_idx;
                     zbuf_row[x - minx] = inv_z;

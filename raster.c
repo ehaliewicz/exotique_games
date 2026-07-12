@@ -464,12 +464,31 @@ vert3f light = {
     -.5f
 };
 
+typedef struct {
+    u8 palette[4]; // up to 4 colors in per-image palette.  these are indexes of the global palette (2 are shared)
+    u8 *compressed_packets;
+} compressed_texture;
+
+typedef enum {
+    UNCOMPRESSED,
+    COMPRESSED
+} compress_type;
+
+typedef struct {
+    compressed_texture* comp_tex_ptr;
+    u8* texels;
+    int width;
+    int height;
+    compress_type compressed;
+} texture;
+
+
 // returns 1 if drew a pixel, 0 otherwise
 int triangle_v2(
     ExotiqueInterface *ei,
     f32 *zbuffer,
     transformed_tri* tri_attributes,
-    const u8* texture,
+    texture* tex,
     i32 start_x, i32 end_x,
     i32 start_y, i32 end_y) {
 
@@ -501,6 +520,9 @@ int triangle_v2(
     f32 v2u_over_z = uv2.x * iz2;
     f32 v2v_over_z = uv2.y* iz2;
 
+    int tex_width = tex->width;
+    int tex_height = tex->height;
+    u8* texels = tex->texels;
 
     // 28.4 fixed point
     const i32 x0 = (i32)(v0.x * 16.0f);
@@ -595,11 +617,11 @@ int triangle_v2(
                     f32 u = (u_over_z * z);
                     f32 v = (v_over_z * z);
                     
-                    i32 int_u = (i32)fast_floor(u * (f32)TEXTURE_WIDTH);// & 1023;
-                    i32 int_v = (i32)fast_floor(v * (f32)TEXTURE_HEIGHT);// & 1023;
-                    int_u &= (TEXTURE_WIDTH-1);
-                    int_v &= (TEXTURE_HEIGHT-1);
-                    u8 tex_pal_idx = texture[((TEXTURE_HEIGHT-1)-int_v)*TEXTURE_WIDTH+int_u];
+                    i32 int_u = (i32)fast_floor(u * (f32)tex_width);// & 1023;
+                    i32 int_v = (i32)fast_floor(v * (f32)tex_height);// & 1023;
+                    int_u &= (tex_width-1);
+                    int_v &= (tex_height-1);
+                    u8 tex_pal_idx = texels[((tex_height-1)-int_v)*tex_width+int_u];
 
                     // linearly interpolate brightness calculated at each vertex
                     // c0/c1/c2 are brightness values
@@ -1094,6 +1116,7 @@ u32 nextrand(void)
 #include "texture_two_sou.h"
 #include "texture_board.h"
 
+
 typedef enum {
     WHITE_DRAGON,
     RED_DRAGON,
@@ -1107,25 +1130,91 @@ typedef enum {
     BOARD
 } tile_type;
 
-const u8* textures[NUM_TILES+2] = {
-    texture_white_dragon,
-    texture_red_dragon,
-    texture_green_dragon,
-    texture_north,
-    texture_east,
-    texture_two_pin,
-    texture_seven_man,
-    texture_two_sou,
-    texture_board,
-    texture_board
+
+u8 texture_buffer[34][512*512];
+texture textures[NUM_TILES+2] = {
+    {
+        &comp_tex_white_dragon, 0, 512, 512, COMPRESSED
+    },
+    {
+        &comp_tex_red_dragon, 0, 512, 512, COMPRESSED
+    },
+    {
+        &comp_tex_green_dragon, 0, 512, 512, COMPRESSED
+    },
+    {
+        &comp_tex_north, 0, 512, 512, COMPRESSED
+    },
+    {
+        &comp_tex_east, 0, 512, 512, COMPRESSED
+    },
+    {
+        &comp_tex_two_pin, 0, 512, 512, COMPRESSED
+    },
+    {
+        &comp_tex_seven_man, 0, 512, 512, COMPRESSED
+    },
+    {
+        &comp_tex_two_sou, 0, 512, 512, COMPRESSED
+    },
+    {
+        &comp_tex_east, texture_board, 1, 1, UNCOMPRESSED
+    },
+    {
+        &comp_tex_east, texture_board, 1, 1, UNCOMPRESSED
+    },
 };
+
+void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_bytes) {
+    u8 *packets = comp_tex->compressed_packets;
+    u8 *local_palette = comp_tex->palette;
+    int packet_idx = 0;
+    int dst_idx = 0;
+    while(dst_idx < num_total_bytes) {
+        u8 packet = packets[packet_idx++];
+        u8 bits = (u8)(packet&0x3);
+        u8 global_pal_idx;
+        if(packet == 29) {
+            global_pal_idx = 0;
+        }
+        global_pal_idx = local_palette[bits];
+        int packet_len = (int)((packet>>2)+1);
+
+        for(int i = 0; i < packet_len; i++) {
+            dst[dst_idx++] = global_pal_idx;
+        }
+    }
+}
+
+void decompress_textures() {
+
+    for(int i = 0; i < NUM_TILES; i++) {
+
+
+        //textures[i].comp_tex_ptr = &comp_tex_east;
+        u8* tex_buf = texture_buffer[i];
+        textures[i].texels = tex_buf;
+        textures[i].width = 512;
+        textures[i].height = 512;
+
+        decompress_texture(textures[i].comp_tex_ptr, tex_buf, 512*512);
+        for(int y = 0; y < 512; y++) {
+            tex_buf[y*512+511] = (y >= 504) ? GOLD : (y >= 496) ? WHITE : BLACK;
+        }
+    }
+    textures[NUM_TILES].texels = texture_board;
+    textures[NUM_TILES].width = 1;
+    textures[NUM_TILES].height = 1;
+    textures[NUM_TILES+1].texels = texture_board;
+    textures[NUM_TILES+1].width = 1;
+    textures[NUM_TILES+1].height = 1;
+
+}
 
 typedef enum {
     LIT_TEXTURE,
     UNLIT_TEXTURE
 } shader;
-
-
 
 
 typedef struct {
@@ -1196,6 +1285,8 @@ void game_load(ExotiqueInterface* ei) {
     int i;
     int last_used_pal_idx = 0;
 
+    // load lighting palette into the first 1+(NUM_SHADES)*(NUM_BASE_COLORS-1) palette slots.
+    // one slot is used for black, the others get NUM_SHADES variants.
     for(int shade = 0; shade < NUM_SHADES; shade++) {
         int base = 1 + shade*(NUM_BASE_COLORS-1);
         f32 scale = lerp(1.0f/(f32)NUM_SHADES, (f32)NUM_SHADES/(f32)NUM_SHADES, (f32)shade/(f32)NUM_SHADES);
@@ -1223,12 +1314,9 @@ void game_load(ExotiqueInterface* ei) {
                 u32 byte_b = (u32)CLAMP(scaled_b*255.0f, 0.0f, 255.0f);
                 last_used_pal_idx = base+i;
                 ei->palette[base+i] = (byte_r<<24)|(byte_g<<16)|(byte_b<<8)|0xFF;
-                exotique_printf("%i\n", base+i);
                 light_remap_table[shade][i] = (u8)(base+i);
             }
         }
-        //(i<<24)|(i<<16)|(i<<8)|i;
-        //ei->palette[i] = (i<<24)|(i<<16)|(i<<8)|i;
     }
     int num_bkgd_pal_entries = sizeof(palette_background)/sizeof(u32);
 
@@ -1239,6 +1327,8 @@ void game_load(ExotiqueInterface* ei) {
     for(i = 0; i < BACKGROUND_TEX_HEIGHT*BACKGROUND_TEX_WIDTH; i++) {
         texture_background[i] = (u8) (texture_background[i] + (last_used_pal_idx+1));
     }
+    decompress_textures();
+
     init_tiles();
 
     tile_bbox = get_mesh_bbox(&tile_mesh);
@@ -1277,7 +1367,7 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
             ei,
             zbuffer,
             &global_tri_buffer[global_tri_idx],
-            textures[global_tri_buffer[global_tri_idx].tex],
+            &textures[global_tri_buffer[global_tri_idx].tex],
             t->start_x, t->start_x+TILE_SIZE,
             t->start_y, t->start_y+TILE_SIZE
         );
@@ -1331,7 +1421,7 @@ void bin_triangle(
     f32 c0,
     f32 c1,
     f32 c2,
-    u8 texture) {
+    u8 texture_id) {
 
         if(total_triangles == MAX_GLOBAL_TRIS) {
             return;
@@ -1399,7 +1489,7 @@ void bin_triangle(
         global_tri_buffer[total_triangles].inv_z0 = inv_z0;
         global_tri_buffer[total_triangles].inv_z1 = inv_z1;
         global_tri_buffer[total_triangles].inv_z2 = inv_z2;
-        global_tri_buffer[total_triangles++].tex = texture;
+        global_tri_buffer[total_triangles++].tex = texture_id;
 }
 
 int meshes_transformed = 0;
@@ -1412,7 +1502,7 @@ void submit_mesh_draw_call(
     obj_mesh *m = mdc->mesh;
     matrix *model_to_view = &mdc->model_to_view;
     matrix *model_to_world = &mdc->model_to_world;
-    u8 texture = mdc->texture;
+    u8 texture_id = mdc->texture;
 
     meshes_transformed += 1;
 
@@ -1500,7 +1590,7 @@ void submit_mesh_draw_call(
             c0,
             c1,
             c2,
-            texture
+            texture_id
         );
     }
 }

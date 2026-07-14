@@ -337,7 +337,7 @@ if __name__ == '__main__':
     for py in range(y):
         for px in range(x):
             pix = img.getpixel((px,py))
-            if px == 511 or pix == 2:
+            if px == x-1 or pix == 2:
                 pix = 3
 
             if pix != 3 and pix not in unique_colors_map:

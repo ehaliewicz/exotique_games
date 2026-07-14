@@ -48,8 +48,8 @@ IF ERRORLEVEL 1 (
 REM ============================================================
 REM  Compile game file
 REM ============================================================
-REM -nostdlib -nostdinc -nodefaultlibs -nolibc -ffreestanding ^
-"%GCC%" -c %CFLAGS% -std=c99 -O3 -fno-strict-aliasing ^
+REM 
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -fno-strict-aliasing -nostdlib -nostdinc -nodefaultlibs -nolibc -ffreestanding ^
     -I ".." ^
     ^
     -D ARCH=%ARCH% ^

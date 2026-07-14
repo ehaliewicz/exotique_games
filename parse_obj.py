@@ -87,17 +87,17 @@ def format_double(tup):
 
 import sys
 if __name__ == '__main__':
-    obj = sys.argv[1]
-    verts, faces = parse("./models/{}.obj".format(obj))
+    obj_name = sys.argv[1]
+    verts, faces = parse("./models/{}.obj".format(obj_name))
     
-    print("obj_vertex vertexes[] = {")
+    print("obj_vertex {}_vertexes[]".format(obj_name) + " = {")
     for (vert, uv, norm) in verts:
         print("{" + ".pos = {}, .norm = {}, .uv = {}".format(
             format_triplet(vert), format_triplet(norm), format_double(uv)
         ) + "},")
     print("};")
 
-    print("u32 indexes[] = {")
+    print("u32 {}_indexes[]".format(obj_name) + " = {")
     for face in faces:
         (v0, v1, v2) = face
         print("{}, {}, {},".format(v0, v1, v2))

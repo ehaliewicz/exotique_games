@@ -1,15 +1,21 @@
 #include "exotique.h"
 
-#define WIDTH 1280
-#define HEIGHT 736
-const int kScreenWidth = WIDTH;
-const int kScreenHeight = HEIGHT;
-
 #define TILE_SIZE 32
-#define TILES_WIDE (WIDTH/TILE_SIZE)
-#define TILES_HIGH (HEIGHT/TILE_SIZE)
+#define TILE_ROUND(x) ((x+TILE_SIZE-1)&(~31))
+#define OUTPUT_WIDTH TILE_ROUND(1280)
+#define OUTPUT_HEIGHT TILE_ROUND(720)
+#define RENDER_WIDTH (2*OUTPUT_WIDTH)
+#define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
+const int kScreenWidth = OUTPUT_WIDTH;
+const int kScreenHeight = OUTPUT_HEIGHT;
 
-f32 zbuf[WIDTH*HEIGHT];
+
+u8 render_target[RENDER_WIDTH*RENDER_HEIGHT];
+f32 zbuf[RENDER_WIDTH*RENDER_HEIGHT];
+
+#define TILES_WIDE (RENDER_WIDTH/TILE_SIZE)
+#define TILES_HIGH (RENDER_HEIGHT/TILE_SIZE)
+
 
 
 typedef struct {
@@ -18,6 +24,7 @@ typedef struct {
 typedef struct {
     f32 x,y,z;
 } vert3f;
+
 typedef struct {
     i32 x,y;
 } vert2i;
@@ -387,8 +394,8 @@ typedef struct {
     vert2f uv;
 } obj_vertex;
 
-#define TEXTURE_WIDTH 512
-#define TEXTURE_HEIGHT 512
+//#define TEXTURE_WIDTH 512
+//#define TEXTURE_HEIGHT 512
 
 #include "mesh_mahjong_tile.h"
 #include "mesh_board.h"
@@ -438,6 +445,7 @@ static inline vert3f add_vert3(vert3f a, vert3f b) {
     return (vert3f){.x = a.x+b.x, .y = a.y+b.y, .z = a.z+b.z};
 }
 
+
 static inline int fast_floor(f32 x)
 {
     int i = (int)x;
@@ -486,9 +494,12 @@ int triangle_backfacing(
     return (area <= 0);
 }
 
-f32 camera_rot_y = 3.14159f;
-f32 camera_rot_x = 0.20f;
+#define DEFAULT_CAM_ROT_X 0.25f
+#define DEFAULT_CAM_ROT_Y 0.0f
+f32 camera_rot_y = DEFAULT_CAM_ROT_Y;
+f32 camera_rot_x = DEFAULT_CAM_ROT_X;
 f32 camera_radius = 40.0f;
+f32 camera_radius_top = 30.0f;
 
 #define NUM_BASE_COLORS 6
 #define NUM_SHADES 25
@@ -513,6 +524,8 @@ typedef enum {
 typedef struct {
     compressed_texture* comp_tex_ptr;
     u8* texels;
+    u8* mip_texels;
+    u8* mip_2_texels;
     int width;
     int height;
     compress_type compressed;
@@ -678,12 +691,12 @@ i32_vec parallel_pixel_shader(
 
     
     i32_vec int_u = f32_vec_floor(u * (f32)tex_width); // (i32)fast_floor(u * (f32)tex_width);// & 1023;
-    i32_vec int_v = f32_vec_floor(v * (f32)tex_width);// & 1023;
+    i32_vec int_v = f32_vec_floor(v * (f32)tex_height);// & 1023;
 
     int_u &= (tex_width-1);
-    int_v &= (tex_width-1);
+    int_v &= (tex_height-1);
 
-    i32_vec scaled_v = tex_width * ((tex_width-1)-int_v);
+    i32_vec scaled_v = tex_height * ((tex_width-1)-int_v);
     i32_vec uv = scaled_v + int_u;
     i32_vec tex_pal_idx;
     tex_pal_idx[0] = texels[uv[0]];
@@ -735,6 +748,8 @@ u8 pixel_shader(
 }
 
 
+#define MIP_FACTOR 2
+#define MIP_SHIFT 1
 
 // returns 1 if drew a pixel, 0 otherwise
 int triangle(
@@ -744,7 +759,7 @@ int triangle(
     texture* tex,
     i32 start_x, i32 end_x,
     i32 start_y, i32 end_y) {
-
+        (void)ei;
     // swap everything for first two vertexes (actual vertex positions and attributes)
     
     f32 iz0 = tri_attributes->inv_z1;
@@ -781,10 +796,6 @@ int triangle(
     f32 v2u_over_z = uv2.x * iz2;
     f32 v2v_over_z = uv2.y* iz2;
 
-    int tex_width = tex->width;
-    int tex_height = tex->height;
-    u8* texels = tex->texels;
-
     // 28.4 fixed point
     
     const i32 x0 = (i32)(v0.x * 16.0f);
@@ -814,15 +825,46 @@ int triangle(
     f32 recip_area = 1.0f / (f32)area;
 
     
+    int tex_width = tex->width;
+    int tex_height = tex->height;
+    u8* texels = tex->texels;
+
     // bounding box of triangle (not so good for larger triangles)
     i32 minx = MIN(x0, MIN(x1, x2));
     i32 maxx = MAX(x0, MAX(x1, x2));
     i32 miny = MIN(y0, MIN(y1, y2));
     i32 maxy = MAX(y0, MAX(y1, y2));
+    i32 pix_dx = (maxx-minx)>>4;
+    i32 pix_dy = (maxy-miny)>>4;
+    i32 dpix = MAX(1, MIN(pix_dx, pix_dy));
+    f32 maxu = MAX(uv0.x, MAX(uv1.x, uv2.x));
+    f32 maxv = MAX(uv0.y, MAX(uv1.y, uv2.y));
+    f32 minu = MIN(uv0.x, MIN(uv1.x, uv2.x));
+    f32 minv = MIN(uv0.y, MIN(uv1.y, uv2.y));
+    f32 biggest_duv = MAX(absf(maxu-minu), absf(maxv-minv));
+
+
+    f32 duv_per_pix = (biggest_duv*(f32)tex_width)/(f32)dpix;
     minx = CLAMP((minx + 15) >> 4, start_x, end_x);
     maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
     miny = CLAMP((miny + 15) >> 4, start_y, end_y);
     maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
+
+    
+    
+    if(tex_width > 1 && duv_per_pix > 3.0f) {
+        texels = tex->mip_texels;
+        tex_width >>= MIP_SHIFT;
+        tex_height >>= MIP_SHIFT; 
+        if(duv_per_pix > 6.0f) {
+            texels = tex->mip_2_texels;
+            tex_width >>= 1;
+            tex_height >>= 1;
+        }
+    }
+
+
+
 
     // edge constants, used for incremental edge coverage calculation
 
@@ -872,8 +914,12 @@ int triangle(
         i32 ex12 = ey12;
         i32 ex20 = ey20;
 
-        u8 *row = &ei->screen[y * kScreenWidth + minx];
-        f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
+        //u8 *row = &ei->screen[y * kScreenWidth + minx];
+        u8 *row = &render_target[y*RENDER_WIDTH + minx];
+
+        //f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
+        f32 *zbuf_row = &zbuffer[y*RENDER_WIDTH + minx];
+
 
         for (i32 x = minx; x < maxx; x++) {
             f32 zbuf_val = *zbuf_row;
@@ -924,7 +970,7 @@ int trivial_triangle(
     texture* tex,
     i32 start_x, i32 end_x,
     i32 start_y, i32 end_y) {
-
+        (void)ei;
     // swap everything for first two vertexes (actual vertex positions and attributes)
     
     f32 iz0 = tri_attributes->inv_z1;
@@ -1031,8 +1077,12 @@ int trivial_triangle(
         i32 ex12 = ey12;
         i32 ex20 = ey20;
 
-        u8 *row = &ei->screen[y * kScreenWidth + minx];
-        f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
+        //u8 *row = &ei->screen[y * kScreenWidth + minx];
+        u8 *row = &render_target[y*RENDER_WIDTH + minx];
+
+        //f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
+        f32 *zbuf_row = &zbuffer[y*RENDER_WIDTH + minx];
+        
 
         for (i32 x = minx; x < maxx; x++) {
             f32 zbuf_val = *zbuf_row;
@@ -1072,7 +1122,7 @@ int trivial_triangle(
 }
 
 
-
+/*
 int triangle_block(
     ExotiqueInterface *ei,
     f32 *zbuffer,
@@ -1336,6 +1386,7 @@ int triangle_block(
     }
     return drew_pixel;
 }
+*/
 
 typedef enum {
     NORMAL,
@@ -1343,7 +1394,6 @@ typedef enum {
     HI_Z_DRAW,
     NUM_DRAW_MODES
 } draw_modes;
-int last_x_pushed = 0, last_y_pushed = 0;
 int hi_z_enabled = 1, trivial_reject_enabled = 1;
 draw_modes draw_mode = 0;
 
@@ -1467,22 +1517,29 @@ typedef struct {
     f32 min_z, max_z;
 } bbox;
 
+typedef enum {
+    VERTEX_LIGHTING,
+    UNLIT
+} shader;
+
 typedef struct {
     obj_mesh* mesh; 
     u8 texture;
     matrix model_to_view;
     matrix model_to_world;
-    u8 shader;
+    shader shdr;
 } mesh_draw_call;
 
 
 
-const f32 focal = 500.0f;
-const f32 camx = (f32)(WIDTH/2.0f);
-const f32 camy = (f32)(HEIGHT/2.0f);
+//const f32 focal = 500.0f;
+const f32 camx = (f32)(RENDER_WIDTH/2.0f);
+const f32 camy = (f32)(RENDER_HEIGHT/2.0f);
 
 
 vert3f project_coord(vert3f r) {
+    //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
+    const f32 focal = (RENDER_HEIGHT / 2.0f) / .8f; //tanf(fov_y / 2.0f);
     return (vert3f){
             camx + focal * r.x / r.z,
             camy - focal * r.y / r.z,
@@ -1532,7 +1589,7 @@ clip_res clip_bounding_box(mesh_draw_call* m, bbox* box) {
         max_z = MAX(max_z, verts[i].z);
     }
 
-    if(min_y >= HEIGHT || min_x >= WIDTH || max_x <= 0 || max_y <= 0) {
+    if(min_y >= RENDER_HEIGHT || min_x >= RENDER_WIDTH || max_x <= 0 || max_y <= 0) {
         // OFF SCREEN!
         return OFF_SCREEN;
     }
@@ -1663,50 +1720,54 @@ typedef enum {
 
 
 u8 texture_buffer[34][512*512];
+u8 texture_mip_buffer[34][256*256];
+u8 texture_mip_2_buffer[34][128*128];
+
 texture textures[NUM_TILES+2] = {
     {
-        &comp_tex_white_dragon, 0, 512, 512, COMPRESSED
+        &comp_tex_white_dragon, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_red_dragon, 0, 512, 512, COMPRESSED
+        &comp_tex_red_dragon, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_green_dragon, 0, 512, 512, COMPRESSED
+        &comp_tex_green_dragon, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_north, 0, 512, 512, COMPRESSED
+        &comp_tex_north, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_east, 0, 512, 512, COMPRESSED
+        &comp_tex_east, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_south, 0, 512, 512, COMPRESSED
+        &comp_tex_south, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_west, 0, 512, 512, COMPRESSED
+        &comp_tex_west, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_two_pin, 0, 512, 512, COMPRESSED
+        &comp_tex_two_pin, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_eight_pin, 0, 512, 512, COMPRESSED
+        &comp_tex_eight_pin, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_five_man, 0, 512, 512, COMPRESSED
+        &comp_tex_five_man, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_seven_man, 0, 512, 512, COMPRESSED
+        &comp_tex_seven_man, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_two_sou, 0, 512, 512, COMPRESSED
+        &comp_tex_two_sou, 0, 0, 0, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_green_dragon, texture_board, 1, 1, UNCOMPRESSED
+        &comp_tex_green_dragon, texture_board, texture_board, texture_board, 1, 1, UNCOMPRESSED
     },
     {
-        &comp_tex_green_dragon, texture_board, 1, 1, UNCOMPRESSED
+        &comp_tex_green_dragon, texture_board, texture_board, texture_board, 1, 1, UNCOMPRESSED
     },
 };
+
 
 void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_bytes) {
     u8 *packets = comp_tex->compressed_packets;
@@ -1732,35 +1793,149 @@ void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byt
     }
 }
 
-void decompress_textures() {
+vert3f rgba_to_f32_rgb(u32 rgba) {
+    u32 r = (rgba>>24)&0xFF;
+    u32 g = (rgba>>16)&0xFF;
+    u32 b = (rgba>>8)&0xFF;
+    return (vert3f){(f32)r/255.0f, (f32)g/255.0f, (f32)b/255.0f};
+}
+f32 color_dist(vert3f c1, vert3f c2) {
+    
+    f32 r1 = c1.x;
+    f32 g1 = c1.y;
+    f32 b1 = c1.z;
+    f32 r2 = c2.x;
+    f32 g2 = c2.y;
+    f32 b2 = c2.z;
+    f32 rmean = (r1 + r2) / 2.0f;
+    f32 dr = r1 - r2;
+    f32 dg = g1 - g2;
+    f32 db = b1 - b2;
+    f32 dr_sq = dr*dr;
+    f32 dg_sq = dg*dg;
+    f32 db_sq = db*db;
+
+
+    f32 dist = my_sqrt(
+        (2.0f + rmean) * dr_sq
+        + 4.0f * dg_sq
+        + (2.0f + (1.0f - rmean)) * db_sq
+    );
+    return dist;
+}
+u8 closest_base_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
+
+    f32 best_dist = 0.0f;
+    int best_dist_idx = -1;
+    for(int i = 0; i < NUM_BASE_COLORS; i++) {
+
+        vert3f pal_rgb = rgba_to_f32_rgb(ei->palette[light_remap_table[NUM_SHADES-1][i]]);
+        f32 dist = color_dist(target_rgb, pal_rgb);
+         
+        if(best_dist_idx == -1 || (dist < best_dist)) {
+            best_dist_idx = i;
+            best_dist = dist;
+        }
+    }
+    return (u8)best_dist_idx;
+}
+
+
+u8 closest_overall_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
+
+    f32 best_dist = 0.0f;
+    int best_dist_idx = -1;
+    for(int i = 0; i < 256; i++) {
+
+        vert3f pal_rgb = rgba_to_f32_rgb(ei->palette[i]);
+        f32 dist = color_dist(target_rgb, pal_rgb);
+
+        if(best_dist_idx == -1 || (dist < best_dist)) {
+            best_dist_idx = i;
+            best_dist = dist;
+        }
+    }
+    return (u8)best_dist_idx;
+}
+
+
+void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size) {
+    int dst_size = src_size>>1;
+    for(int y = 0; y < src_size; y+=2) {
+        for(int x = 0 ; x < src_size; x+=2) {
+            vert3f rgb = {0.0f,0.0f,0.0f};
+            f32 total_weight = 0.0f;
+            for(int yy = 0; yy < 2; yy++) {
+                for(int xx = 0; xx < 2; xx++) {
+                    u8 src_pal_idx0 = src[(y+yy)*src_size + (x+xx)];
+                    f32 weight = 0.01f;
+                    if(src_pal_idx0 != WHITE) { weight = 0.3f; }
+                    rgb = add_vert3(rgb, scale_vert3( rgba_to_f32_rgb(ei->palette[light_remap_table[NUM_SHADES-1][src_pal_idx0]]), weight));
+                    total_weight += weight;
+                }   
+            }
+            //u8 src_pal_idx1 = src[y*src_size + x+1];
+            //u8 src_pal_idx2 = src[(y+1)*src_size + x];
+            //u8 src_pal_idx3 = src[(y+1)*src_size + x+1];
+            //vert3f rgb0 = rgba_to_f32_rgb(ei->palette[src_pal_idx0]);
+            //vert3f rgb1 = rgba_to_f32_rgb(ei->palette[src_pal_idx1]);
+            //vert3f rgb2 = rgba_to_f32_rgb(ei->palette[src_pal_idx2]);
+            //vert3f rgb3 = rgba_to_f32_rgb(ei->palette[src_pal_idx3]);
+            u8 best_idx = WHITE;
+            if(total_weight > 0.0f) {
+                vert3f avg_rgb = scale_vert3(rgb,  1.0f/total_weight); //(f32)(MIP_FACTOR*MIP_FACTOR));
+                best_idx = closest_base_color_idx(ei, avg_rgb);
+            }
+
+            dst[(y>>1)*dst_size + (x>>1)] = best_idx;
+        }
+    }
+}
+
+void decompress_textures(ExotiqueInterface *ei) {
 
     for(int i = 0; i < NUM_TILES; i++) {
 
 
         //textures[i].comp_tex_ptr = &comp_tex_east;
         u8* tex_buf = texture_buffer[i];
+        u8* mip_tex_buf = texture_mip_buffer[i];
+        u8* mip_2_tex_buf = texture_mip_2_buffer[i];
         textures[i].texels = tex_buf;
-        textures[i].width = 512;
-        textures[i].height = 512;
+        textures[i].mip_texels = mip_tex_buf;
+        textures[i].mip_2_texels = mip_2_tex_buf;
+        int width = textures[i].width;
+        int height = textures[i].height;
 
-        decompress_texture(textures[i].comp_tex_ptr, tex_buf, 512*512);
-        for(int y = 0; y < 512; y++) {
-            tex_buf[511*512+511] = BLUE; //(y >= 504) ? GOLD : (y >= 496) ? WHITE : BLACK;
+        decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height);    
+    
+        if(width > 1) {
+            mip_texture(ei, tex_buf, mip_tex_buf, width);
+            int mip_width = width>>1;
+            int mip_height = height>>1;
+            mip_tex_buf[(mip_height-2)*mip_width+mip_width-2] = BLUE;
+            mip_tex_buf[(mip_height-2)*mip_width+mip_width-1] = BLUE;
+            mip_tex_buf[(mip_height-1)*mip_width+mip_width-2] = BLUE;
+            mip_tex_buf[(mip_height-1)*mip_width+mip_width-1] = BLUE;
+
+            mip_texture(ei, mip_tex_buf, mip_2_tex_buf, mip_width);
+            int mip2_width = mip_width>>1;
+            int mip2_height = mip_height>>1;
+            mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-2] = BLUE;
+            mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-1] = BLUE;
+            mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-2] = BLUE;
+            mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-1] = BLUE;
+
+
         }
+        tex_buf[(height-1)*height+width-1] = BLUE; //(y >= 504) ? GOLD : (y >= 496) ? WHITE : BLACK;
     }
-    textures[NUM_TILES].texels = texture_board;
-    textures[NUM_TILES].width = 1;
-    textures[NUM_TILES].height = 1;
-    textures[NUM_TILES+1].texels = texture_board;
-    textures[NUM_TILES+1].width = 1;
-    textures[NUM_TILES+1].height = 1;
+
 
 }
 
-typedef enum {
-    LIT_TEXTURE,
-    UNLIT_TEXTURE
-} shader;
+
+#define MAX_DISCARDS 18
 
 
 typedef struct {
@@ -1770,12 +1945,23 @@ typedef struct {
     int wall_index_for_tiles[14];
     int num_open_tiles;
     int selected_tile_idx;
+    tile_type discards[MAX_DISCARDS];
+    int num_discards;
 } hand;
 
 #define TILES_IN_DECK 136
-#define TILE_FALL_FRAMES 36
+#define TILE_FALL_DURATION .4f
 #define TILE_SPAWN_POS_Y 20.0f
-#define TILE_DEAL_FRAMES 32
+#define TILE_DEAL_DURATION .4f
+
+static u64 bench_frame_ms;
+u32 get_frames_for_duration(f32 duration) {
+    // 
+    // this_many_milliseconds 
+    f32 total_ms = (duration * 1000.0f);
+    return (u32)(total_ms / (f32)bench_frame_ms);
+}
+
 typedef struct {
     int rem;
     u32 tile_fall_frame[TILES_IN_DECK];
@@ -1801,8 +1987,8 @@ wall init_empty_wall() {
     wall d;
     d.rem = 0;
     //int dice_total = (nextrand()%6)+(nextrand()%6);
-    //int split_distance =
-    d.split_distance = -1;
+    
+    d.split_distance = 17 - (int)(roll_die() + roll_die());
 
     for(int i = 0; i < 136; i++) {
         //d.tiles[i] = nextrand()%NUM_TILES;
@@ -1823,6 +2009,7 @@ hand init_empty_hand() {
     h.num_closed_tiles = 0;
 
     h.selected_tile_idx = -1;
+    h.num_discards = 0;
     return h;
 }
 
@@ -1839,6 +2026,7 @@ game_state cur_game_state;
 
 u32 frame = 0;
 int deal_steps = 0;
+int cur_player = 0;
 void clear_shuffle() {
 
 }
@@ -1848,6 +2036,7 @@ void reset_game(ExotiqueInterface *ei) {
     cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     frame = 0;
     deal_steps = 0;
+    cur_player = 0;
     clear_shuffle();
     
     game_board.board_wall.rem = 0;
@@ -1860,8 +2049,11 @@ void reset_game(ExotiqueInterface *ei) {
     game_board.west_hand = init_empty_hand();
 }
 
+u8 mix_table[256][256];
+
 void game_load(ExotiqueInterface* ei) {
     reset_game(ei);
+
 
     int i;
     int last_used_pal_idx = 0;
@@ -1901,6 +2093,7 @@ void game_load(ExotiqueInterface* ei) {
     }
     int num_bkgd_pal_entries = sizeof(palette_background)/sizeof(u32);
 
+
     for(i = 0; i < num_bkgd_pal_entries; i++) {
         u32 pal_entry = (palette_background[i]<<8)|0xFF;
         ei->palette[last_used_pal_idx+i+1] = pal_entry;
@@ -1908,12 +2101,26 @@ void game_load(ExotiqueInterface* ei) {
     for(i = 0; i < BACKGROUND_TEX_HEIGHT*BACKGROUND_TEX_WIDTH; i++) {
         texture_background[i] = (u8) (texture_background[i] + (last_used_pal_idx+1));
     }
-    decompress_textures();
+    decompress_textures(ei);
 
     init_tiles();
 
     tile_bbox = get_mesh_bbox(&tile_mesh);
 
+    for(i = 0; i < 256; i++) {
+        vert3f c1 = rgba_to_f32_rgb(ei->palette[i]);
+        for(int j = 0; j < 256; j++) {
+            if(i == j) {
+                mix_table[i][j] = (u8)i;
+            } else {
+                vert3f c2 = rgba_to_f32_rgb(ei->palette[j]);
+                vert3f avg = scale_vert3(add_vert3(c1, c2), 0.5f);
+                mix_table[i][j] = closest_overall_color_idx(
+                    ei, avg
+                );
+            }
+        }
+    }
     //game_board.deadwall.rem -= (13*4);
 }
 
@@ -1923,8 +2130,7 @@ void step_shuffle_and_setup(u32 cur_frame) {
         return;
     }
     if(game_board.board_wall.rem == TILES_IN_DECK) {
-        if(game_board.board_wall.tile_fall_frame[game_board.board_wall.rem-1]+TILE_FALL_FRAMES <= cur_frame) {
-            game_board.board_wall.split_distance = (int)(roll_die() + roll_die());
+        if(game_board.board_wall.tile_fall_frame[game_board.board_wall.rem-1]+get_frames_for_duration(TILE_FALL_DURATION) <= cur_frame) {
             cur_game_state = DEALING;
         }
     } else {
@@ -1941,8 +2147,8 @@ void step_deal(u32 cur_frame) {
     hand* hands_in_order[4] = {
         &game_board.east_hand, 
         &game_board.south_hand, 
-        &game_board.north_hand, 
-        &game_board.west_hand
+        &game_board.west_hand, 
+        &game_board.north_hand
     };
 
     if(deal_steps < 12) {
@@ -1958,8 +2164,8 @@ void step_deal(u32 cur_frame) {
         int hand_index = deal_steps & 0x3;
         int cur_num_tiles = hands_in_order[hand_index]->num_closed_tiles;
         hands_in_order[hand_index]->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
-        hands_in_order[hand_index]->wall_index_for_tiles[cur_num_tiles] = game_board.board_wall.rem;
-        hands_in_order[hand_index]->tiles[cur_num_tiles++] = game_board.board_wall.tiles[--game_board.board_wall.rem];
+        hands_in_order[hand_index]->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
+        hands_in_order[hand_index]->tiles[cur_num_tiles++] = game_board.board_wall.tiles[game_board.board_wall.rem];
         hands_in_order[hand_index]->num_closed_tiles = cur_num_tiles;
     } else {
         int hand_index = deal_steps & 0x3;
@@ -1968,6 +2174,7 @@ void step_deal(u32 cur_frame) {
         hands_in_order[hand_index]->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
         hands_in_order[hand_index]->tiles[cur_num_tiles++] = game_board.board_wall.tiles[game_board.board_wall.rem];
         hands_in_order[hand_index]->num_closed_tiles = cur_num_tiles;
+        hands_in_order[hand_index]->selected_tile_idx = cur_num_tiles-1;
     }
     deal_steps++;
     if(deal_steps == 17) {
@@ -1976,12 +2183,111 @@ void step_deal(u32 cur_frame) {
 }
 
 
+int paused = 0;
+int last_start_pushed = 0;
+int last_select_pushed = 0;
+int last_a_pushed = 0;
+int last_left_pushed = 0;
+int last_right_pushed = 0;
 
-void game_update(ExotiqueInterface* ei) {
-    if(ei->input->select) {
-        reset_game(ei);
+int last_x_pushed = 0, last_y_pushed = 0;
+
+f32 prev_cam_radius;
+int zoom;
+
+void sort_hand(hand* h) {
+    for(int i = 0; i < h->num_closed_tiles; i++) {
+        int biggest_tile = h->tiles[i];
+
+        for(int j = i+1; j < h->num_closed_tiles; j++) {
+            int cur_tile = h->tiles[j];
+            if(cur_tile > biggest_tile) {
+                h->tiles[i] = cur_tile;
+                h->tiles[j] = biggest_tile;
+                biggest_tile = cur_tile;
+            }
+        }
     }
-    vert3f cam_pos = orbit_camera_position(camera_rot_y, camera_rot_x, camera_radius);
+}
+
+void discard_current_tile(int player) {
+    hand* hands_in_order[4] = {
+        &game_board.east_hand, 
+        &game_board.south_hand, 
+        &game_board.west_hand, 
+        &game_board.north_hand
+    };
+    hand* cur_player_hand = hands_in_order[player];
+
+    cur_player_hand->discards[cur_player_hand->num_discards++] = cur_player_hand->tiles[cur_player_hand->selected_tile_idx];
+
+    for(int i = cur_player_hand->selected_tile_idx; i < cur_player_hand->num_closed_tiles-1; i++) {
+        cur_player_hand->tiles[i] = cur_player_hand->tiles[i+1];
+    }
+    cur_player_hand->num_closed_tiles--;
+    sort_hand(cur_player_hand);
+    exotique_printf("player %i discarding down to %i\n", player, cur_player_hand->num_closed_tiles);
+}
+
+void draw_next_tile(u32 cur_frame, int player) {
+    hand* hands_in_order[4] = {
+        &game_board.east_hand, 
+        &game_board.south_hand, 
+        &game_board.west_hand, 
+        &game_board.north_hand
+    };
+    hand* cur_player_hand = hands_in_order[player];
+    int cur_num_tiles = cur_player_hand->num_closed_tiles++;
+    cur_player_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
+    cur_player_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
+    cur_player_hand->tiles[cur_num_tiles] = game_board.board_wall.tiles[game_board.board_wall.rem];
+    exotique_printf("player %i drawing up to %i\n", player, cur_player_hand->num_closed_tiles);
+    if(cur_num_tiles > 14) {
+        exotique_printf("WhoaTT!!\n");
+    }
+}
+
+f32 wall_offsets_x[4] = {15.0f, 0.0f, -15.0f, 0.0f};
+f32 wall_offsets_z[4] = {0.0f, 15.0f, 0.0, -15.0f};
+f32 wall_rots_y[4] = {(f32)M_PI * 0.5f, 0.0f, -(f32)M_PI * 0.5f, (f32)M_PI};
+
+static u64 ms_per_frame;
+static u64 last_frame_ticks = 0;    
+void game_update(ExotiqueInterface* ei) {
+
+    u64 cur_frame_ticks = ei->ticks;
+
+    exotique_printf("%llu ms\n", cur_frame_ticks - last_frame_ticks);
+    //exotique_printf("trivial reject %i\n", trivial_reject_enabled);
+    ms_per_frame = cur_frame_ticks - last_frame_ticks;
+    last_frame_ticks = cur_frame_ticks;
+    static int init;
+    if(frame > 2) {
+        if(!init) {
+            bench_frame_ms = ms_per_frame;
+        }
+        init = 1;
+    }
+
+    int cur_start_pushed = ei->input->start;
+    if(cur_start_pushed && !last_start_pushed) {
+        paused = !paused;
+    }
+    last_start_pushed = cur_start_pushed;
+
+    f32 abs_cam_rot_y = wall_rots_y[cur_player];
+
+    if(ei->input->up) {
+        camera_rot_x += 0.0005f * (f32)ms_per_frame; // 16 -> .008
+    } else if (ei->input->down) {
+        camera_rot_x -= 0.0005f * (f32)ms_per_frame;
+    }
+    camera_rot_x = CLAMP(camera_rot_x, -0.0f, 1.0f);
+    //f32 rot_x_portion = camera_rot_x/1.0f;
+    f32 lerped_cam_dist = lerp(camera_radius, camera_radius_top, camera_rot_x);
+    //f32 abs_cam_rot_y = (f32)((cur_player+1)%4) * 1.57f + camera_rot_y;
+
+    vert3f cam_pos = orbit_camera_position(abs_cam_rot_y, camera_rot_x, lerped_cam_dist);
     look_at_yx(&cam_view_trans, cam_pos, (vert3f){0.0f,0.0f,0.0f});
 
     vert3f forward = {0, 0, -1};
@@ -1991,26 +2297,56 @@ void game_update(ExotiqueInterface* ei) {
     matrix rot = mat_mul_mat(&ry, &rx); // inverse of your view rotation
 
     light = normalize(mat_mul_vert3(&rot, &forward));
+    
 
-    if(ei->input->left) {
-        camera_rot_y += 0.006f;
-    } else if (ei->input->right) {
-        camera_rot_y -= 0.006f;
+
+    hand* hands_in_order[4] = {
+        &game_board.east_hand, 
+        &game_board.south_hand, 
+        &game_board.west_hand, 
+        &game_board.north_hand
+    };
+
+    if(cur_game_state >= IN_GAME) {
+
+
+        if(ei->input->left && !last_left_pushed) {
+        //    camera_rot_y += 0.006f;
+            hands_in_order[cur_player]->selected_tile_idx--;
+        } else if (ei->input->right && !last_right_pushed) {
+        //    camera_rot_y -= 0.006f;
+            hands_in_order[cur_player]->selected_tile_idx++;
+        }
+        if(hands_in_order[cur_player]->selected_tile_idx < 0) {
+            hands_in_order[cur_player]->selected_tile_idx = hands_in_order[cur_player]->num_closed_tiles-1;
+        } else if (hands_in_order[cur_player]->selected_tile_idx >= hands_in_order[cur_player]->num_closed_tiles) {
+            hands_in_order[cur_player]->selected_tile_idx = 0;
+        }
+
+
+        if(ei->input->a && !last_a_pushed) {
+            discard_current_tile(cur_player);
+            cur_player += 1;
+            cur_player &= 3;
+            draw_next_tile(frame, cur_player);
+            camera_rot_y = DEFAULT_CAM_ROT_Y;
+            camera_rot_x = DEFAULT_CAM_ROT_X;
+        }
+        last_a_pushed = ei->input->a;
+    }
+    last_left_pushed = ei->input->left;
+    last_right_pushed = ei->input->right;
+
+    //if(ei->input->a) {
+    //    camera_radius -= 0.02f;
+    //} else 
+    if (ei->input->b) {
+        camera_radius -= 0.004f*(f32)ms_per_frame;
     }
 
-    if(ei->input->up) {
-        camera_rot_x += 0.008f;
-    } else if (ei->input->down) {
-        camera_rot_x -= 0.008f;
-    }
-    camera_rot_x = CLAMP(camera_rot_x, -0.25f, 0.75f);
+    //zoom = ei->input->y;
 
 
-    if(ei->input->a) {
-        camera_radius -= 0.02f;
-    } else if (ei->input->b) {
-        camera_radius += 0.02f;
-    }
     if(!last_x_pushed) {
         if(ei->input->x) { 
             draw_mode++;
@@ -2022,8 +2358,16 @@ void game_update(ExotiqueInterface* ei) {
     }
     //if(!last_y_pushed && ei->input->y) {
     //    trivial_reject_enabled = !trivial_reject_enabled;
-    //}
+    //}    
     
+    if(paused) {
+        return;
+    }
+    int cur_select_pushed = ei->input->select;
+    if(cur_select_pushed && !last_select_pushed) {
+        reset_game(ei);
+    }
+    last_select_pushed = cur_select_pushed;
     switch(cur_game_state) {
         case INITIAL_SHUFFLE_AND_SETUP:
             step_shuffle_and_setup(frame);
@@ -2092,10 +2436,10 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
 
     if(draw_mode == TILE_DRAW) {
         for(int cnt = 0; cnt < TILE_SIZE; cnt++) {
-            ei->screen[(t->start_y+cnt)*kScreenWidth + t->start_x] = 0;
-            ei->screen[(t->start_y+cnt)*kScreenWidth + t->start_x+TILE_SIZE] = 0;
-            ei->screen[t->start_y*kScreenWidth + t->start_x+cnt] = 0;
-            ei->screen[(t->start_y+TILE_SIZE)*kScreenWidth + t->start_x+cnt] = 0;
+            //ei->screen[(t->start_y+cnt)*kScreenWidth + t->start_x] = 0;
+            //ei->screen[(t->start_y+cnt)*kScreenWidth + t->start_x+TILE_SIZE] = 0;
+            //ei->screen[t->start_y*kScreenWidth + t->start_x+cnt] = 0;
+            //ei->screen[(t->start_y+TILE_SIZE)*kScreenWidth + t->start_x+cnt] = 0;
         }
     }
 }
@@ -2266,11 +2610,11 @@ void bin_triangle(
         f32 miny = MIN(v0->y, MIN(v1->y, v2->y));
         f32 maxy = MAX(v0->y, MAX(v1->y, v2->y));
 
-        i32 startX = CLAMP((int)fast_floor(minx), 0, WIDTH-1);
-        i32 endX   = CLAMP((int)fast_ceil(maxx), 0, WIDTH-1);
+        i32 startX = CLAMP((int)fast_floor(minx), 0, RENDER_WIDTH-1);
+        i32 endX   = CLAMP((int)fast_ceil(maxx), 0, RENDER_WIDTH-1);
 
-        i32 startY = CLAMP((int)fast_floor(miny), 0, HEIGHT-1);
-        i32 endY   = CLAMP((int)fast_ceil(maxy), 0, HEIGHT-1);
+        i32 startY = CLAMP((int)fast_floor(miny), 0, RENDER_HEIGHT-1);
+        i32 endY   = CLAMP((int)fast_ceil(maxy), 0, RENDER_HEIGHT-1);
 
         int tile_start_x = startX / TILE_SIZE;
         int tile_start_y = startY / TILE_SIZE;
@@ -2353,13 +2697,12 @@ int meshes_transformed = 0;
 int triangles_transformed = 0;
 
 
-void submit_mesh_draw_call(
-    mesh_draw_call* mdc
-) {
+void submit_mesh_draw_call(mesh_draw_call* mdc) {
     obj_mesh *m = mdc->mesh;
     matrix *model_to_view = &mdc->model_to_view;
     matrix *model_to_world = &mdc->model_to_world;
     u8 texture_id = mdc->texture;
+    shader cur_shader = mdc->shdr;
 
     meshes_transformed += 1;
 
@@ -2417,11 +2760,20 @@ void submit_mesh_draw_call(
         
         float hemi = avg_norm.y * 0.5f + 0.5f;
 
-        float ambient = lerp(0.15f, 0.35f, hemi);
+        float ambient = lerp(0.20f, 0.40f, hemi);
 
-        l0 = ambient + l0 * (1.0f - ambient);
-        l1 = ambient + l1 * (1.0f - ambient);
-        l2 = ambient + l2 * (1.0f - ambient);
+        //l0 = ambient;// * (1.0f - ambient);
+        //l1 = ambient;// * (1.0f - ambient);
+        //l2 = ambient;// * (1.0f - ambient);
+        if(cur_shader == UNLIT) {
+            l0 = ambient;
+            l1 = ambient;
+            l2 = ambient;
+        } else {
+            l0 += ambient;
+            l1 += ambient;
+            l2 += ambient;
+        }
 
 
         f32 c0 = CLAMP(l0, 0.0f, 1.0f);
@@ -2522,15 +2874,17 @@ transform identity_transform(void) {
 
 const f32 wall_tile_spacing = 1.61f;
 
-f32 calc_wall_tile_x_position(int tot_tile_idx) {  
+f32 calc_wall_tile_x_position(int row_on_wall) {
+
     f32 wall_length = (f32)(17 * wall_tile_spacing);
     f32 half = wall_length / 2.0f;
 
-    int wall_side = tot_tile_idx/34;
-    int row_on_wall = ((wall_side*34)-tot_tile_idx)/2;
+    //int wall_side = tot_tile_idx/34;
+    //int row_on_wall = ((wall_side*34)-tot_tile_idx)/2;
+    
     //int top = (tot_tile_idx&1);
     f32 start_position = half;
-    f32 row_x_offset = (f32)row_on_wall * wall_tile_spacing;
+    f32 row_x_offset = (f32)row_on_wall * -wall_tile_spacing;
 
     f32 x_position = start_position + row_x_offset;
     
@@ -2539,30 +2893,39 @@ f32 calc_wall_tile_x_position(int tot_tile_idx) {
 
 f32 calc_wall_tile_y_position(u32 cur_frame, wall *d, int tot_tile_idx) {
     f32 tile_fall_pos = CLAMP(
-        (f32)(cur_frame - d->tile_fall_frame[tot_tile_idx]) / (f32)TILE_FALL_FRAMES, 
+        (f32)(cur_frame - d->tile_fall_frame[tot_tile_idx]) / (f32)get_frames_for_duration(TILE_FALL_DURATION), //TILE_FALL_FRAMES, 
         0.0f, 1.0f);
     int top = (tot_tile_idx&1);
 
-    f32 lerp_top_position = lerp(1.40f, TILE_SPAWN_POS_Y, 1.0f-tile_fall_pos);
+    f32 lerp_top_position = lerp(1.10f, TILE_SPAWN_POS_Y, 1.0f-tile_fall_pos);
     f32 lerp_bot_position = lerp(0.0f, TILE_SPAWN_POS_Y, 1.0f-tile_fall_pos);
     return top ? lerp_top_position : lerp_bot_position;//1.40f : 0.0f;
 
 }
 
-f32 wall_offsets_x[4] = {17.0f, 0.0f, -17.0f, 0.0f};
-f32 wall_offsets_z[4] = {0.0f, 17.0f, 0.0, -17.0f};
-f32 wall_rots_y[4] = {(f32)M_PI * 0.5f, 0.0f, -(f32)M_PI * 0.5f, (f32)M_PI};
+int mod_positive(int x, int m) {
+    int r = x % m;
+    return r < 0 ? r + m : r;
+}
 
 vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx) {
+    
+    // NOTE: this takes into account the split distance offset
+    
+    int offset_pos = mod_positive(tot_tile_idx-(34-w->split_distance*2),TILES_IN_DECK);
+    int wall_side = (offset_pos/34);
+    int position_in_wall = (offset_pos-wall_side*34)/2;
+
     transform wall_trans = identity_transform();
-    int wall_side = tot_tile_idx/34;
+    //int wall_side = (tot_tile_idx/34);
+    //int row_on_wall = (tot_tile_idx - (wall_side*34))/2; 
     wall_trans.position.x = wall_offsets_x[wall_side];
     wall_trans.position.z = wall_offsets_z[wall_side];
     wall_trans.rotation.y = wall_rots_y[wall_side];
     matrix wall_matrix = transform_to_matrix(&wall_trans);
 
     vert3f local_pos;
-    local_pos.x = calc_wall_tile_x_position(tot_tile_idx);
+    local_pos.x = calc_wall_tile_x_position(position_in_wall);
     local_pos.y = calc_wall_tile_y_position(cur_frame, w, tot_tile_idx);
     local_pos.z = 0.0f;
 
@@ -2575,69 +2938,87 @@ f32 calc_hand_x_position(int idx) {
     f32 whole_hand_width = (f32)(13 * 2);
     f32 half = whole_hand_width / hand_tile_spacing;
     f32 base_position_x = half;
-    return base_position_x - hand_tile_spacing*(f32)idx;
+    f32 normal = base_position_x - hand_tile_spacing*(f32)idx;
+    if(idx == 13) {
+        return normal - 1.0f;
+    } else {
+        return normal;
+    }
 }
 f32 calc_hand_y_position(hand* h, int idx) {
     return (h->selected_tile_idx == idx ? 1.47f : 0.455f);
 }
 
 vert3f calc_global_hand_position(hand* h, int idx, matrix* hand_to_world_matrix) {
+    (void)h;
     f32 whole_hand_width = (f32)(13 * 2);
     f32 half = whole_hand_width / hand_tile_spacing;
     f32 base_position_x = half;
     vert3f local;
     local.x = base_position_x - hand_tile_spacing*(f32)idx;
-    local.y = calc_hand_y_position(h, idx);
+    local.y = 0.455f; //calc_hand_y_position(h, idx);
     local.z = 0.0f;
     return mat_mul_vert3(hand_to_world_matrix, &local);
 }
 
+vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, matrix *hand_to_world, matrix *world_to_hand, int tile_in_hand_idx) {
+    /* 
+        this function calculates global positions for in the wall and in the hand
+        lerps between them
+        then multiplies by the intverse matrix of world->hand to get a hand-local position
+
+        kinda roundabout and less efficient than it could be, but its okay :)
+    */
+    f32 anim_progress = CLAMP(((f32)(cur_frame - h->deal_frame_for_tiles[tile_in_hand_idx]) / (f32)get_frames_for_duration(TILE_DEAL_DURATION)), 0.0f, 1.0f);
+    vert3f local;
+    if(anim_progress >= 1.0f) {
+        local.x = calc_hand_x_position(tile_in_hand_idx);
+        local.y = calc_hand_y_position(h, tile_in_hand_idx);
+        local.z = 0.0f;
+    } else {
+        vert3f global_wall_position = calc_wall_tile_global_position(cur_frame, w, h->wall_index_for_tiles[tile_in_hand_idx]);
+        vert3f global_hand_position = calc_global_hand_position(h, tile_in_hand_idx, hand_to_world);
+
+
+        vert3f lerp_pos;
+        lerp_pos.x = lerp(global_wall_position.x, global_hand_position.x, anim_progress);
+        lerp_pos.y = lerp(global_wall_position.y, global_hand_position.y, anim_progress);
+        lerp_pos.z = lerp(global_wall_position.z, global_hand_position.z, anim_progress);
+        local = mat_mul_vert3(world_to_hand, &lerp_pos);
+    }
+
+    return local;
+}
+
 void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, matrix* hand_to_world_matrix) {
     (void)cur_frame; (void)w;
-    mesh_draw_call draw_calls[14];
+    mesh_draw_call draw_calls[14 + MAX_DISCARDS];
 
 
 
     int draw_idx = 0;
 
-    int standard_draw_tiles = MIN(13, h->num_closed_tiles + h->num_open_tiles);
-    int has_extra_tile = (h->num_closed_tiles + h->num_open_tiles) != standard_draw_tiles;
 
     matrix world_to_hand = mat_inverse_affine(hand_to_world_matrix);
 
-    for(int i = 0; i < standard_draw_tiles; i++) {
+    for(int i = 0; i <  h->num_closed_tiles; i++) {
         //int is_open = 0;//(i >= h->num_closed_tiles);
 
-        f32 anim_progress = CLAMP(((f32)(cur_frame - h->deal_frame_for_tiles[i]) / (f32)TILE_DEAL_FRAMES), 0.0f, 1.0f);
-        vert3f local;
-        if(anim_progress >= 1.0f) {
-            local.x = calc_hand_x_position(i);
-            local.y = calc_hand_y_position(h, i);
-            local.z = 0.0f;
-        } else {
-            vert3f global_wall_position = calc_wall_tile_global_position(cur_frame, w, h->wall_index_for_tiles[i]);
-            vert3f global_hand_position = calc_global_hand_position(h, i, hand_to_world_matrix);
-
-
-            vert3f lerp_pos;
-            lerp_pos.x = lerp(global_wall_position.x, global_hand_position.x, anim_progress);
-            lerp_pos.y = lerp(global_wall_position.y, global_hand_position.y, anim_progress);
-            lerp_pos.z = lerp(global_wall_position.z, global_hand_position.z, anim_progress);
-            local = mat_mul_vert3(&world_to_hand, &lerp_pos);
-        }
-
+        vert3f local = calc_animated_hand_tile_position(cur_frame, w, h, hand_to_world_matrix, &world_to_hand, i);
 
         transform tile_trans = identity_transform();
         tile_trans.position.x = local.x;  //calc_hand_x_position(i); //lerp_x; //position;
-        tile_trans.position.y = local.y;  //calc_hand_y_position(i); //position_y; //lerp_y; //(h->selected_tile_idx == i ? 1.47f : 0.455f);
+        tile_trans.position.y = local.y;  //calc_hand_y_position(i); //position_y; //lerp_y; 
         tile_trans.position.z = local.z;  //0.0f; //lerp_z;
         tile_trans.rotation.x = 1.57f; // rotate back towards player
+
 
 
         matrix tile_mat = transform_to_matrix(&tile_trans);
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tile_mat);
         matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
 
+        draw_calls[draw_idx].shdr = VERTEX_LIGHTING; 
         draw_calls[draw_idx].mesh = &tile_mesh;
         draw_calls[draw_idx].texture = h->tiles[i];
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
@@ -2646,34 +3027,18 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
         draw_idx++;
     }
 
-    if(has_extra_tile) {
-        
-        transform tile_trans = identity_transform();
-        tile_trans.position.x = calc_hand_x_position(h->num_open_tiles);
-        tile_trans.rotation.x = 1.57f; // rotate back towards player
-        tile_trans.position.y = calc_hand_y_position(h, 13);
-        matrix tile_mat = transform_to_matrix(&tile_trans);
-
-        matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tile_mat);
-        matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
-
-        draw_calls[draw_idx].mesh = &tile_mesh;
-        draw_calls[draw_idx].texture = h->tiles[13];
-        draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
-        draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
-        draw_idx++;
-    }
 
     /*
         draw open tiles
 
     */
-    for(int i = h->num_closed_tiles; i < standard_draw_tiles; i++) {
+   /*
+    for(int i = h->num_closed_tiles; i < h->num_closed_tiles+h->num_open_tiles; i++) {
        //int is_open = 1;//(i >= h->num_closed_tiles);
 
 
         transform tile_trans = identity_transform();
-        tile_trans.position.x = calc_hand_x_position(h->num_open_tiles + (has_extra_tile) ? 1 : 0);
+        tile_trans.position.x = calc_hand_x_position(h->num_open_tiles + () ? 1 : 0);
         tile_trans.rotation.x = 0.0f; // rotate back towards player
         tile_trans.position.y = 0.0f;
         matrix tile_mat = transform_to_matrix(&tile_trans);
@@ -2681,25 +3046,63 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tile_mat);
         matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
 
+        draw_calls[draw_idx].shdr = VERTEX_LIGHTING; 
         draw_calls[draw_idx].mesh = &tile_mesh;
         draw_calls[draw_idx].texture = h->tiles[i];
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
         draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
         draw_idx++;
     }
-
+    */
     
+    /*
+        draw discards
+
+    */
+
+    for(int i = 0; i < h->num_discards; i++) {
+        int discard_row = i/6;
+        f32 pos_z = -7.5f + (f32)discard_row * 2.5f;
+        int pos_in_row = i - (discard_row*6);
+        const f32 discard_row_size = 6*2.0f;
+        const f32 half_row_size = discard_row_size/2.0f;
+        f32 pos_x = half_row_size + (f32)pos_in_row * -2.0f;
+
+        // rotate up
+        // position downwards
+        transform discard_transform = identity_transform();
+        discard_transform.position.x = pos_x;
+        discard_transform.position.z = pos_z;
+        discard_transform.position.y = 0.0f;
+        discard_transform.rotation.x = 0.0f;
+        matrix discard_tile_mat = transform_to_matrix(&discard_transform);
+      
+        matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &discard_tile_mat);
+        matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &discard_tile_mat);
+
+        draw_calls[draw_idx].shdr = VERTEX_LIGHTING; 
+        draw_calls[draw_idx].mesh = &tile_mesh;
+        draw_calls[draw_idx].texture = h->discards[i];
+        draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
+        draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
+        draw_idx++;
+
+    }
+
     submit_draw_calls(draw_calls, draw_idx, FRUSTUM_CULL);
 }
 
 
-void draw_wall(u32 cur_frame, wall *d, matrix *view_mat) {
+void draw_wall(game_state cur_state, u32 cur_frame, wall *w, matrix *view_mat) {
 
 
 
     mesh_draw_call draw_calls[34*4];
 
     int draw_idx = 0;
+
+    matrix wall_matrixes[4];
+    matrix wall_view_matrixes[4];
 
     for(int i = 0; i < 4; i++) {
 
@@ -2710,56 +3113,46 @@ void draw_wall(u32 cur_frame, wall *d, matrix *view_mat) {
 
         matrix wall_matrix = transform_to_matrix(&wall_trans);
         matrix wall_view_matrix = mat_mul_mat(view_mat, &wall_matrix);
+        wall_matrixes[i] = wall_matrix;
+        wall_view_matrixes[i] = wall_view_matrix;
+    }
+
+    for(int j = 0; j < w->rem; j++) {
+        // OFFSET BY SPLIT DISTANCE
+        int offset_pos = mod_positive(j-(34-w->split_distance*2),TILES_IN_DECK);
+
+        int wall_side = (offset_pos/34);
+        int position_in_wall = (offset_pos-wall_side*34)/2;
+
+        tile_type this_tile = w->tiles[j];
+
+        transform tile_trans = identity_transform();
+        tile_trans.position.x = calc_wall_tile_x_position(position_in_wall);
+        tile_trans.rotation.x = (cur_state >= IN_GAME && j == 3) ? (f32)0 : (f32)M_PI;
+
+        tile_trans.position.y = calc_wall_tile_y_position(cur_frame, w, j);
 
 
+        matrix tile_mat = transform_to_matrix(&tile_trans);
+        matrix tile_to_view_matrix = mat_mul_mat(&wall_view_matrixes[wall_side], &tile_mat);
+        matrix tile_to_world_matrix = mat_mul_mat(&wall_matrixes[wall_side], &tile_mat);
 
-        for(int j = 0; j < 34; j++) {
-            int tot_tile_idx = i*34 + j;
-
-            if(tot_tile_idx >= d->rem) {
-                break;
-            }
-            int top = (j&1);
-
-            if(top) {
-                if ((tot_tile_idx+d->split_distance) == 136) {
-                    //exotique_printf("split distance %i\n", d->split_distance);
-                    //position -= 1.0f;
-                }
-            }
-
-
-            tile_type this_tile = d->tiles[tot_tile_idx];
-
-            transform tile_trans = identity_transform();
-            tile_trans.position.x = calc_wall_tile_x_position(tot_tile_idx); //this_row_position;
-            tile_trans.rotation.x = (f32)M_PI;
-
-            tile_trans.position.y = calc_wall_tile_y_position(cur_frame, d, tot_tile_idx);
-
-
-            matrix tile_mat = transform_to_matrix(&tile_trans);
-            matrix tile_to_view_matrix = mat_mul_mat(&wall_view_matrix, &tile_mat);
-            matrix tile_to_world_matrix = mat_mul_mat(&wall_matrix, &tile_mat);
-
-            draw_calls[draw_idx].mesh = &tile_mesh;
-            draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
-            draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
-            draw_calls[draw_idx++].texture = this_tile;
-
-
-        }
+        draw_calls[draw_idx].shdr = VERTEX_LIGHTING;
+        draw_calls[draw_idx].mesh = &tile_mesh;
+        draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
+        draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
+        draw_calls[draw_idx++].texture = this_tile;
     }
 
     submit_draw_calls(draw_calls, draw_idx, FRUSTUM_CULL);
 }
 
 
-void draw_board(ExotiqueInterface *ei, u32 cur_frame, board* b, matrix* view_mat) {
-    transform t_east = identity_transform(); t_east.rotation.y = (f32)M_PI * 0.5f; t_east.position.x = 28.0f; // push 10 units to the right
-    transform t_south = identity_transform(); t_south.rotation.y = 0; t_south.position.z = 28.0f; // push 10 units down
-    transform t_west = identity_transform(); t_west.rotation.y = -(f32)M_PI * 0.5f; t_west.position.x = -28.0f; // push 10 units left
-    transform t_north = identity_transform(); t_north.rotation.y = (f32)M_PI; t_north.position.z = -28.0f;
+void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, board* b, matrix* view_mat) {
+    transform t_east = identity_transform(); t_east.rotation.y = (f32)M_PI * 0.5f; t_east.position.x = 26.5f; // push 10 units to the right
+    transform t_south = identity_transform(); t_south.rotation.y = 0; t_south.position.z = 26.5f; // push 10 units down
+    transform t_west = identity_transform(); t_west.rotation.y = -(f32)M_PI * 0.5f; t_west.position.x = -26.5f; // push 10 units left
+    transform t_north = identity_transform(); t_north.rotation.y = (f32)M_PI; t_north.position.z = -26.5f;
 
 
     matrix east_matrix = transform_to_matrix(&t_east);
@@ -2777,18 +3170,19 @@ void draw_board(ExotiqueInterface *ei, u32 cur_frame, board* b, matrix* view_mat
     draw_hand(cur_frame, &b->board_wall, &b->west_hand, &west_view_matrix, &west_matrix);
     draw_hand(cur_frame, &b->board_wall, &b->north_hand, &north_view_matrix, &north_matrix);
 
-    draw_wall(cur_frame, &b->board_wall, view_mat);
+    draw_wall(cur_state, cur_frame, &b->board_wall, view_mat);
 
 
     mesh_draw_call draw_board_call;
     transform board_transform = identity_transform();
     board_transform.position.y = -0.73f;
-    board_transform.scale.x = 32.0f;
-    board_transform.scale.z = 32.0f;
+    board_transform.scale.x = 30.0f;
+    board_transform.scale.z = 30.0f;
     board_transform.scale.y = 2.0f;
     matrix board_matrix = transform_to_matrix(&board_transform);
     matrix board_to_view_matrix = mat_mul_mat(view_mat, &board_matrix);
-
+    
+    draw_board_call.shdr = UNLIT;
     draw_board_call.mesh = &board_mesh;
     draw_board_call.model_to_view = board_to_view_matrix;
     draw_board_call.model_to_world = board_matrix;
@@ -2803,30 +3197,30 @@ void draw_board(ExotiqueInterface *ei, u32 cur_frame, board* b, matrix* view_mat
 
 
 
-static u64 last_frame_ticks = 0;
+
 void game_draw(ExotiqueInterface* ei) {
-    u64 cur_frame_ticks = ei->ticks;
 
-    exotique_printf("%llu ms\n", cur_frame_ticks - last_frame_ticks);
-    exotique_printf("trivial reject %i\n", trivial_reject_enabled);
-    last_frame_ticks = cur_frame_ticks;
     //u8 color = 0;
-    for(int y = 0; y < kScreenHeight; y+=16) {
-        for(int x = 0; x < kScreenWidth; x+=16) {
-            //u8 col = light_remap_table[15][GREEN];//color++;
+    for(int y = 0; y < RENDER_HEIGHT; y += 2) {
+        f32 y_portion = (f32)y / (f32)RENDER_HEIGHT;
+        int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
+        for(int x = 0; x < RENDER_WIDTH; x += 2) {
 
-            for(int yy = y; yy < y+16; yy++) {
-                f32 y_portion = (f32)yy / (f32)HEIGHT;
-                int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
-                for(int xx = x; xx < x+16; xx++) {
-                    f32 x_portion = (f32)xx/(f32)WIDTH;
-                    int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
-                    zbuf[yy*kScreenWidth+xx] = 1.0f/FAR_Z;
-                    
-                    ei->screen[yy*kScreenWidth+xx] = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
+            f32 x_portion = (f32)x/(f32)RENDER_WIDTH;
+            int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
+            zbuf[y*RENDER_WIDTH+x] = 1.0f/FAR_Z;
+            zbuf[y*RENDER_WIDTH+x+1] = 1.0f/FAR_Z;
+            zbuf[(y+1)*RENDER_WIDTH+x] = 1.0f/FAR_Z;
+            zbuf[(y+1)*RENDER_WIDTH+x+1] = 1.0f/FAR_Z;
+            u8 bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
+            //ei->screen[yy*WIDTH*2+xx] = 
+            render_target[y*RENDER_WIDTH+x] = bkgd_idx;
+            render_target[y*RENDER_WIDTH+x+1] = bkgd_idx;
+            render_target[(y+1)*RENDER_WIDTH+x] = bkgd_idx;
+            render_target[(y+1)*RENDER_WIDTH+x+1] = bkgd_idx;
 
-                }
-            }
+            //render_target[y*RENDER_WIDTH+x] = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
+
         }
     }
     if(hi_z_enabled) {
@@ -2841,9 +3235,10 @@ void game_draw(ExotiqueInterface* ei) {
 
     total_triangles = 0;
     clear_tile_bins();
-    draw_board(ei, frame, &game_board, &view_mat);
+    draw_board(ei, cur_game_state, frame, &game_board, &view_mat);
 
 
+    /*
     if(draw_mode == HI_Z_DRAW) {
         for(int y = 0; y < TILES_HIGH; y++) {
             for(int x = 0; x < TILES_WIDE; x++) {
@@ -2870,6 +3265,7 @@ void game_draw(ExotiqueInterface* ei) {
             }
         }
     }
+    */
 
 
     //exotique_printf("meshes %i\n", meshes_transformed);
@@ -2881,4 +3277,44 @@ void game_draw(ExotiqueInterface* ei) {
     triangles_transformed = 0;
     triangles_rasterized = 0;
     triangles_hi_z_culled = 0;
+
+    for(int y = 0; y < RENDER_HEIGHT; y += 2) {
+        for(int x = 0; x < RENDER_WIDTH; x += 2) {
+            u8 tl = render_target[y*RENDER_WIDTH+x];
+            u8 tr = render_target[y*RENDER_WIDTH+x+1];
+            u8 bl = render_target[(y+1)*RENDER_WIDTH+x];
+            u8 br = render_target[(y+1)*RENDER_WIDTH+x+1];
+            u8 mix_top = mix_table[tl][tr];
+            u8 mix_bot = mix_table[bl][br];
+            u8 mix_res = mix_table[mix_top][mix_bot];
+            //if(ei->input->y) {
+                ei->screen[(y>>1)*OUTPUT_WIDTH+(x>>1)] = mix_res;
+            //} else {
+            //    ei->screen[(y>>1)*OUTPUT_WIDTH+(x>>1)] = tl;
+            //}
+        }
+    }
+    
+
+
+    /*
+    for(int y = 0; y < HEIGHT*2; y += 2) {
+        for(int x = 0; x < WIDTH*2; x++) {
+            u8 top = render_target[y*WIDTH*2+x];
+            u8 bot = render_target[(y+1)*WIDTH*2+x];
+            u8 mix_res = mix_table[top][bot];
+            render_target[y*WIDTH*2+x] = mix_res;
+        }
+    }
+
+    // now mix left and right into framebuffer
+    for(int y = 0; y < HEIGHT*2; y += 2) {
+        for(int x = 0; x < WIDTH*2; x += 2) {
+            u8 left = render_target[y*WIDTH*2+x];
+            u8 right = render_target[y*WIDTH*2+x+1];
+            u8 mix_res = mix_table[left][right];
+            ei->screen[(y>>1)*WIDTH+(x>>1)] = mix_res;
+        }
+    }
+    */
 }

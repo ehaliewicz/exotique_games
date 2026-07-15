@@ -4,7 +4,7 @@
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~31))
 #define OUTPUT_WIDTH TILE_ROUND(1280)
-#define OUTPUT_HEIGHT TILE_ROUND(720)
+#define OUTPUT_HEIGHT TILE_ROUND(1024)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -27,6 +27,9 @@ typedef struct {
 typedef struct {
     f32 x,y,z;
 } vert3f;
+typedef struct {
+    i32 x,y,z;
+} vert3i;
 
 typedef struct {
     i32 x,y;
@@ -367,13 +370,15 @@ typedef struct {
 
 #define MAX_GLOBAL_TRIS 1000000
 typedef struct {
-    vert3f proj_v0, proj_v1, proj_v2;
-    f32 c0, c1, c2;
-    vert2f uv0, uv1, uv2;
-    vert3f nv0, nv1, nv2;
-    u8 tex;
+    vert2i proj_v0, proj_v1, proj_v2;
+    //f32 c0, c1, c2;
+    u8 c0;
+    //vert2f uv0, uv1, uv2;
+    vert2f uv0_over_z, uv1_over_z, uv2_over_z;
+    //vert3f nv0, nv1, nv2;
+    u8 tex; u8 mip_level;
     f32 inv_z0, inv_z1, inv_z2;
-    edge_prep edges;
+    //edge_prep edges;
 } transformed_tri;
 
 #define MAX_TILE_TRIS 8192
@@ -497,16 +502,20 @@ int triangle_backfacing(
     return (area <= 0);
 }
 
-#define DEFAULT_CAM_ROT_X 0.25f
+#define DEFAULT_CAM_ROT_X 0.45f
 #define DEFAULT_CAM_ROT_Y 0.0f
 f32 camera_rot_y = DEFAULT_CAM_ROT_Y;
 f32 camera_rot_x = DEFAULT_CAM_ROT_X;
-f32 camera_radius = 40.0f;
-f32 camera_radius_top = 30.0f;
+f32 camera_radius = 50.0f;
+f32 camera_radius_top = 46.0f;
 
 #define NUM_BASE_COLORS 6
 #define NUM_SHADES 25
+
+// REMAPS FROM BASE COLORS TO SHADES WITHIN THE PALETTE
 u8 light_remap_table[NUM_SHADES][NUM_BASE_COLORS];
+// REMAPS FROM ALL COLORS IN THE PALETTE, TO SHADES OF THOSE COLORS WITHIN THE PALETTE
+u8 full_light_remap_table[NUM_SHADES][256];
 
 vert3f light = {
     1.0f,
@@ -526,27 +535,29 @@ typedef enum {
 
 typedef struct {
     compressed_texture* comp_tex_ptr;
-    u8* texels;
-    u8* mip_texels;
-    u8* mip_2_texels;
+    //u8* texels;
+    u8* texels[4];
+    //u8* mip_2_texels;
+    //u8* mip_3_texels;
+    //u8* mip_4_texels;
     int width;
     int height;
     compress_type compressed;
 } texture;
 
 
-typedef float f32_vec __attribute__((vector_size(16)));
-typedef int i32_vec __attribute__((vector_size(16)));
+typedef f32 f32_vec __attribute__((vector_size(16)));
+typedef i32 i32_vec __attribute__((vector_size(16)));
 
 
 
-i32_vec broadcast_i32_vec(i32 a) {
+static inline i32_vec broadcast_i32_vec(i32 a) {
     i32_vec res;
     for(int i = 0; i < 4; i++) { res[i] = a; }
     return res;
 }
 
-i32_vec i32_vec_select(i32_vec mask, i32_vec a, i32_vec b) {
+static inline i32_vec i32_vec_select(i32_vec mask, i32_vec a, i32_vec b) {
     // if mask[i] ? b[i] : a[i];
     i32_vec res;
     for(int i = 0; i < 4; i++) {
@@ -555,7 +566,7 @@ i32_vec i32_vec_select(i32_vec mask, i32_vec a, i32_vec b) {
     return res;
 }
 
-f32_vec f32_vec_select(i32_vec mask, f32_vec a, f32_vec b) {
+static inline f32_vec f32_vec_select(i32_vec mask, f32_vec a, f32_vec b) {
     // if mask[i] ? b[i] : a[i];
     //f32_vec res = mask ? a : b;
     //return res;
@@ -566,19 +577,19 @@ f32_vec f32_vec_select(i32_vec mask, f32_vec a, f32_vec b) {
     return res;
 }
 
-f32_vec broadcast_f32_vec(f32 a) {
+static inline f32_vec broadcast_f32_vec(f32 a) {
     f32_vec res;
     for(int i = 0; i < 4; i++) { res[i] = a; }
     return res;
 }
 
-f32_vec i32_vec_convert_f32(i32_vec a) {
+static inline f32_vec i32_vec_convert_f32(i32_vec a) {
     f32_vec res;
     for(int i = 0; i < 4; i++) { res[i] = (f32)a[i]; }
     return res;
 }
 
-i32_vec init_i32_vec(i32 a, i32 b, i32 c, i32 d) {
+static inline i32_vec init_i32_vec(i32 a, i32 b, i32 c, i32 d) {
     i32_vec res;
     res[0] = a;
     res[1] = b;
@@ -587,7 +598,7 @@ i32_vec init_i32_vec(i32 a, i32 b, i32 c, i32 d) {
     return res;
 }
 
-f32_vec init_f32_vec(f32 a, f32 b, f32 c, f32 d) {
+static inline f32_vec init_f32_vec(f32 a, f32 b, f32 c, f32 d) {
     f32_vec res;
     res[0] = a;
     res[1] = b;
@@ -596,7 +607,7 @@ f32_vec init_f32_vec(f32 a, f32 b, f32 c, f32 d) {
     return res;
 }
 
-i32_vec i32_vec_add(i32_vec a, i32_vec b) {
+static inline i32_vec i32_vec_add(i32_vec a, i32_vec b) {
     i32_vec res = a+b;
 
     //for(int i = 0; i < 4; i++) {
@@ -605,7 +616,7 @@ i32_vec i32_vec_add(i32_vec a, i32_vec b) {
     return res;
 }
 
-f32_vec f32_vec_add(f32_vec a, f32_vec b) {
+static inline f32_vec f32_vec_add(f32_vec a, f32_vec b) {
     f32_vec res;
     for(int i = 0; i < 4; i++) {
         res[i] = a[i] + b[i];
@@ -614,7 +625,7 @@ f32_vec f32_vec_add(f32_vec a, f32_vec b) {
 }
 
 
-u8 i32_vec_extract_low_bits(i32_vec a) {
+static inline u8 i32_vec_extract_low_bits(i32_vec a) {
     u8 res = 0;
     for(int i = 0; i < 4; i++) {
         res |= (u8)((a[i]&1)<<i);
@@ -622,7 +633,7 @@ u8 i32_vec_extract_low_bits(i32_vec a) {
     return res;
 }
 
-i32_vec f32_vec_gte(f32_vec a, f32_vec b) {
+static inline i32_vec f32_vec_gte(f32_vec a, f32_vec b) {
     i32_vec res;
     for(int i = 0; i < 4; i++) {
         res[i] = (a[i] >= b[i]) ? 1 : 0;
@@ -630,7 +641,7 @@ i32_vec f32_vec_gte(f32_vec a, f32_vec b) {
     return res;
 }
 
-i32_vec i32_vec_gte(i32_vec a, i32_vec b) {
+static inline i32_vec i32_vec_gte(i32_vec a, i32_vec b) {
     i32_vec res;
     for(int i = 0; i < 4; i++) {
         res[i] = (a[i] >= b[i]) ? 1 : 0;
@@ -638,7 +649,7 @@ i32_vec i32_vec_gte(i32_vec a, i32_vec b) {
     return res;
 }
 
-i32_vec f32_vec_convert_i32(f32_vec a) {
+static inline i32_vec f32_vec_convert_i32(f32_vec a) {
     i32_vec res;
     res[0] = (i32)a[0];
     res[1] = (i32)a[1];
@@ -647,7 +658,7 @@ i32_vec f32_vec_convert_i32(f32_vec a) {
     return res;
 }
 
-i32_vec f32_vec_floor(f32_vec a) {
+static inline i32_vec f32_vec_floor(f32_vec a) {
     i32_vec res;
     
     res[0] = fast_floor(a[0]);
@@ -672,12 +683,11 @@ i32_vec parallel_pixel_shader(
     f32_vec w0, f32_vec w1, f32_vec w2, f32 v0u_over_z, f32 v0v_over_z, f32 v1u_over_z, f32 v1v_over_z, f32 v2u_over_z, f32 v2v_over_z, f32 recip_area, u8* texels, int tex_width, int tex_height, 
     u8* lit_pal_ptr
 ) {
-    (void)tex_height;
+    (void)lit_pal_ptr;
     f32_vec u_over_z = (w0 * v0u_over_z + w1 * v1u_over_z + w2 * v2u_over_z) * recip_area;
     f32_vec v_over_z = (w0 * v0v_over_z + w1 * v1v_over_z + w2 * v2v_over_z) * recip_area;
     f32_vec u = (u_over_z * z);
     f32_vec v = (v_over_z * z);
-
 
     //f32 dudx = u[1] - u[0];
     //f32 dudy = u[2] - u[0];
@@ -709,6 +719,7 @@ i32_vec parallel_pixel_shader(
 
     //texels[((tex_height-1)-int_v)*tex_width+int_u];
 
+    //return tex_pal_idx;
     i32_vec res;
     res[0] = lit_pal_ptr[tex_pal_idx[0]];
     res[1] = lit_pal_ptr[tex_pal_idx[1]];
@@ -722,7 +733,7 @@ u8 pixel_shader(
     f32 w0, f32 w1, f32 w2, f32 v0u_over_z, f32 v0v_over_z, f32 v1u_over_z, f32 v1v_over_z, f32 v2u_over_z, f32 v2v_over_z, f32 recip_area, u8* texels, int tex_width, int tex_height, 
     u8* lit_pal_ptr
 ) {
-    
+    (void)lit_pal_ptr;
     //f32 z = 1.0f / inv_z;
                         
     f32 u_over_z = (w0 * v0u_over_z + w1 * v1u_over_z + w2 * v2u_over_z) * recip_area;
@@ -744,7 +755,10 @@ u8 pixel_shader(
     //u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
     //u8 pal_idx = light_remap_table[quantized_brightness][tex_pal_idx];
     //u8 tex_pal_idx = 3;
-    return lit_pal_ptr[tex_pal_idx];// light_remap_table[16][WHITE];
+    
+    //return tex_pal_idx;
+    return lit_pal_ptr[tex_pal_idx];
+    // light_remap_table[16][WHITE];
 
     //*color_ptr = pal_idx;
     //*zbuf_ptr = inv_z;
@@ -754,7 +768,10 @@ u8 pixel_shader(
 #define MIP_FACTOR 2
 #define MIP_SHIFT 1
 
+#define TILE_IDX(x,y) ((((y)&~1)*RENDER_TILE_SIZE)|(((x)&~1)<<1)|((((y)&1)<<1)+((x)&1)))
+
 // returns 1 if drew a pixel, 0 otherwise
+/*
 int triangle(
     ExotiqueInterface *ei,
     f32 *zbuffer,
@@ -784,7 +801,7 @@ int triangle(
 
     f32 diffuse = CLAMP(avg_c, 0.0f, 1.0f);
     u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-    u8* lit_pal_ptr = light_remap_table[quantized_brightness];
+    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];// light_remap_table[quantized_brightness];
 
 
 
@@ -845,9 +862,8 @@ int triangle(
     f32 minu = MIN(uv0.x, MIN(uv1.x, uv2.x));
     f32 minv = MIN(uv0.y, MIN(uv1.y, uv2.y));
     f32 biggest_duv = MAX(absf(maxu-minu), absf(maxv-minv));
-
-
     f32 duv_per_pix = (biggest_duv*(f32)tex_width)/(f32)dpix;
+
     minx = CLAMP((minx + 15) >> 4, start_x, end_x);
     maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
     miny = CLAMP((miny + 15) >> 4, start_y, end_y);
@@ -855,14 +871,24 @@ int triangle(
 
     
     
-    if(tex_width > 1 && duv_per_pix > 3.0f) {
+    if(tex_width > 1 && duv_per_pix > 1.0f) { // 3
         texels = tex->mip_texels;
         tex_width >>= MIP_SHIFT;
         tex_height >>= MIP_SHIFT; 
-        if(duv_per_pix > 6.0f) {
+        if(duv_per_pix > 2.0f) { // 6
             texels = tex->mip_2_texels;
             tex_width >>= 1;
             tex_height >>= 1;
+            if(duv_per_pix > 4.0f) { // 12
+                texels = tex->mip_3_texels;
+                tex_width >>= 1;
+                tex_height >>= 1;
+                //if(duv_per_pix > 8.0f) {
+                //    texels = tex->mip_4_texels;
+                //    tex_width >>= 1;
+                //    tex_height >>= 1;
+                //}
+            }
         }
     }
 
@@ -918,14 +944,14 @@ int triangle(
         i32 ex20 = ey20;
 
         //u8 *row = &ei->screen[y * kScreenWidth + minx];
-        u8 *row = &render_target[(y-start_y)*RENDER_TILE_SIZE + (minx-start_x)];
+        //u8 *row = &render_target[(y-start_y)*RENDER_TILE_SIZE + (minx-start_x)];
 
         //f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
-        f32 *zbuf_row = &zbuffer[(y-start_y)*RENDER_TILE_SIZE + (minx-start_x)];
+        //f32 *zbuf_row = &zbuffer[(y-start_y)*RENDER_TILE_SIZE + (minx-start_x)];
 
 
         for (i32 x = minx; x < maxx; x++) {
-            f32 zbuf_val = *zbuf_row;
+            f32 zbuf_val = zbuffer[TILE_IDX(x-start_x,y-start_y)];// *zbuf_row;
             if (!((cx01|cx12|cx20)>>31)) { // check the sign bit
                 f32 w0 = (f32)ex12;
                 f32 w1 = (f32)ex20;
@@ -940,13 +966,13 @@ int triangle(
                         texels, tex_width, tex_height, 
                         lit_pal_ptr
                     );
-                    *row = pal_idx;
-                    *zbuf_row = inv_z;
+                    render_target[TILE_IDX(x-start_x,y-start_y)] = pal_idx; // *row = pal_idx;
+                    zbuffer[TILE_IDX(x-start_x,y-start_y)] = inv_z;// *zbuf_row = inv_z;
                     drew_pixel = 1;
                 }
             }
-            zbuf_row++;
-            row++;
+            //zbuf_row++;
+            //row++;
             // step horizontal edge coverage
             cx01 -= dy01;
             cx12 -= dy12;
@@ -965,7 +991,9 @@ int triangle(
     }
     return drew_pixel;
 }
+*/
 
+/*
 int trivial_triangle(
     ExotiqueInterface *ei,
     f32 *zbuffer,
@@ -995,7 +1023,7 @@ int trivial_triangle(
 
     f32 diffuse = CLAMP(avg_c, 0.0f, 1.0f);
     u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-    u8* lit_pal_ptr = light_remap_table[quantized_brightness];
+    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
 
 
 
@@ -1123,9 +1151,9 @@ int trivial_triangle(
     }
     return drew_pixel;
 }
+*/
 
 
-/*
 int triangle_block(
     ExotiqueInterface *ei,
     f32 *zbuffer,
@@ -1137,6 +1165,7 @@ int triangle_block(
 
     // swap everything for first two vertexes (actual vertex positions and attributes)
     (void)tex;
+    (void)ei;
     f32 iz0 = tri_attributes->inv_z1;
     f32 iz1 = tri_attributes->inv_z0;
     f32 iz2 = tri_attributes->inv_z2;
@@ -1144,47 +1173,52 @@ int triangle_block(
     f32_vec iz1_vec = broadcast_f32_vec(iz1);
     f32_vec iz2_vec = broadcast_f32_vec(iz2);
 
-    vert3f v0 = tri_attributes->proj_v1;
-    vert3f v1 = tri_attributes->proj_v0;
-    vert3f v2 = tri_attributes->proj_v2;
-    vert2f uv0 = tri_attributes->uv1;
-    vert2f uv1 = tri_attributes->uv0;
-    vert2f uv2 = tri_attributes->uv2;
-    f32 c0 = tri_attributes->c1;
-    f32 c1 = tri_attributes->c0;
-    f32 c2 = tri_attributes->c2;
-    f32 avg_c = (c0+c1+c2)/3.0f;
+    vert2i v0 = tri_attributes->proj_v1;
+    vert2i v1 = tri_attributes->proj_v0;
+    vert2i v2 = tri_attributes->proj_v2;
+    //vert2f uv0 = tri_attributes->uv1;
+    //vert2f uv1 = tri_attributes->uv0;
+    //vert2f uv2 = tri_attributes->uv2;
+    vert2f uv0_over_z = tri_attributes->uv1_over_z;
+    vert2f uv1_over_z = tri_attributes->uv0_over_z;
+    vert2f uv2_over_z = tri_attributes->uv2_over_z;
+    //f32 avg_c = tri_attributes->c1;
+    //f32 c1 = tri_attributes->c0;
+    //f32 c2 = tri_attributes->c2;
+    //f32 avg_c = (c0+c1+c2)/3.0f;
     
-    //f32 diffuse = (w0 * c0 + w1 * c1 + w2 * c2) * recip_area;
-
-    f32 diffuse = CLAMP(avg_c, 0.0f, 1.0f);
-    u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-    u8* lit_pal_ptr = light_remap_table[quantized_brightness];
-
+    //f32 diffuse = CLAMP(avg_c, 0.0f, 1.0f);
+    //u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
+    u8 quantized_brightness = tri_attributes->c0;
+    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
+    //if(avg_c < 1.0f) {
+    //    exotique_printf("wut\n");
+    //}
 
 
     int drew_pixel = 0;
 
-    f32 v0u_over_z = uv0.x * iz0;
-    f32 v0v_over_z = uv0.y * iz0;
+    f32 v0u_over_z = uv0_over_z.x;//uv0.x * iz0;
+    f32 v0v_over_z = uv0_over_z.y;//uv0.y * iz0;
 
-    f32 v1u_over_z = uv1.x * iz1;
-    f32 v1v_over_z = uv1.y * iz1;
+    f32 v1u_over_z = uv1_over_z.x;//uv1.x * iz1;
+    f32 v1v_over_z = uv1_over_z.y;//uv1.y * iz1;
 
-    f32 v2u_over_z = uv2.x * iz2;
-    f32 v2v_over_z = uv2.y* iz2;
+    f32 v2u_over_z = uv2_over_z.x;//uv2.x * iz2;
+    f32 v2v_over_z = uv2_over_z.y;//uv2.y * iz2;
 
-    int tex_width = tex->width;
-    int tex_height = tex->height;
-    u8* texels = tex->texels;
+    int mip_level = tri_attributes->mip_level;
+    int tex_width = tex->width>>mip_level;
+    int tex_height = tex->height>>mip_level;
+    u8* texels = tex->texels[mip_level];
 
     // 28.4 fixed point
-    const i32 x0 = (i32)(v0.x * 16.0f);
-    const i32 y0 = (i32)(v0.y * 16.0f);
-    const i32 x1 = (i32)(v1.x * 16.0f);
-    const i32 y1 = (i32)(v1.y * 16.0f);
-    const i32 x2 = (i32)(v2.x * 16.0f);
-    const i32 y2 = (i32)(v2.y * 16.0f);
+    const i32 x0 = v0.x;
+    const i32 y0 = v0.y;
+    const i32 x1 = v1.x;
+    const i32 y1 = v1.y;
+    const i32 x2 = v2.x;
+    const i32 y2 = v2.y;
     //
     // Edge deltas
     //
@@ -1214,13 +1248,45 @@ int triangle_block(
     i32 maxx = MAX(x0, MAX(x1, x2));
     i32 miny = MIN(y0, MIN(y1, y2)); 
     i32 maxy = MAX(y0, MAX(y1, y2));
-    // align minx, miny
-    //minx &= ~0x10;
-    //miny &= ~0x10;
+    //i32 pix_dx = (maxx-minx)>>4;
+    //i32 pix_dy = (maxy-miny)>>4;
+    //i32 dpix = MAX(1, MIN(pix_dx, pix_dy));
+    //f32 maxu = MAX(uv0.x, MAX(uv1.x, uv2.x));
+    //f32 maxv = MAX(uv0.y, MAX(uv1.y, uv2.y));
+    //f32 minu = MIN(uv0.x, MIN(uv1.x, uv2.x));
+    //f32 minv = MIN(uv0.y, MIN(uv1.y, uv2.y));
+    //f32 biggest_duv = MAX(absf(maxu-minu), absf(maxv-minv));
+    //f32 duv_per_pix = (biggest_duv*(f32)tex_width)/(f32)dpix;
+
+    /*
+    if(tex_width > 1 && duv_per_pix > 1.0f) { // 3
+        texels = tex->mip_texels;
+        tex_width >>= MIP_SHIFT;
+        tex_height >>= MIP_SHIFT; 
+        if(duv_per_pix > 2.0f) { // 6
+            texels = tex->mip_2_texels;
+            tex_width >>= 1;
+            tex_height >>= 1;
+            if(duv_per_pix > 4.0f) { // 12
+                texels = tex->mip_3_texels;
+                tex_width >>= 1;
+                tex_height >>= 1;
+                //if(duv_per_pix > 8.0f) {
+                //    texels = tex->mip_4_texels;
+                //    tex_width >>= 1;
+                //    tex_height >>= 1;
+                //}
+            }
+        }
+    }
+    */
+
     minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~1; // mask off low bit to align to 2 pixels
     maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
     miny = CLAMP((miny + 15) >> 4, start_y, end_y) & ~1; // mask off low bit to align to 2 pixels
     maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
+
+
 
     // edge constants, used for incremental edge coverage calculation
     i32 e01 = dy01 * x0 - dx01 * y0;
@@ -1297,14 +1363,18 @@ int triangle_block(
         i32_vec ex12_vec = ey12_vec;
         i32_vec ex20_vec = ey20_vec;
 
-        u8 *row = &ei->screen[y * kScreenWidth + minx];
-        u8 *next_row = &ei->screen[(y+1) * kScreenWidth + minx];
+        //u8 *row = &ei->screen[y * kScreenWidth + minx];
+        //u8 *next_row = &ei->screen[(y+1) * kScreenWidth + minx];
+        //f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
+        //f32 *zbuf_next_row = &zbuffer[(y+1) * kScreenWidth + minx];
 
-        f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
-        f32 *zbuf_next_row = &zbuffer[(y+1) * kScreenWidth + minx];
-
-
+        int in_tile_y = y-start_y;
+        int in_tile_x = minx-start_x;
+        int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
+        u32 *col_val_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
+        f32_vec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 16);
         for (i32 x = 0; x < (maxx-minx); x += 2) {
+
             i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
 
 
@@ -1313,10 +1383,11 @@ int triangle_block(
             //} else 
             if(coverage_mask != 0x0) {
                 // skip completely uncovered quads
-                f32_vec zbuf_val_vec = init_f32_vec(
-                    zbuf_row[0], zbuf_row[1],
-                    zbuf_next_row[0], zbuf_next_row[1]
-                );
+                f32_vec zbuf_val_vec = *zbuf_ptr;
+                //f32_vec zbuf_val_vec = init_f32_vec(
+                //    zbuf_row[0], zbuf_row[1],
+                //    zbuf_next_row[0], zbuf_next_row[1]
+                //);
 
                 f32_vec w0_vec = i32_vec_convert_f32(ex12_vec);
                 f32_vec w1_vec = i32_vec_convert_f32(ex20_vec);
@@ -1332,10 +1403,12 @@ int triangle_block(
                 u8 mask = i32_vec_extract_low_bits(in_tri_and_unoccluded);
                 if(mask != 0) {
                     drew_pixel = 1;
-
+                    u32 cbuf_val = *col_val_ptr;
                     i32_vec cbuf_val_vec = init_i32_vec(
-                        row[0], row[1],
-                        next_row[0], next_row[1]
+                        (i32)cbuf_val&0xFF,
+                        (i32)(cbuf_val>>8)&0xFF,
+                        (i32)(cbuf_val>>16)&0xFF,
+                        (i32)(cbuf_val>>24)
                     );
 
                     f32_vec z_vec = 1.0f / inv_z_vec;
@@ -1349,18 +1422,17 @@ int triangle_block(
                     
                     
                     i32_vec new_color_vec = i32_vec_select(in_tri_and_unoccluded, this_tri_color_vec, cbuf_val_vec);
+                    *col_val_ptr = (u32)(
+                        (new_color_vec[0]) |
+                        ((new_color_vec[1])<<8) |
+                        ((new_color_vec[2])<<16) |
+                        ((new_color_vec[3])<<24)
+                    );
 
                     f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
 
-                    row[0] = (u8)new_color_vec[0];
-                    row[1] = (u8)new_color_vec[1];
-                    next_row[0] = (u8)new_color_vec[2];
-                    next_row[1] = (u8)new_color_vec[3];
-
-                    zbuf_row[0] = new_zbuf_vec[0];
-                    zbuf_row[1] = new_zbuf_vec[1];
-                    zbuf_next_row[0] = new_zbuf_vec[2];
-                    zbuf_next_row[1] = new_zbuf_vec[3];
+                    
+                    *zbuf_ptr = new_zbuf_vec;
                 }
 
             }
@@ -1372,10 +1444,8 @@ int triangle_block(
             ex01_vec -= dy01_shifted_vec;
             ex12_vec -= dy12_shifted_vec;
             ex20_vec -= dy20_shifted_vec;
-            row += 2;
-            next_row += 2;
-            zbuf_row += 2;
-            zbuf_next_row += 2;
+            col_val_ptr++;
+            zbuf_ptr++;
 
         }
         // step vertical edge coverage
@@ -1389,7 +1459,7 @@ int triangle_block(
     }
     return drew_pixel;
 }
-*/
+
 
 typedef enum {
     NORMAL,
@@ -1542,7 +1612,7 @@ const f32 camy = (f32)(RENDER_HEIGHT/2.0f);
 
 vert3f project_coord(vert3f r) {
     //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
-    const f32 focal = (RENDER_HEIGHT / 2.0f) / .8f; //tanf(fov_y / 2.0f);
+    const f32 focal = (RENDER_HEIGHT / 2.0f) / 0.6f; //tanf(fov_y / 2.0f);
     return (vert3f){
             camx + focal * r.x / r.z,
             camy - focal * r.y / r.z,
@@ -1725,49 +1795,52 @@ typedef enum {
 u8 texture_buffer[34][512*512];
 u8 texture_mip_buffer[34][256*256];
 u8 texture_mip_2_buffer[34][128*128];
+u8 texture_mip_3_buffer[34][64*64];
+u8 texture_mip_4_buffer[34][32*32];
+#define NULL 0
 
 texture textures[NUM_TILES+2] = {
     {
-        &comp_tex_white_dragon, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_white_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_red_dragon, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_red_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_green_dragon, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_green_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_north, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_north, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_east, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_east, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_south, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_south, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_west, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_west, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_two_pin, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_two_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_eight_pin, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_eight_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_five_man, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_five_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_seven_man, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_seven_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_two_sou, 0, 0, 0, 512, 512, COMPRESSED
+        &comp_tex_two_sou, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_green_dragon, texture_board, texture_board, texture_board, 1, 1, UNCOMPRESSED
+        &comp_tex_green_dragon, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED
     },
     {
-        &comp_tex_green_dragon, texture_board, texture_board, texture_board, 1, 1, UNCOMPRESSED
+        &comp_tex_green_dragon, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED
     },
 };
 
@@ -1783,11 +1856,12 @@ void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byt
         int length;
         if(packet&1) {
             u8 bit = (u8)((packet>>1)&1);
-            global_pal_idx = local_palette[bit];
+            u8 pal_idx = local_palette[bit];
+            global_pal_idx = light_remap_table[NUM_SHADES-1][pal_idx];
             length = (packet>>2)+1;
         } else {
             // non-white packet
-            global_pal_idx = WHITE;
+            global_pal_idx = light_remap_table[NUM_SHADES-1][WHITE];
             length = (packet>>1)+1;
         }
         for(int i = 0; i < length; i++) {
@@ -1826,16 +1900,17 @@ f32 color_dist(vert3f c1, vert3f c2) {
     );
     return dist;
 }
+
 u8 closest_base_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
 
-    f32 best_dist = 0.0f;
-    int best_dist_idx = -1;
+    f32 best_dist = 1024024.0f;
+    int best_dist_idx = 0;
     for(int i = 0; i < NUM_BASE_COLORS; i++) {
 
         vert3f pal_rgb = rgba_to_f32_rgb(ei->palette[light_remap_table[NUM_SHADES-1][i]]);
         f32 dist = color_dist(target_rgb, pal_rgb);
          
-        if(best_dist_idx == -1 || (dist < best_dist)) {
+        if(dist < best_dist) {
             best_dist_idx = i;
             best_dist = dist;
         }
@@ -1846,14 +1921,14 @@ u8 closest_base_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
 
 u8 closest_overall_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
 
-    f32 best_dist = 0.0f;
-    int best_dist_idx = -1;
+    f32 best_dist = 1024024.0f;
+    int best_dist_idx = 0;
     for(int i = 0; i < 256; i++) {
 
         vert3f pal_rgb = rgba_to_f32_rgb(ei->palette[i]);
         f32 dist = color_dist(target_rgb, pal_rgb);
 
-        if(best_dist_idx == -1 || (dist < best_dist)) {
+        if(dist < best_dist) {
             best_dist_idx = i;
             best_dist = dist;
         }
@@ -1867,27 +1942,28 @@ void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size) {
     for(int y = 0; y < src_size; y+=2) {
         for(int x = 0 ; x < src_size; x+=2) {
             vert3f rgb = {0.0f,0.0f,0.0f};
-            f32 total_weight = 0.0f;
+            //f32 total_weight = 0.0f;
             for(int yy = 0; yy < 2; yy++) {
                 for(int xx = 0; xx < 2; xx++) {
                     u8 src_pal_idx0 = src[(y+yy)*src_size + (x+xx)];
-                    f32 weight = 0.01f;
-                    if(src_pal_idx0 != WHITE) { weight = 0.3f; }
-                    rgb = add_vert3(rgb, scale_vert3( rgba_to_f32_rgb(ei->palette[light_remap_table[NUM_SHADES-1][src_pal_idx0]]), weight));
-                    total_weight += weight;
+                    rgb = add_vert3(rgb, scale_vert3( 
+                        rgba_to_f32_rgb(ei->palette[full_light_remap_table[NUM_SHADES-1][src_pal_idx0]]), 
+                        1.0));
                 }   
             }
-            //u8 src_pal_idx1 = src[y*src_size + x+1];
-            //u8 src_pal_idx2 = src[(y+1)*src_size + x];
-            //u8 src_pal_idx3 = src[(y+1)*src_size + x+1];
-            //vert3f rgb0 = rgba_to_f32_rgb(ei->palette[src_pal_idx0]);
-            //vert3f rgb1 = rgba_to_f32_rgb(ei->palette[src_pal_idx1]);
-            //vert3f rgb2 = rgba_to_f32_rgb(ei->palette[src_pal_idx2]);
-            //vert3f rgb3 = rgba_to_f32_rgb(ei->palette[src_pal_idx3]);
-            u8 best_idx = WHITE;
-            if(total_weight > 0.0f) {
-                vert3f avg_rgb = scale_vert3(rgb,  1.0f/total_weight); //(f32)(MIP_FACTOR*MIP_FACTOR));
-                best_idx = closest_base_color_idx(ei, avg_rgb);
+
+            u8 best_idx = 0;
+            vert3f avg_rgb = scale_vert3(rgb,  1.0f/4.0f); //(f32)(MIP_FACTOR*MIP_FACTOR));
+            //best_idx = closest_base_color_idx(ei, avg_rgb);
+            //best_idx = light_remap_table[NUM_SHADES-1][best_idx];
+            best_idx = closest_overall_color_idx(ei, avg_rgb);
+            //best_idx = light_remap_table[NUM_SHADES-1][best_idx];
+
+            for(int j = 0; j < 256; j++) {
+                if(full_light_remap_table[NUM_SHADES-1][j] == best_idx) {
+                    best_idx = (u8)j;
+                    break;
+                }
             }
 
             dst[(y>>1)*dst_size + (x>>1)] = best_idx;
@@ -1904,9 +1980,13 @@ void decompress_textures(ExotiqueInterface *ei) {
         u8* tex_buf = texture_buffer[i];
         u8* mip_tex_buf = texture_mip_buffer[i];
         u8* mip_2_tex_buf = texture_mip_2_buffer[i];
-        textures[i].texels = tex_buf;
-        textures[i].mip_texels = mip_tex_buf;
-        textures[i].mip_2_texels = mip_2_tex_buf;
+        u8* mip_3_tex_buf = texture_mip_3_buffer[i];
+        //u8* mip_4_tex_buf = texture_mip_4_buffer[i];
+        textures[i].texels[0] = tex_buf;
+        textures[i].texels[1]  = mip_tex_buf;
+        textures[i].texels[2]  = mip_2_tex_buf;
+        textures[i].texels[3]  = mip_3_tex_buf;
+        //textures[i].mip_4_texels = mip_4_tex_buf;
         int width = textures[i].width;
         int height = textures[i].height;
 
@@ -1916,22 +1996,44 @@ void decompress_textures(ExotiqueInterface *ei) {
             mip_texture(ei, tex_buf, mip_tex_buf, width);
             int mip_width = width>>1;
             int mip_height = height>>1;
-            mip_tex_buf[(mip_height-2)*mip_width+mip_width-2] = BLUE;
-            mip_tex_buf[(mip_height-2)*mip_width+mip_width-1] = BLUE;
-            mip_tex_buf[(mip_height-1)*mip_width+mip_width-2] = BLUE;
-            mip_tex_buf[(mip_height-1)*mip_width+mip_width-1] = BLUE;
+            mip_tex_buf[(mip_height-2)*mip_width+mip_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_tex_buf[(mip_height-2)*mip_width+mip_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_tex_buf[(mip_height-1)*mip_width+mip_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_tex_buf[(mip_height-1)*mip_width+mip_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
             mip_texture(ei, mip_tex_buf, mip_2_tex_buf, mip_width);
             int mip2_width = mip_width>>1;
             int mip2_height = mip_height>>1;
-            mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-2] = BLUE;
-            mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-1] = BLUE;
-            mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-2] = BLUE;
-            mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-1] = BLUE;
+            mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
+            
+            mip_texture(ei, mip_2_tex_buf, mip_3_tex_buf, mip2_width);
+            int mip3_width = mip2_width>>1;
+            int mip3_height = mip2_height>>1;
+            //for(int idx = 0; idx < mip3_height*mip3_width; idx++) {
+                //mip_3_tex_buf[idx] = light_remap_table[NUM_SHADES-1][RED];
+            //}
+            mip_3_tex_buf[(mip3_height-2)*mip3_width+mip3_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_3_tex_buf[(mip3_height-2)*mip3_width+mip3_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_3_tex_buf[(mip3_height-1)*mip3_width+mip3_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+            mip_3_tex_buf[(mip3_height-1)*mip3_width+mip3_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+
+            //mip_texture(ei, mip_3_tex_buf, mip_4_tex_buf, mip3_width);
+            //int mip4_width = mip3_width>>1;
+            //int mip4_height = mip3_height>>1;
+            //for(int idx = 0; idx < mip3_height*mip3_width; idx++) {
+                //mip_3_tex_buf[idx] = light_remap_table[NUM_SHADES-1][RED];
+            //}
+            //mip_4_tex_buf[(mip4_height-2)*mip4_width+mip4_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+            //mip_4_tex_buf[(mip4_height-2)*mip4_width+mip4_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+            //mip_4_tex_buf[(mip4_height-1)*mip4_width+mip4_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+            //mip_4_tex_buf[(mip4_height-1)*mip4_width+mip4_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
         }
-        tex_buf[(height-1)*height+width-1] = BLUE; //(y >= 504) ? GOLD : (y >= 496) ? WHITE : BLACK;
+        tex_buf[(height-1)*height+width-1] = light_remap_table[NUM_SHADES-1][BLUE]; //(y >= 504) ? GOLD : (y >= 496) ? WHITE : BLACK;
     }
 
 
@@ -2052,7 +2154,41 @@ void reset_game(ExotiqueInterface *ei) {
     game_board.west_hand = init_empty_hand();
 }
 
-u8 mix_table[256][256];
+u8 mix_table[256*256];
+
+void output_palette(ExotiqueInterface *ei) {
+
+
+    // P6 binary PPM header
+    exotique_printf("P3\n16 16\n255\n");
+
+    for (int i = 0; i < 256; i++) {
+        //uint8_t rgb[3];
+        u32 rgba = ei->palette[i];
+        exotique_printf("%i %i %i\n", (rgba>>24)&0xFF, (rgba>>16)&0xFF, (rgba>>8)&0xFF);
+        // Example palette:
+        // 3 bits red, 3 bits green, 2 bits blue
+        //rgb[0] = ((i >> 5) & 0x07) * 255 / 7;
+        //rgb[1] = ((i >> 2) & 0x07) * 255 / 7;
+        //rgb[2] = ( i       & 0x03) * 255 / 3;
+
+        //fwrite(rgb, 1, 3, f);
+    }
+}
+
+void output_full_light_remap_table(ExotiqueInterface *ei) {
+    // for each color, output NUM_SHADES
+    // y index will be color
+    exotique_printf("P3\n256 %i\n255\n", NUM_SHADES);
+    for(int j = 0; j < NUM_SHADES; j++) {
+        for(int i = 0; i < 256; i++) {
+            u8 idx = full_light_remap_table[j][i];
+            u32 rgba = ei->palette[idx];
+            exotique_printf("%i %i %i\n", (rgba>>24)&0xFF, (rgba>>16)&0xFF, (rgba>>8)&0xFF);
+
+        }
+    }
+}
 
 void game_load(ExotiqueInterface* ei) {
     reset_game(ei);
@@ -2068,6 +2204,7 @@ void game_load(ExotiqueInterface* ei) {
         f32 scale = lerp(1.0f/(f32)NUM_SHADES, (f32)NUM_SHADES/(f32)NUM_SHADES, (f32)shade/(f32)NUM_SHADES);
         for(i = 0; i < NUM_BASE_COLORS; i++) {
             if(i == 0) {
+                // if the color is black, always point to the same palette index
                 ei->palette[0] = 0x000000FF;
                 light_remap_table[shade][i] = 0;
             } else {
@@ -2094,17 +2231,35 @@ void game_load(ExotiqueInterface* ei) {
             }
         }
     }
-    int num_bkgd_pal_entries = sizeof(palette_background)/sizeof(u32);
 
+
+    // load background texture entries into palette
+    int num_bkgd_pal_entries = sizeof(palette_background)/sizeof(u32);
 
     for(i = 0; i < num_bkgd_pal_entries; i++) {
         u32 pal_entry = (palette_background[i]<<8)|0xFF;
         ei->palette[last_used_pal_idx+i+1] = pal_entry;
     }
+    // the background uses it's own internal palette exported by GIMP
     for(i = 0; i < BACKGROUND_TEX_HEIGHT*BACKGROUND_TEX_WIDTH; i++) {
         texture_background[i] = (u8) (texture_background[i] + (last_used_pal_idx+1));
     }
+
+    
+    for(int shade = 0; shade < NUM_SHADES; shade++) {
+        for(int p = 0; p < 256; p++) {
+            vert3f rgba = rgba_to_f32_rgb(ei->palette[p]);
+            f32 scale = lerp(1.0f/(f32)NUM_SHADES, (f32)NUM_SHADES/(f32)NUM_SHADES, (f32)shade/(f32)NUM_SHADES);
+            rgba = scale_vert3(rgba, scale);
+            full_light_remap_table[shade][p] = closest_overall_color_idx(ei, rgba);
+        }
+    }
+    //output_full_light_remap_table(ei);
+    //output_palette(ei);
     decompress_textures(ei);
+
+    texture_board[0] = light_remap_table[NUM_SHADES-1][GREEN];
+    
 
     init_tiles();
 
@@ -2114,17 +2269,16 @@ void game_load(ExotiqueInterface* ei) {
         vert3f c1 = rgba_to_f32_rgb(ei->palette[i]);
         for(int j = 0; j < 256; j++) {
             if(i == j) {
-                mix_table[i][j] = (u8)i;
+                mix_table[(i<<8)|j] = (u8)i;
             } else {
                 vert3f c2 = rgba_to_f32_rgb(ei->palette[j]);
                 vert3f avg = scale_vert3(add_vert3(c1, c2), 0.5f);
-                mix_table[i][j] = closest_overall_color_idx(
+                mix_table[(i<<8)|j] = closest_overall_color_idx(
                     ei, avg
                 );
             }
         }
     }
-    //game_board.deadwall.rem -= (13*4);
 }
 
 //#define NUM_SHUFFLE_FRAMES 136*2
@@ -2229,7 +2383,7 @@ void discard_current_tile(int player) {
     }
     cur_player_hand->num_closed_tiles--;
     sort_hand(cur_player_hand);
-    exotique_printf("player %i discarding down to %i\n", player, cur_player_hand->num_closed_tiles);
+    //exotique_printf("player %i discarding down to %i\n", player, cur_player_hand->num_closed_tiles);
 }
 
 void draw_next_tile(u32 cur_frame, int player) {
@@ -2244,10 +2398,10 @@ void draw_next_tile(u32 cur_frame, int player) {
     cur_player_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
     cur_player_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
     cur_player_hand->tiles[cur_num_tiles] = game_board.board_wall.tiles[game_board.board_wall.rem];
-    exotique_printf("player %i drawing up to %i\n", player, cur_player_hand->num_closed_tiles);
-    if(cur_num_tiles > 14) {
-        exotique_printf("WhoaTT!!\n");
-    }
+    //exotique_printf("player %i drawing up to %i\n", player, cur_player_hand->num_closed_tiles);
+    //if(cur_num_tiles > 14) {
+        //exotique_printf("WhoaTT!!\n");
+    //}
 }
 
 f32 wall_offsets_x[4] = {15.0f, 0.0f, -15.0f, 0.0f};
@@ -2285,7 +2439,7 @@ void game_update(ExotiqueInterface* ei) {
     } else if (ei->input->down) {
         camera_rot_x -= 0.0005f * (f32)ms_per_frame;
     }
-    camera_rot_x = CLAMP(camera_rot_x, -0.0f, 1.0f);
+    camera_rot_x = CLAMP(camera_rot_x, -0.0f, 1.568f);
     //f32 rot_x_portion = camera_rot_x/1.0f;
     f32 lerped_cam_dist = lerp(camera_radius, camera_radius_top, camera_rot_x);
     //f32 abs_cam_rot_y = (f32)((cur_player+1)%4) * 1.57f + camera_rot_y;
@@ -2396,7 +2550,7 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
     (void)ei; (void)zbuffer;
     u32 i;
     u32 num_tris = t->num_triangles;
-    u32 num_trivial_tris = t->num_trivial_triangles;
+    //u32 num_trivial_tris = t->num_trivial_triangles;
 
     int base_x = t->start_x;
     int base_y = t->start_y;
@@ -2408,21 +2562,28 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
         int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
         for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
 
+            //
+            //
+            //
+            //
             int global_x = (base_x + x);
             f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
             int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
-            zbuf[y*RENDER_TILE_SIZE+x] = 1.0f/FAR_Z;
-            zbuf[y*RENDER_TILE_SIZE+x+1] = 1.0f/FAR_Z;
-            zbuf[(y+1)*RENDER_TILE_SIZE+x] = 1.0f/FAR_Z;
-            zbuf[(y+1)*RENDER_TILE_SIZE+x+1] = 1.0f/FAR_Z;
-            zbuf[y*RENDER_TILE_SIZE+x] = 1.0f/FAR_Z;
+            zbuf[TILE_IDX(x,y)] = 1.0f/FAR_Z;
+            zbuf[TILE_IDX(x+1,y)] = 1.0f/FAR_Z;
+            zbuf[TILE_IDX(x,y+1)] = 1.0f/FAR_Z;
+            zbuf[TILE_IDX(x+1,y+1)] = 1.0f/FAR_Z;
             u8 bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
             
 
-            render_target[y*RENDER_TILE_SIZE+x] = bkgd_idx;
-            render_target[y*RENDER_TILE_SIZE+x+1] = bkgd_idx;
-            render_target[(y+1)*RENDER_TILE_SIZE+x] = bkgd_idx;
-            render_target[(y+1)*RENDER_TILE_SIZE+x+1] = bkgd_idx;
+            render_target[TILE_IDX(x,y)] = bkgd_idx;
+            render_target[TILE_IDX(x+1,y)] = bkgd_idx;
+            render_target[TILE_IDX(x, y+1)] = bkgd_idx;
+            render_target[TILE_IDX(x+1,y+1)] = bkgd_idx;
+            //render_target[y*RENDER_TILE_SIZE+x] = bkgd_idx;
+            //render_target[y*RENDER_TILE_SIZE+x+1] = bkgd_idx;
+            //render_target[(y+1)*RENDER_TILE_SIZE+x] = bkgd_idx;
+            //render_target[(y+1)*RENDER_TILE_SIZE+x+1] = bkgd_idx;
         }
     }
 
@@ -2441,46 +2602,63 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
     */
    
     int drew_pix = 0;
-    for(i = 0; i < num_trivial_tris; i++) {
-        u32 global_tri_idx = t->trivial_tri_indexes[i];
-        drew_pix = trivial_triangle(
-            ei,
-            zbuffer,
-            &global_tri_buffer[global_tri_idx],
-            &textures[global_tri_buffer[global_tri_idx].tex],
-            t->start_x, t->start_x+RENDER_TILE_SIZE,
-            t->start_y, t->start_y+RENDER_TILE_SIZE
-        );
-    }
+    //for(i = 0; i < num_trivial_tris; i++) {
+    //    u32 global_tri_idx = t->trivial_tri_indexes[i];
+    //    drew_pix = trivial_triangle(
+    //        ei,
+    //        zbuffer,
+    //        &global_tri_buffer[global_tri_idx],
+    //        &textures[global_tri_buffer[global_tri_idx].tex],
+    //        t->start_x, t->start_x+RENDER_TILE_SIZE,
+    //        t->start_y, t->start_y+RENDER_TILE_SIZE
+    //    );
+    //}
 
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tri_indexes[i];
-        drew_pix = triangle(
-            ei,
-            zbuffer,
-            &global_tri_buffer[global_tri_idx],
-            &textures[global_tri_buffer[global_tri_idx].tex],
-            t->start_x, t->start_x+RENDER_TILE_SIZE,
-            t->start_y, t->start_y+RENDER_TILE_SIZE
-        );
+        //if(ei->input->y) {
+            drew_pix = triangle_block(
+                ei,
+                zbuffer,
+                &global_tri_buffer[global_tri_idx],
+                &textures[global_tri_buffer[global_tri_idx].tex],
+                t->start_x, t->start_x+RENDER_TILE_SIZE,
+                t->start_y, t->start_y+RENDER_TILE_SIZE
+            );
+        //} else {
+        //    drew_pix = triangle(
+        //        ei,
+        //        zbuffer,
+        //        &global_tri_buffer[global_tri_idx],
+        //        &textures[global_tri_buffer[global_tri_idx].tex],
+        //        t->start_x, t->start_x+RENDER_TILE_SIZE,
+        //        t->start_y, t->start_y+RENDER_TILE_SIZE
+        //    );
+        //}
     }   
     t->z_dirty = t->z_dirty || drew_pix;
 
+
     /* flush tile to output */
+    u32 *col_val_ptr = __builtin_assume_aligned(&render_target[0], 4);
     for(int y = 0; y < RENDER_TILE_SIZE; y+=2) {
+        int output_y = (base_y+y)>>1;
+
+        u8* output_row = &ei->screen[output_y*kScreenWidth+ (base_x>>1)];
+
+        //int tile_idx = (y&~1)*RENDER_TILE_SIZE;
         for(int x = 0; x < RENDER_TILE_SIZE; x+=2) {
-            u8 tl = render_target[y*RENDER_TILE_SIZE+x];
-            u8 tr = render_target[y*RENDER_TILE_SIZE+x+1];
-            u8 bl = render_target[(y+1)*RENDER_TILE_SIZE+x];
-            u8 br = render_target[(y+1)*RENDER_TILE_SIZE+x+1];
-            u8 mixt = mix_table[tl][tr];
-            u8 mixb = mix_table[bl][br];
-            u8 mix = mix_table[mixt][mixb];
-            int output_y = (base_y+y)>>1;
-            int output_x = (base_x+x)>>1;
-            ei->screen[output_y*kScreenWidth+output_x] = mix;
+            u32 colors = *col_val_ptr++;
+            u16 top_two = (u16)(colors>>16);
+            u16 bot_two = (u16)colors;
+            u8 mixt = mix_table[top_two];
+            u8 mixb = mix_table[bot_two];
+            u8 mix = mix_table[(mixt<<8)|mixb];
+            
+            *output_row++ = mix;
         }
     }
+    
 
     if(draw_mode == TILE_DRAW) {
         for(int cnt = 0; cnt < RENDER_TILE_SIZE; cnt++) {
@@ -2633,12 +2811,12 @@ void bin_triangle(
     vert2f *v0_uv,
     vert2f *v1_uv,
     vert2f *v2_uv,
-    vert3f *v0_norm,
-    vert3f *v1_norm,
-    vert3f *v2_norm,
+    //vert3f *v0_norm,
+    //vert3f *v1_norm,
+    //vert3f *v2_norm,
     f32 c0,
-    f32 c1,
-    f32 c2,
+    //f32 c1,
+    //f32 c2,
     u8 texture_id) {
 
         if(total_triangles == MAX_GLOBAL_TRIS) {
@@ -2697,7 +2875,6 @@ void bin_triangle(
                     rasterized_at_least_once = 1;
                     tiles[y*TILES_WIDE+x].tri_indexes[num_tris_in_tile++] = total_triangles;
                     tiles[y*TILES_WIDE+x].num_triangles = num_tris_in_tile;
-
                 }
                
                 
@@ -2722,18 +2899,80 @@ void bin_triangle(
         }
         if(rasterized_at_least_once) {
             triangles_rasterized += 1;
-            global_tri_buffer[total_triangles].proj_v0 = *v0;
-            global_tri_buffer[total_triangles].proj_v1 = *v1;
-            global_tri_buffer[total_triangles].proj_v2 = *v2;
-            global_tri_buffer[total_triangles].c0 = c0;
-            global_tri_buffer[total_triangles].c1 = c1;
-            global_tri_buffer[total_triangles].c2 = c2;
-            global_tri_buffer[total_triangles].uv0 = *v0_uv;
-            global_tri_buffer[total_triangles].uv1 = *v1_uv;
-            global_tri_buffer[total_triangles].uv2 = *v2_uv;
-            global_tri_buffer[total_triangles].nv0 = *v0_norm;
-            global_tri_buffer[total_triangles].nv1 = *v1_norm;
-            global_tri_buffer[total_triangles].nv2 = *v2_norm;
+            vert2i proj_v0 = {(i32)(v0->x*16.0f),(i32)(v0->y*16.0f)};
+            vert2i proj_v1 = {(i32)(v1->x*16.0f),(i32)(v1->y*16.0f)};
+            vert2i proj_v2 = {(i32)(v2->x*16.0f),(i32)(v2->y*16.0f)};
+            
+            vert2f uv0 = *v0_uv;
+            vert2f uv1 = *v1_uv;
+            vert2f uv2 = *v2_uv;
+            //f32 inv_z0 = 1.0f/v0->z;
+            //f32 inv_z1 = 1.0f/v1->z;
+            //f32 inv_z2 = 1.0f/v2->z;
+            vert2f uv0_over_z = {uv0.x * inv_z0, uv0.y * inv_z0};
+            vert2f uv1_over_z = {uv1.x * inv_z1, uv1.y * inv_z1};
+            vert2f uv2_over_z = {uv2.x * inv_z2, uv2.y * inv_z2};
+
+            
+            //i32 minx = MIN(proj_v0.x, MIN(proj_v1.x, proj_v2.x));
+            //i32 maxx = MAX(proj_v0.x, MAX(proj_v1.x, proj_v2.x));
+            //i32 miny = MIN(proj_v0.y, MIN(proj_v1.y, proj_v2.y)); 
+            //i32 maxy = MAX(proj_v0.y, MAX(proj_v1.y, proj_v2.y));
+            f32 pix_dx = (maxx-minx);//>>4;
+            f32 pix_dy = (maxy-miny);//>>4;
+            f32 dpix = MAX(1.0f, MIN(pix_dx, pix_dy));
+            f32 maxu = MAX(uv0.x, MAX(uv1.x, uv2.x));
+            f32 maxv = MAX(uv0.y, MAX(uv1.y, uv2.y));
+            f32 minu = MIN(uv0.x, MIN(uv1.x, uv2.x));
+            f32 minv = MIN(uv0.y, MIN(uv1.y, uv2.y));
+            f32 biggest_duv = MAX(absf(maxu-minu), absf(maxv-minv));
+            int tex_width = textures[texture_id].width;
+            f32 duv_per_pix = (biggest_duv*(f32)tex_width)/dpix;
+            u8 mip_level = 0;
+
+            if(tex_width > 1 && duv_per_pix > 1.0f) { // 3
+                //texels = tex->mip_texels;
+                mip_level = 1;
+                //tex_width >>= MIP_SHIFT;
+                //tex_height >>= MIP_SHIFT; 
+                if(duv_per_pix > 2.0f) { // 6
+                    //texels = tex->mip_2_texels;
+                    mip_level = 2;
+                    //tex_width >>= 1;
+                    //tex_height >>= 1;
+                    if(duv_per_pix > 4.0f) { // 12
+                        //texels = tex->mip_3_texels;
+                        mip_level = 3;
+                        //tex_width >>= 1;
+                        //tex_height >>= 1;
+                        //if(duv_per_pix > 8.0f) {
+                        //    texels = tex->mip_4_texels;
+                        //    tex_width >>= 1;
+                        //    tex_height >>= 1;
+                        //}
+                    }
+                }
+            }
+
+            
+            global_tri_buffer[total_triangles].proj_v0 = proj_v0;
+            global_tri_buffer[total_triangles].proj_v1 = proj_v1;
+            global_tri_buffer[total_triangles].proj_v2 = proj_v2;
+            
+            f32 diffuse = CLAMP(c0, 0.0f, 1.0f);
+            u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
+            global_tri_buffer[total_triangles].c0 = quantized_brightness;
+            global_tri_buffer[total_triangles].mip_level = mip_level;
+            //global_tri_buffer[total_triangles].c1 = c1;
+            //global_tri_buffer[total_triangles].c2 = c2;
+
+            global_tri_buffer[total_triangles].uv0_over_z = uv0_over_z;
+            global_tri_buffer[total_triangles].uv1_over_z = uv1_over_z;
+            global_tri_buffer[total_triangles].uv2_over_z = uv2_over_z;
+            
+            //global_tri_buffer[total_triangles].nv0 = *v0_norm;
+            //global_tri_buffer[total_triangles].nv1 = *v1_norm;
+            //global_tri_buffer[total_triangles].nv2 = *v2_norm;
             global_tri_buffer[total_triangles].inv_z0 = inv_z0;
             global_tri_buffer[total_triangles].inv_z1 = inv_z1;
             global_tri_buffer[total_triangles].inv_z2 = inv_z2;
@@ -2797,13 +3036,13 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
 
         // Rotate normals into world space (not view)
         vert3f rn0 = mat_mul_normal(model_to_world, &n0);
-        vert3f rn1 = mat_mul_normal(model_to_world, &n1);
-        vert3f rn2 = mat_mul_normal(model_to_world, &n2);
+        //vert3f rn1 = mat_mul_normal(model_to_world, &n1);
+        //vert3f rn2 = mat_mul_normal(model_to_world, &n2);
 
         vert3f avg_norm = normalize(scale_vert3(add_vert3(add_vert3(n0, n1), n2), 1.0f/3.0f));
         f32 l0 = dot(normalize(rn0), light);
-        f32 l1 = dot(normalize(rn1), light);
-        f32 l2 = dot(normalize(rn2), light);
+        //f32 l1 = dot(normalize(rn1), light);
+        //f32 l2 = dot(normalize(rn2), light);
 
         
         float hemi = avg_norm.y * 0.5f + 0.5f;
@@ -2815,18 +3054,18 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
         //l2 = ambient;// * (1.0f - ambient);
         if(cur_shader == UNLIT) {
             l0 = ambient;
-            l1 = ambient;
-            l2 = ambient;
+            //l1 = ambient;
+            //l2 = ambient;
         } else {
-            l0 += ambient;
-            l1 += ambient;
-            l2 += ambient;
+            l0 = l0 + ambient;
+            //l1 = l1 + ambient;
+            //l2 = l2 + ambient;
         }
 
 
         f32 c0 = CLAMP(l0, 0.0f, 1.0f);
-        f32 c1 = CLAMP(l1, 0.0f, 1.0f);
-        f32 c2 = CLAMP(l2, 0.0f, 1.0f);
+        //f32 c1 = CLAMP(l1, 0.0f, 1.0f);
+        //f32 c2 = CLAMP(l2, 0.0f, 1.0f);
 
         //
         // Perspective projection.
@@ -2843,10 +3082,10 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
             //ei,
             &s0, &s1, &s2,
             &ov0.uv, &ov1.uv, &ov2.uv,
-            &rn0, &rn1, &rn2,
+            //&rn0, &rn1, &rn2,
             c0,
-            c1,
-            c2,
+            //c1,
+            //c2,
             texture_id
         );
     }
@@ -2884,7 +3123,7 @@ void sort_draw_calls_near_to_far(mesh_draw_call *list, int num_meshes) {
         }
     }
     */
-    exotique_printf("sorted\n");
+    //exotique_printf("sorted\n");
     
 }
 

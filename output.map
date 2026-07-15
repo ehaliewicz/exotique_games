@@ -680,13 +680,13 @@ LOAD C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/crtend.o
                 [!provide]                        PROVIDE (etext = .)
  *(.gcc_except_table)
 
-.data           0x0000000140011000    0x86e00
+.data           0x0000000140011000    0x86a00
                 0x0000000140011000                __data_start__ = .
  *(.data)
  .data          0x0000000140011000        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/crt2.o
  .data          0x0000000140011000        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/crtbegin.o
  .data          0x0000000140011000        0x0 exotique.o
- .data          0x0000000140011000    0x86c40 mahjong.o
+ .data          0x0000000140011000    0x86840 mahjong.o
                 0x0000000140011000                wall_rots_y
                 0x0000000140011010                wall_offsets_z
                 0x0000000140011020                wall_offsets_x
@@ -694,162 +694,162 @@ LOAD C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/crtend.o
                 0x0000000140011350                texture_board
                 0x0000000140011360                comp_tex_two_sou
                 0x0000000140011380                comp_tex_two_sou_packets
-                0x0000000140011f20                comp_tex_seven_man
-                0x0000000140011f40                comp_tex_seven_man_packets
-                0x00000001400128b0                comp_tex_five_man
-                0x00000001400128c0                comp_tex_five_man_packets
-                0x00000001400134c0                comp_tex_eight_pin
-                0x00000001400134e0                comp_tex_eight_pin_packets
-                0x0000000140015ec0                comp_tex_two_pin
-                0x0000000140015ee0                comp_tex_two_pin_packets
-                0x00000001400170c0                comp_tex_west
-                0x00000001400170e0                comp_tex_west_packets
-                0x0000000140017a70                comp_tex_south
-                0x0000000140017a80                comp_tex_south_packets
-                0x00000001400183f0                comp_tex_east
-                0x0000000140018400                comp_tex_east_packets
-                0x0000000140018ca0                comp_tex_north
-                0x0000000140018cc0                comp_tex_north_packets
-                0x0000000140019420                comp_tex_white_dragon
-                0x0000000140019430                comp_tex_white_dragon_packets
-                0x0000000140019450                comp_tex_red_dragon
-                0x0000000140019460                comp_tex_red_dragon_packets
-                0x0000000140019af0                comp_tex_green_dragon
-                0x0000000140019b00                comp_tex_green_dragon_packets
-                0x000000014001a620                texture_background
-                0x000000014007fa34                trivial_reject_enabled
-                0x000000014007fa38                hi_z_enabled
-                0x000000014007fa40                light
-                0x000000014007fa4c                camera_radius_top
-                0x000000014007fa50                camera_radius
-                0x000000014007fa54                camera_rot_x
-                0x000000014007fa60                board_mesh
-                0x000000014007fa80                tile_mesh
-                0x000000014007faa0                palette_background
-                0x000000014007fca0                palette
-                0x00000001400800a0                board_indexes
-                0x00000001400890a0                board_vertexes
-                0x0000000140096960                mahjong_tile_indexes
-                0x0000000140096c40                mahjong_tile_vertexes
- .data          0x0000000140097c40       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-gccmain.o)
- .data          0x0000000140097c50       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-natstart.o)
-                0x0000000140097c50                __native_vcclrit_reason
-                0x0000000140097c54                __native_dllmain_reason
- .data          0x0000000140097c60       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-wildcard.o)
-                0x0000000140097c60                _dowildcard
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-dllargv.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-_newmode.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-tlssup.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-xncommod.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-cinitexe.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-merr.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-CRT_fp10.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-mingw_helpers.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-pseudo-reloc.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-usermatherr.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-xtxtmode.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-crt_handler.o)
- .data          0x0000000140097c70        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-tlsthrd.o)
- .data          0x0000000140097c70       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-tlsmcrt.o)
-                0x0000000140097c70                _CRT_MT
- .data          0x0000000140097c80        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-pseudo-reloc-list.o)
- .data          0x0000000140097c80        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-pesect.o)
- .data          0x0000000140097c80        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/libgcc.a(_chkstk_ms.o)
- .data          0x0000000140097c80        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/libgcc.a(_ctors.o)
- .data          0x0000000140097c80       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingwex.a(lib64_libmingwex_a-mingw_matherr.o)
-                0x0000000140097c80                _MINGW_INSTALL_DEBUG_MATHERR
- .data          0x0000000140097c90       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-ucrt_vprintf.o)
-                0x0000000140097c90                __imp_vprintf
- .data          0x0000000140097ca0       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-ucrt_vfprintf.o)
-                0x0000000140097ca0                __imp_vfprintf
- .data          0x0000000140097cb0       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-ucrt_fprintf.o)
-                0x0000000140097cb0                __imp_fprintf
- .data          0x0000000140097cc0       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-__initenv.o)
-                0x0000000140097cc0                __imp___winitenv
-                0x0000000140097cc8                __imp___initenv
- .data          0x0000000140097cd0       0x80 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-ucrtbase_compat.o)
-                0x0000000140097cd0                __imp___ms_fwprintf
-                0x0000000140097cd8                __imp_tzset
-                0x0000000140097ce0                __imp__get_output_format
-                0x0000000140097ce8                __imp__amsg_exit
-                0x0000000140097cf0                __imp___wgetmainargs
-                0x0000000140097cf8                __imp___getmainargs
-                0x0000000140097d00                __imp_daylight
-                0x0000000140097d08                __imp_timezone
-                0x0000000140097d10                __imp_tzname
-                0x0000000140097d38                __imp_at_quick_exit
-                0x0000000140097d40                __imp__onexit
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0s00008.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0s00010.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0s00011.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0s00058.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-string-l1-1-0s00167.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-string-l1-1-0s00170.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-string-l1-1-0h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-string-l1-1-0t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00000.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00001.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00002.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00003.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00007.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00168.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00004.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00005.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00006.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00022.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00024.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00025.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00029.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00030.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00036.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00053.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00055.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00056.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00068.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00074.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00087.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00088.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00102.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-private-l1-1-0s00015.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-private-l1-1-0s01143.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-private-l1-1-0h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-private-l1-1-0t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-math-l1-1-0s00009.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-math-l1-1-0h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-math-l1-1-0t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0s00023.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0s00024.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0s00025.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0s00026.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-environment-l1-1-0s00000.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-environment-l1-1-0s00001.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-environment-l1-1-0h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-environment-l1-1-0t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01490.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01488.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01441.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01406.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01390.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00981.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00889.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00627.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00316.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00280.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32h.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32t.o)
- .data          0x0000000140097d50        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/crtend.o
+                0x0000000140011b30                comp_tex_seven_man
+                0x0000000140011b40                comp_tex_seven_man_packets
+                0x00000001400124b0                comp_tex_five_man
+                0x00000001400124c0                comp_tex_five_man_packets
+                0x00000001400130c0                comp_tex_eight_pin
+                0x00000001400130e0                comp_tex_eight_pin_packets
+                0x0000000140015ac0                comp_tex_two_pin
+                0x0000000140015ae0                comp_tex_two_pin_packets
+                0x0000000140016cc0                comp_tex_west
+                0x0000000140016ce0                comp_tex_west_packets
+                0x0000000140017670                comp_tex_south
+                0x0000000140017680                comp_tex_south_packets
+                0x0000000140017ff0                comp_tex_east
+                0x0000000140018000                comp_tex_east_packets
+                0x00000001400188a0                comp_tex_north
+                0x00000001400188c0                comp_tex_north_packets
+                0x0000000140019020                comp_tex_white_dragon
+                0x0000000140019030                comp_tex_white_dragon_packets
+                0x0000000140019050                comp_tex_red_dragon
+                0x0000000140019060                comp_tex_red_dragon_packets
+                0x00000001400196f0                comp_tex_green_dragon
+                0x0000000140019700                comp_tex_green_dragon_packets
+                0x000000014001a220                texture_background
+                0x000000014007f634                trivial_reject_enabled
+                0x000000014007f638                hi_z_enabled
+                0x000000014007f640                light
+                0x000000014007f64c                camera_radius_top
+                0x000000014007f650                camera_radius
+                0x000000014007f654                camera_rot_x
+                0x000000014007f660                board_mesh
+                0x000000014007f680                tile_mesh
+                0x000000014007f6a0                palette_background
+                0x000000014007f8a0                palette
+                0x000000014007fca0                board_indexes
+                0x0000000140088ca0                board_vertexes
+                0x0000000140096560                mahjong_tile_indexes
+                0x0000000140096840                mahjong_tile_vertexes
+ .data          0x0000000140097840       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-gccmain.o)
+ .data          0x0000000140097850       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-natstart.o)
+                0x0000000140097850                __native_vcclrit_reason
+                0x0000000140097854                __native_dllmain_reason
+ .data          0x0000000140097860       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-wildcard.o)
+                0x0000000140097860                _dowildcard
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-dllargv.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-_newmode.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-tlssup.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-xncommod.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-cinitexe.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-merr.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-CRT_fp10.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-mingw_helpers.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-pseudo-reloc.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-usermatherr.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-xtxtmode.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-crt_handler.o)
+ .data          0x0000000140097870        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-tlsthrd.o)
+ .data          0x0000000140097870       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-tlsmcrt.o)
+                0x0000000140097870                _CRT_MT
+ .data          0x0000000140097880        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-pseudo-reloc-list.o)
+ .data          0x0000000140097880        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingw32.a(lib64_libmingw32_a-pesect.o)
+ .data          0x0000000140097880        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/libgcc.a(_chkstk_ms.o)
+ .data          0x0000000140097880        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/libgcc.a(_ctors.o)
+ .data          0x0000000140097880       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmingwex.a(lib64_libmingwex_a-mingw_matherr.o)
+                0x0000000140097880                _MINGW_INSTALL_DEBUG_MATHERR
+ .data          0x0000000140097890       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-ucrt_vprintf.o)
+                0x0000000140097890                __imp_vprintf
+ .data          0x00000001400978a0       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-ucrt_vfprintf.o)
+                0x00000001400978a0                __imp_vfprintf
+ .data          0x00000001400978b0       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-ucrt_fprintf.o)
+                0x00000001400978b0                __imp_fprintf
+ .data          0x00000001400978c0       0x10 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-__initenv.o)
+                0x00000001400978c0                __imp___winitenv
+                0x00000001400978c8                __imp___initenv
+ .data          0x00000001400978d0       0x80 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(lib64_libucrt_extra_a-ucrtbase_compat.o)
+                0x00000001400978d0                __imp___ms_fwprintf
+                0x00000001400978d8                __imp_tzset
+                0x00000001400978e0                __imp__get_output_format
+                0x00000001400978e8                __imp__amsg_exit
+                0x00000001400978f0                __imp___wgetmainargs
+                0x00000001400978f8                __imp___getmainargs
+                0x0000000140097900                __imp_daylight
+                0x0000000140097908                __imp_timezone
+                0x0000000140097910                __imp_tzname
+                0x0000000140097938                __imp_at_quick_exit
+                0x0000000140097940                __imp__onexit
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0s00008.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0s00010.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0s00011.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0s00058.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-time-l1-1-0t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-string-l1-1-0s00167.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-string-l1-1-0s00170.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-string-l1-1-0h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-string-l1-1-0t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00000.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00001.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00002.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00003.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00007.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0s00168.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-stdio-l1-1-0t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00004.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00005.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00006.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00022.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00024.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00025.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00029.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00030.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00036.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00053.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00055.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00056.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00068.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00074.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00087.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00088.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0s00102.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-runtime-l1-1-0t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-private-l1-1-0s00015.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-private-l1-1-0s01143.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-private-l1-1-0h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-private-l1-1-0t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-math-l1-1-0s00009.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-math-l1-1-0h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-math-l1-1-0t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0s00023.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0s00024.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0s00025.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0s00026.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-heap-l1-1-0t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-environment-l1-1-0s00000.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-environment-l1-1-0s00001.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-environment-l1-1-0h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libmsvcrt.a(libapi-ms-win-crt-environment-l1-1-0t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01490.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01488.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01441.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01406.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s01390.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00981.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00889.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00627.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00316.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32s00280.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32h.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/../../../../lib/libkernel32.a(libkernel32t.o)
+ .data          0x0000000140097950        0x0 C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/crtend.o
  *(.data2)
  *(SORT_BY_NAME(.data$*))
  *(.jcr)
-                0x0000000140097d50                __data_end__ = .
+                0x0000000140097950                __data_end__ = .
  *(.data_cygwin_nocopy)
 
 .rdata          0x0000000140098000     0x1600
@@ -1768,7 +1768,7 @@ LOAD C:/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/13.1.0/crtend.o
 
 .reloc          0x0000000149ce4000      0x200
  *(.reloc)
- .reloc         0x0000000149ce4000      0x120 dll stuff
+ .reloc         0x0000000149ce4000      0x12c dll stuff
 
 .stab
  *(.stab)

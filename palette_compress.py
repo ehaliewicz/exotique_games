@@ -340,7 +340,7 @@ from PIL import Image
 import sys
 if __name__ == '__main__':
 
-    tex_name = "east" #sys.argv[1]
+    tex_name = sys.argv[1]
     img = Image.open("./models/mahjong_texture_{}_256.png".format(tex_name))
     (x,y) = img.size
     unique_colors_map = {}

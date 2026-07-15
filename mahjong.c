@@ -1,7 +1,8 @@
 #include "exotique.h"
 
-#define TILE_SIZE 32
-#define TILE_ROUND(x) ((x+TILE_SIZE-1)&(~31))
+#define OUTPUT_TILE_SIZE 32
+#define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
+#define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~31))
 #define OUTPUT_WIDTH TILE_ROUND(1280)
 #define OUTPUT_HEIGHT TILE_ROUND(720)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
@@ -10,11 +11,13 @@ const int kScreenWidth = OUTPUT_WIDTH;
 const int kScreenHeight = OUTPUT_HEIGHT;
 
 
-u8 render_target[RENDER_WIDTH*RENDER_HEIGHT];
-f32 zbuf[RENDER_WIDTH*RENDER_HEIGHT];
+//u8 render_target[RENDER_WIDTH*RENDER_HEIGHT];
+//f32 zbuf[RENDER_WIDTH*RENDER_HEIGHT];
+u8 render_target[RENDER_TILE_SIZE*2*RENDER_TILE_SIZE*2];
+f32 zbuf[RENDER_TILE_SIZE*2*RENDER_TILE_SIZE*2];
 
-#define TILES_WIDE (RENDER_WIDTH/TILE_SIZE)
-#define TILES_HIGH (RENDER_HEIGHT/TILE_SIZE)
+#define TILES_WIDE (RENDER_WIDTH/RENDER_TILE_SIZE)
+#define TILES_HIGH (RENDER_HEIGHT/RENDER_TILE_SIZE)
 
 
 
@@ -915,10 +918,10 @@ int triangle(
         i32 ex20 = ey20;
 
         //u8 *row = &ei->screen[y * kScreenWidth + minx];
-        u8 *row = &render_target[y*RENDER_WIDTH + minx];
+        u8 *row = &render_target[(y-start_y)*RENDER_TILE_SIZE + (minx-start_x)];
 
         //f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
-        f32 *zbuf_row = &zbuffer[y*RENDER_WIDTH + minx];
+        f32 *zbuf_row = &zbuffer[(y-start_y)*RENDER_TILE_SIZE + (minx-start_x)];
 
 
         for (i32 x = minx; x < maxx; x++) {
@@ -1450,8 +1453,8 @@ void init_tiles() {
         for(int x = 0; x < TILES_WIDE; x++) {
             tiles[y*TILES_WIDE+x].num_triangles = 0;
             tiles[y*TILES_WIDE+x].num_trivial_triangles = 0;
-            tiles[y*TILES_WIDE+x].start_y = y * TILE_SIZE;
-            tiles[y*TILES_WIDE+x].start_x = x * TILE_SIZE;
+            tiles[y*TILES_WIDE+x].start_y = y * RENDER_TILE_SIZE;
+            tiles[y*TILES_WIDE+x].start_x = x * RENDER_TILE_SIZE;
             tiles[y*TILES_WIDE+x].max_z = 1.0f/FAR_Z;
             tiles[y*TILES_WIDE+x].min_z = 1.0f/FAR_Z;
             tiles[y*TILES_WIDE+x].z_dirty = 0;
@@ -1480,7 +1483,7 @@ void reset_tile_hi_z() {
     }
 }
 
-
+/*
 void rebuild_hi_z() {
     for(int y = 0; y < TILES_HIGH; y++) {
         for(int x = 0; x < TILES_WIDE; x++) {
@@ -1509,7 +1512,7 @@ void rebuild_hi_z() {
         }
     }
 }
-
+*/
 
 typedef struct {
     f32 min_x, max_x;
@@ -2394,6 +2397,35 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
     u32 i;
     u32 num_tris = t->num_triangles;
     u32 num_trivial_tris = t->num_trivial_triangles;
+
+    int base_x = t->start_x;
+    int base_y = t->start_y;
+
+    /* clear zbuffer for this tile */
+    for(int y = 0; y < RENDER_TILE_SIZE; y += 2) {
+        int global_y = (base_y + y);
+        f32 y_portion = (f32)global_y / (f32)RENDER_HEIGHT;
+        int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
+        for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
+
+            int global_x = (base_x + x);
+            f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
+            int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
+            zbuf[y*RENDER_TILE_SIZE+x] = 1.0f/FAR_Z;
+            zbuf[y*RENDER_TILE_SIZE+x+1] = 1.0f/FAR_Z;
+            zbuf[(y+1)*RENDER_TILE_SIZE+x] = 1.0f/FAR_Z;
+            zbuf[(y+1)*RENDER_TILE_SIZE+x+1] = 1.0f/FAR_Z;
+            zbuf[y*RENDER_TILE_SIZE+x] = 1.0f/FAR_Z;
+            u8 bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
+            
+
+            render_target[y*RENDER_TILE_SIZE+x] = bkgd_idx;
+            render_target[y*RENDER_TILE_SIZE+x+1] = bkgd_idx;
+            render_target[(y+1)*RENDER_TILE_SIZE+x] = bkgd_idx;
+            render_target[(y+1)*RENDER_TILE_SIZE+x+1] = bkgd_idx;
+        }
+    }
+
     /*
     while(i < num_tris) {
         u32 j = i;
@@ -2416,8 +2448,8 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
             zbuffer,
             &global_tri_buffer[global_tri_idx],
             &textures[global_tri_buffer[global_tri_idx].tex],
-            t->start_x, t->start_x+TILE_SIZE,
-            t->start_y, t->start_y+TILE_SIZE
+            t->start_x, t->start_x+RENDER_TILE_SIZE,
+            t->start_y, t->start_y+RENDER_TILE_SIZE
         );
     }
 
@@ -2428,14 +2460,30 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
             zbuffer,
             &global_tri_buffer[global_tri_idx],
             &textures[global_tri_buffer[global_tri_idx].tex],
-            t->start_x, t->start_x+TILE_SIZE,
-            t->start_y, t->start_y+TILE_SIZE
+            t->start_x, t->start_x+RENDER_TILE_SIZE,
+            t->start_y, t->start_y+RENDER_TILE_SIZE
         );
     }   
     t->z_dirty = t->z_dirty || drew_pix;
 
+    /* flush tile to output */
+    for(int y = 0; y < RENDER_TILE_SIZE; y+=2) {
+        for(int x = 0; x < RENDER_TILE_SIZE; x+=2) {
+            u8 tl = render_target[y*RENDER_TILE_SIZE+x];
+            u8 tr = render_target[y*RENDER_TILE_SIZE+x+1];
+            u8 bl = render_target[(y+1)*RENDER_TILE_SIZE+x];
+            u8 br = render_target[(y+1)*RENDER_TILE_SIZE+x+1];
+            u8 mixt = mix_table[tl][tr];
+            u8 mixb = mix_table[bl][br];
+            u8 mix = mix_table[mixt][mixb];
+            int output_y = (base_y+y)>>1;
+            int output_x = (base_x+x)>>1;
+            ei->screen[output_y*kScreenWidth+output_x] = mix;
+        }
+    }
+
     if(draw_mode == TILE_DRAW) {
-        for(int cnt = 0; cnt < TILE_SIZE; cnt++) {
+        for(int cnt = 0; cnt < RENDER_TILE_SIZE; cnt++) {
             //ei->screen[(t->start_y+cnt)*kScreenWidth + t->start_x] = 0;
             //ei->screen[(t->start_y+cnt)*kScreenWidth + t->start_x+TILE_SIZE] = 0;
             //ei->screen[t->start_y*kScreenWidth + t->start_x+cnt] = 0;
@@ -2531,10 +2579,10 @@ trivial_res check_trivial_reject_accept(int tile_x, int tile_y, edge_prep tri_ed
     i32 dy1 = tri_edges.dyvals[1];
     i32 dy2 = tri_edges.dyvals[2];
 
-    i32 lx = (tile_x*TILE_SIZE) * 16;
-    i32 rx = ((tile_x*TILE_SIZE)+TILE_SIZE-1)*16;
-    i32 ty = (tile_y*TILE_SIZE) * 16;
-    i32 by = ((tile_y*TILE_SIZE)+TILE_SIZE-1)*16;
+    i32 lx = (tile_x*RENDER_TILE_SIZE) * 16;
+    i32 rx = ((tile_x*RENDER_TILE_SIZE)+RENDER_TILE_SIZE-1)*16;
+    i32 ty = (tile_y*RENDER_TILE_SIZE) * 16;
+    i32 by = ((tile_y*RENDER_TILE_SIZE)+RENDER_TILE_SIZE-1)*16;
     
     i32 top_left01 = c0 + dx0 * ty - dy0 * lx;
     i32 top_right01 = c0 + dx0 * ty - dy0 * rx;
@@ -2616,10 +2664,10 @@ void bin_triangle(
         i32 startY = CLAMP((int)fast_floor(miny), 0, RENDER_HEIGHT-1);
         i32 endY   = CLAMP((int)fast_ceil(maxy), 0, RENDER_HEIGHT-1);
 
-        int tile_start_x = startX / TILE_SIZE;
-        int tile_start_y = startY / TILE_SIZE;
-        int tile_end_x = endX / TILE_SIZE;
-        int tile_end_y = endY / TILE_SIZE;
+        int tile_start_x = startX / RENDER_TILE_SIZE;
+        int tile_start_y = startY / RENDER_TILE_SIZE;
+        int tile_end_x = endX / RENDER_TILE_SIZE;
+        int tile_end_y = endY / RENDER_TILE_SIZE;
 
         edge_prep tri_edges = calc_edges(v0, v1, v2);
 
@@ -3201,10 +3249,12 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
 void game_draw(ExotiqueInterface* ei) {
 
     //u8 color = 0;
+    /*
     for(int y = 0; y < RENDER_HEIGHT; y += 2) {
         f32 y_portion = (f32)y / (f32)RENDER_HEIGHT;
         int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
         for(int x = 0; x < RENDER_WIDTH; x += 2) {
+            continue;
 
             f32 x_portion = (f32)x/(f32)RENDER_WIDTH;
             int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
@@ -3223,6 +3273,7 @@ void game_draw(ExotiqueInterface* ei) {
 
         }
     }
+    */
     if(hi_z_enabled) {
         reset_tile_hi_z();
     }
@@ -3278,7 +3329,8 @@ void game_draw(ExotiqueInterface* ei) {
     triangles_rasterized = 0;
     triangles_hi_z_culled = 0;
 
-    for(int y = 0; y < RENDER_HEIGHT; y += 2) {
+    /*
+       for(int y = 0; y < RENDER_HEIGHT; y += 2) {
         for(int x = 0; x < RENDER_WIDTH; x += 2) {
             u8 tl = render_target[y*RENDER_WIDTH+x];
             u8 tr = render_target[y*RENDER_WIDTH+x+1];
@@ -3294,6 +3346,7 @@ void game_draw(ExotiqueInterface* ei) {
             //}
         }
     }
+        */
     
 
 

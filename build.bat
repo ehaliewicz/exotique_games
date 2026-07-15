@@ -49,7 +49,7 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c99 -O3 -ggdb -fno-strict-aliasing -nostdlib -nostdinc -nodefaultlibs -nolibc -ffreestanding ^
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -fno-strict-aliasing -nostdlib -nostdinc -nodefaultlibs -nolibc -ffreestanding ^
     -I ".." ^
     ^
     -D ARCH=%ARCH% ^

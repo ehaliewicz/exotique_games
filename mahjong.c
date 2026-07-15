@@ -10,15 +10,19 @@
 const int kScreenWidth = OUTPUT_WIDTH;
 const int kScreenHeight = OUTPUT_HEIGHT;
 
+//#define BACKGROUND_TEX_HEIGHT OUTPUT_HEIGHT
+//#define BACKGROUND_TEX_WIDTH OUTPUT_WIDTH
+//u8 texture_background[OUTPUT_WIDTH*OUTPUT_HEIGHT];
+
 
 //u8 render_target[RENDER_WIDTH*RENDER_HEIGHT];
 //f32 zbuf[RENDER_WIDTH*RENDER_HEIGHT];
-u8 render_target[RENDER_TILE_SIZE*2*RENDER_TILE_SIZE*2];
-f32 zbuf[RENDER_TILE_SIZE*2*RENDER_TILE_SIZE*2];
+u8 render_target[RENDER_TILE_SIZE*RENDER_TILE_SIZE];
+f32 zbuf[RENDER_TILE_SIZE*RENDER_TILE_SIZE];
+
 
 #define TILES_WIDE (RENDER_WIDTH/RENDER_TILE_SIZE)
 #define TILES_HIGH (RENDER_HEIGHT/RENDER_TILE_SIZE)
-
 
 
 typedef struct {
@@ -1363,11 +1367,6 @@ int triangle_block(
         i32_vec ex12_vec = ey12_vec;
         i32_vec ex20_vec = ey20_vec;
 
-        //u8 *row = &ei->screen[y * kScreenWidth + minx];
-        //u8 *next_row = &ei->screen[(y+1) * kScreenWidth + minx];
-        //f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
-        //f32 *zbuf_next_row = &zbuffer[(y+1) * kScreenWidth + minx];
-
         int in_tile_y = y-start_y;
         int in_tile_x = minx-start_x;
         int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
@@ -1379,15 +1378,11 @@ int triangle_block(
 
 
             u8 coverage_mask = i32_vec_extract_low_bits(covered_vec);
-            //if(coverage_mask == 0xF) {
+            //if(coverage_mask != 0xF) {
             //} else 
             if(coverage_mask != 0x0) {
                 // skip completely uncovered quads
                 f32_vec zbuf_val_vec = *zbuf_ptr;
-                //f32_vec zbuf_val_vec = init_f32_vec(
-                //    zbuf_row[0], zbuf_row[1],
-                //    zbuf_next_row[0], zbuf_next_row[1]
-                //);
 
                 f32_vec w0_vec = i32_vec_convert_f32(ex12_vec);
                 f32_vec w1_vec = i32_vec_convert_f32(ex20_vec);
@@ -1609,10 +1604,21 @@ typedef struct {
 const f32 camx = (f32)(RENDER_WIDTH/2.0f);
 const f32 camy = (f32)(RENDER_HEIGHT/2.0f);
 
+float jitter[8][2] = {
+    {-0.025f, -0.0166f},
+    { 0.025f,  0.0166f},
+    {-0.0375f, 0.0333f},
+    { 0.0125f, -0.0333f},
+    {-0.0125f, 0.0083f},
+    { 0.0375f, -0.0416f},
+    {-0.0312f, 0.0416f},
+    { 0.0062f, -0.0083f},
+};
 
 vert3f project_coord(vert3f r) {
     //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
     const f32 focal = (RENDER_HEIGHT / 2.0f) / 0.6f; //tanf(fov_y / 2.0f);
+
     return (vert3f){
             camx + focal * r.x / r.z,
             camy - focal * r.y / r.z,
@@ -1796,7 +1802,6 @@ u8 texture_buffer[34][512*512];
 u8 texture_mip_buffer[34][256*256];
 u8 texture_mip_2_buffer[34][128*128];
 u8 texture_mip_3_buffer[34][64*64];
-u8 texture_mip_4_buffer[34][32*32];
 #define NULL 0
 
 texture textures[NUM_TILES+2] = {
@@ -1837,10 +1842,10 @@ texture textures[NUM_TILES+2] = {
         &comp_tex_two_sou, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
     },
     {
-        &comp_tex_green_dragon, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED
+        &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED
     },
     {
-        &comp_tex_green_dragon, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED
+        &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED
     },
 };
 
@@ -1855,14 +1860,16 @@ void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byt
         u8 global_pal_idx;
         int length;
         if(packet&1) {
+            // non-white packet
             u8 bit = (u8)((packet>>1)&1);
             u8 pal_idx = local_palette[bit];
             global_pal_idx = light_remap_table[NUM_SHADES-1][pal_idx];
             length = (packet>>2)+1;
         } else {
-            // non-white packet
             global_pal_idx = light_remap_table[NUM_SHADES-1][WHITE];
             length = (packet>>1)+1;
+            u8 next_packet = packets[packet_idx++];
+            length += (next_packet<<7);
         }
         for(int i = 0; i < length; i++) {
             dst[dst_idx++] = global_pal_idx;
@@ -2013,24 +2020,12 @@ void decompress_textures(ExotiqueInterface *ei) {
             mip_texture(ei, mip_2_tex_buf, mip_3_tex_buf, mip2_width);
             int mip3_width = mip2_width>>1;
             int mip3_height = mip2_height>>1;
-            //for(int idx = 0; idx < mip3_height*mip3_width; idx++) {
-                //mip_3_tex_buf[idx] = light_remap_table[NUM_SHADES-1][RED];
-            //}
+
             mip_3_tex_buf[(mip3_height-2)*mip3_width+mip3_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
             mip_3_tex_buf[(mip3_height-2)*mip3_width+mip3_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
             mip_3_tex_buf[(mip3_height-1)*mip3_width+mip3_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
             mip_3_tex_buf[(mip3_height-1)*mip3_width+mip3_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
-            //mip_texture(ei, mip_3_tex_buf, mip_4_tex_buf, mip3_width);
-            //int mip4_width = mip3_width>>1;
-            //int mip4_height = mip3_height>>1;
-            //for(int idx = 0; idx < mip3_height*mip3_width; idx++) {
-                //mip_3_tex_buf[idx] = light_remap_table[NUM_SHADES-1][RED];
-            //}
-            //mip_4_tex_buf[(mip4_height-2)*mip4_width+mip4_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
-            //mip_4_tex_buf[(mip4_height-2)*mip4_width+mip4_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
-            //mip_4_tex_buf[(mip4_height-1)*mip4_width+mip4_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
-            //mip_4_tex_buf[(mip4_height-1)*mip4_width+mip4_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
         }
         tex_buf[(height-1)*height+width-1] = light_remap_table[NUM_SHADES-1][BLUE]; //(y >= 504) ? GOLD : (y >= 496) ? WHITE : BLACK;
@@ -2241,9 +2236,9 @@ void game_load(ExotiqueInterface* ei) {
         ei->palette[last_used_pal_idx+i+1] = pal_entry;
     }
     // the background uses it's own internal palette exported by GIMP
-    for(i = 0; i < BACKGROUND_TEX_HEIGHT*BACKGROUND_TEX_WIDTH; i++) {
-        texture_background[i] = (u8) (texture_background[i] + (last_used_pal_idx+1));
-    }
+    //for(i = 0; i < BACKGROUND_TEX_HEIGHT*BACKGROUND_TEX_WIDTH; i++) {
+    //    texture_background[i] = (u8) (texture_background[i] + (last_used_pal_idx+1));
+    //}
 
     
     for(int shade = 0; shade < NUM_SHADES; shade++) {
@@ -2279,6 +2274,23 @@ void game_load(ExotiqueInterface* ei) {
             }
         }
     }
+
+    //const u8 color_remap[4] = {GREEN, BLUE, GREEN, RED};
+
+    /*
+    for (int y = 0; y < kScreenHeight; y++) {
+
+        for (int x = 0; x < kScreenWidth; x++) {
+            int grid = (x>>1) ^ (y>>1);
+            int shade = grid % NUM_SHADES;
+            int color = (grid>>1)%(NUM_BASE_COLORS);//color_remap[(grid >> 1) & 3];
+
+            texture_background[y*kScreenWidth+x] =
+                light_remap_table[shade][color];
+
+        }
+    }
+    */
 }
 
 //#define NUM_SHUFFLE_FRAMES 136*2
@@ -2556,34 +2568,24 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
     int base_y = t->start_y;
 
     /* clear zbuffer for this tile */
+    u32 *col_val_ptr = __builtin_assume_aligned(&render_target[0], 4);
+    f32_vec *zbuf_ptr = __builtin_assume_aligned(&zbuf[0], 16);
+    f32_vec inv_far_vec = broadcast_f32_vec(1.0f/FAR_Z);
+
     for(int y = 0; y < RENDER_TILE_SIZE; y += 2) {
         int global_y = (base_y + y);
         f32 y_portion = (f32)global_y / (f32)RENDER_HEIGHT;
         int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
         for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
 
-            //
-            //
-            //
-            //
             int global_x = (base_x + x);
             f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
             int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
-            zbuf[TILE_IDX(x,y)] = 1.0f/FAR_Z;
-            zbuf[TILE_IDX(x+1,y)] = 1.0f/FAR_Z;
-            zbuf[TILE_IDX(x,y+1)] = 1.0f/FAR_Z;
-            zbuf[TILE_IDX(x+1,y+1)] = 1.0f/FAR_Z;
-            u8 bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
-            
+            *zbuf_ptr++ = inv_far_vec;
 
-            render_target[TILE_IDX(x,y)] = bkgd_idx;
-            render_target[TILE_IDX(x+1,y)] = bkgd_idx;
-            render_target[TILE_IDX(x, y+1)] = bkgd_idx;
-            render_target[TILE_IDX(x+1,y+1)] = bkgd_idx;
-            //render_target[y*RENDER_TILE_SIZE+x] = bkgd_idx;
-            //render_target[y*RENDER_TILE_SIZE+x+1] = bkgd_idx;
-            //render_target[(y+1)*RENDER_TILE_SIZE+x] = bkgd_idx;
-            //render_target[(y+1)*RENDER_TILE_SIZE+x+1] = bkgd_idx;
+            u32 bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
+            
+            *col_val_ptr++ = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
         }
     }
 
@@ -2640,7 +2642,7 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
 
 
     /* flush tile to output */
-    u32 *col_val_ptr = __builtin_assume_aligned(&render_target[0], 4);
+    col_val_ptr = __builtin_assume_aligned(&render_target[0], 4);
     for(int y = 0; y < RENDER_TILE_SIZE; y+=2) {
         int output_y = (base_y+y)>>1;
 
@@ -2660,14 +2662,14 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
     }
     
 
-    if(draw_mode == TILE_DRAW) {
-        for(int cnt = 0; cnt < RENDER_TILE_SIZE; cnt++) {
-            //ei->screen[(t->start_y+cnt)*kScreenWidth + t->start_x] = 0;
-            //ei->screen[(t->start_y+cnt)*kScreenWidth + t->start_x+TILE_SIZE] = 0;
-            //ei->screen[t->start_y*kScreenWidth + t->start_x+cnt] = 0;
-            //ei->screen[(t->start_y+TILE_SIZE)*kScreenWidth + t->start_x+cnt] = 0;
-        }
-    }
+    //if(draw_mode == TILE_DRAW) {
+    //    for(int cnt = 0; cnt < OUTPUT_TILE_SIZE; cnt++) {
+    //        ei->screen[((t->start_y>>1)+cnt)*kScreenWidth + (t->start_x>>1)] = 0;
+    //        ei->screen[((t->start_y>>1)+cnt)*kScreenWidth + (t->start_x>>1)+OUTPUT_TILE_SIZE] = 0;
+    //        ei->screen[(t->start_y>>1)*kScreenWidth + (t->start_x>>1)+cnt] = 0;
+    //        ei->screen[((t->start_y>>1)+OUTPUT_TILE_SIZE)*kScreenWidth + (t->start_x>>1)+cnt] = 0;
+    //    }
+    //}
 }
 
 
@@ -2811,12 +2813,7 @@ void bin_triangle(
     vert2f *v0_uv,
     vert2f *v1_uv,
     vert2f *v2_uv,
-    //vert3f *v0_norm,
-    //vert3f *v1_norm,
-    //vert3f *v2_norm,
     f32 c0,
-    //f32 c1,
-    //f32 c2,
     u8 texture_id) {
 
         if(total_triangles == MAX_GLOBAL_TRIS) {
@@ -2827,8 +2824,6 @@ void bin_triangle(
         f32 inv_z1 = 1.0f/v1->z;
         f32 inv_z2 = 1.0f/v2->z;
         //f32 closest_inv_z = MAX(inv_z0, MAX(inv_z1, inv_z2));
-
-
 
 
         f32 minx = MIN(v0->x, MIN(v1->x, v2->x));
@@ -2931,25 +2926,11 @@ void bin_triangle(
             u8 mip_level = 0;
 
             if(tex_width > 1 && duv_per_pix > 1.0f) { // 3
-                //texels = tex->mip_texels;
                 mip_level = 1;
-                //tex_width >>= MIP_SHIFT;
-                //tex_height >>= MIP_SHIFT; 
                 if(duv_per_pix > 2.0f) { // 6
-                    //texels = tex->mip_2_texels;
                     mip_level = 2;
-                    //tex_width >>= 1;
-                    //tex_height >>= 1;
                     if(duv_per_pix > 4.0f) { // 12
-                        //texels = tex->mip_3_texels;
                         mip_level = 3;
-                        //tex_width >>= 1;
-                        //tex_height >>= 1;
-                        //if(duv_per_pix > 8.0f) {
-                        //    texels = tex->mip_4_texels;
-                        //    tex_width >>= 1;
-                        //    tex_height >>= 1;
-                        //}
                     }
                 }
             }
@@ -2963,16 +2944,11 @@ void bin_triangle(
             u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
             global_tri_buffer[total_triangles].c0 = quantized_brightness;
             global_tri_buffer[total_triangles].mip_level = mip_level;
-            //global_tri_buffer[total_triangles].c1 = c1;
-            //global_tri_buffer[total_triangles].c2 = c2;
 
             global_tri_buffer[total_triangles].uv0_over_z = uv0_over_z;
             global_tri_buffer[total_triangles].uv1_over_z = uv1_over_z;
             global_tri_buffer[total_triangles].uv2_over_z = uv2_over_z;
             
-            //global_tri_buffer[total_triangles].nv0 = *v0_norm;
-            //global_tri_buffer[total_triangles].nv1 = *v1_norm;
-            //global_tri_buffer[total_triangles].nv2 = *v2_norm;
             global_tri_buffer[total_triangles].inv_z0 = inv_z0;
             global_tri_buffer[total_triangles].inv_z1 = inv_z1;
             global_tri_buffer[total_triangles].inv_z2 = inv_z2;
@@ -3475,7 +3451,7 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
     draw_board_call.model_to_world = board_matrix;
     draw_board_call.texture = BOARD;
 
-    submit_draw_calls(&draw_board_call, 1, NO_FRUSTUM_CULL);
+    submit_draw_calls(&draw_board_call, 1, FRUSTUM_CULL);
 
     draw_tiles(ei, zbuf);
 }

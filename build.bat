@@ -49,7 +49,7 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c99 -O3 -ggdb -fno-strict-aliasing -nostdlib -nostdinc -nodefaultlibs -nolibc -ffreestanding ^
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -ggdb -ffast-math -march=znver4 -fno-strict-aliasing -nostdlib -nostdinc -nodefaultlibs -nolibc -ffreestanding ^
     -I ".." ^
     ^
     -D ARCH=%ARCH% ^
@@ -64,7 +64,7 @@ REM  Link
 REM  NOTE: -lasan may fail with MinGW -- remove if GCC complains
 REM        it cannot find libasan.
 REM ============================================================
-"%GCC%" exotique.o "%GAME%.o" ^
+"%GCC%" -Wl,-Map=output.map exotique.o "%GAME%.o" ^
     -L "%SDL2_LIB%" -lSDL2 ^
     ^
     -o "%GAME%.exe"

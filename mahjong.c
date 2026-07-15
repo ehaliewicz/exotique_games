@@ -539,11 +539,7 @@ typedef enum {
 
 typedef struct {
     compressed_texture* comp_tex_ptr;
-    //u8* texels;
     u8* texels[4];
-    //u8* mip_2_texels;
-    //u8* mip_3_texels;
-    //u8* mip_4_texels;
     int width;
     int height;
     compress_type compressed;
@@ -552,7 +548,6 @@ typedef struct {
 
 typedef f32 f32_vec __attribute__((vector_size(16)));
 typedef i32 i32_vec __attribute__((vector_size(16)));
-
 
 
 static inline i32_vec broadcast_i32_vec(i32 a) {
@@ -602,63 +597,11 @@ static inline i32_vec init_i32_vec(i32 a, i32 b, i32 c, i32 d) {
     return res;
 }
 
-static inline f32_vec init_f32_vec(f32 a, f32 b, f32 c, f32 d) {
-    f32_vec res;
-    res[0] = a;
-    res[1] = b;
-    res[2] = c;
-    res[3] = d;
-    return res;
-}
-
-static inline i32_vec i32_vec_add(i32_vec a, i32_vec b) {
-    i32_vec res = a+b;
-
-    //for(int i = 0; i < 4; i++) {
-    //    res[i] = a[i] + b[i];
-    //}
-    return res;
-}
-
-static inline f32_vec f32_vec_add(f32_vec a, f32_vec b) {
-    f32_vec res;
-    for(int i = 0; i < 4; i++) {
-        res[i] = a[i] + b[i];
-    }
-    return res;
-}
-
-
 static inline u8 i32_vec_extract_low_bits(i32_vec a) {
     u8 res = 0;
     for(int i = 0; i < 4; i++) {
         res |= (u8)((a[i]&1)<<i);
     }
-    return res;
-}
-
-static inline i32_vec f32_vec_gte(f32_vec a, f32_vec b) {
-    i32_vec res;
-    for(int i = 0; i < 4; i++) {
-        res[i] = (a[i] >= b[i]) ? 1 : 0;
-    }
-    return res;
-}
-
-static inline i32_vec i32_vec_gte(i32_vec a, i32_vec b) {
-    i32_vec res;
-    for(int i = 0; i < 4; i++) {
-        res[i] = (a[i] >= b[i]) ? 1 : 0;
-    }
-    return res;
-}
-
-static inline i32_vec f32_vec_convert_i32(f32_vec a) {
-    i32_vec res;
-    res[0] = (i32)a[0];
-    res[1] = (i32)a[1];
-    res[2] = (i32)a[2];
-    res[3] = (i32)a[3];
     return res;
 }
 
@@ -693,19 +636,6 @@ i32_vec parallel_pixel_shader(
     f32_vec u = (u_over_z * z);
     f32_vec v = (v_over_z * z);
 
-    //f32 dudx = u[1] - u[0];
-    //f32 dudy = u[2] - u[0];
-    //f32 dvdx = v[1] - v[0];
-    //f32 dvdy = v[2] - v[0];
-
-    //f32 rho = MAX(absf(dudx), MAX(absf(dvdx), MAX(absf(dudy), absf(dvdy))));
-
-    //f32 scaled_rho = rho*(f32)tex_height;
-
-    //int mip = (int)scaled_rho;
-
-    //int tex_scale = tex_width >> mip;
-
     
     i32_vec int_u = f32_vec_floor(u * (f32)tex_width); // (i32)fast_floor(u * (f32)tex_width);// & 1023;
     i32_vec int_v = f32_vec_floor(v * (f32)tex_height);// & 1023;
@@ -721,9 +651,7 @@ i32_vec parallel_pixel_shader(
     tex_pal_idx[2] = texels[uv[2]];
     tex_pal_idx[3] = texels[uv[3]];
 
-    //texels[((tex_height-1)-int_v)*tex_width+int_u];
 
-    //return tex_pal_idx;
     i32_vec res;
     res[0] = lit_pal_ptr[tex_pal_idx[0]];
     res[1] = lit_pal_ptr[tex_pal_idx[1]];
@@ -737,429 +665,29 @@ u8 pixel_shader(
     f32 w0, f32 w1, f32 w2, f32 v0u_over_z, f32 v0v_over_z, f32 v1u_over_z, f32 v1v_over_z, f32 v2u_over_z, f32 v2v_over_z, f32 recip_area, u8* texels, int tex_width, int tex_height, 
     u8* lit_pal_ptr
 ) {
-    (void)lit_pal_ptr;
-    //f32 z = 1.0f / inv_z;
                         
     f32 u_over_z = (w0 * v0u_over_z + w1 * v1u_over_z + w2 * v2u_over_z) * recip_area;
     f32 v_over_z = (w0 * v0v_over_z + w1 * v1v_over_z + w2 * v2v_over_z) * recip_area;
     f32 u = (u_over_z * z);
     f32 v = (v_over_z * z);
     
-    i32 int_u = (i32)fast_floor(u * (f32)tex_width);// & 1023;
-    i32 int_v = (i32)fast_floor(v * (f32)tex_height);// & 1023;
+    i32 int_u = (i32)fast_floor(u * (f32)tex_width);
+    i32 int_v = (i32)fast_floor(v * (f32)tex_height);
     int_u &= (tex_width-1);
     int_v &= (tex_height-1);
     u8 tex_pal_idx = texels[((tex_height-1)-int_v)*tex_width+int_u];
 
-    // linearly interpolate brightness calculated at each vertex
-    // c0/c1/c2 are brightness values
-    //f32 diffuse = (w0 * c0 + w1 * c1 + w2 * c2) * recip_area;
-
-    //diffuse = CLAMP(diffuse, 0.0f, 1.0f);
-    //u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-    //u8 pal_idx = light_remap_table[quantized_brightness][tex_pal_idx];
-    //u8 tex_pal_idx = 3;
-    
-    //return tex_pal_idx;
     return lit_pal_ptr[tex_pal_idx];
-    // light_remap_table[16][WHITE];
 
-    //*color_ptr = pal_idx;
-    //*zbuf_ptr = inv_z;
 }
 
+u8 mix_table[256*256];
 
 #define MIP_FACTOR 2
 #define MIP_SHIFT 1
 
-#define TILE_IDX(x,y) ((((y)&~1)*RENDER_TILE_SIZE)|(((x)&~1)<<1)|((((y)&1)<<1)+((x)&1)))
-
-// returns 1 if drew a pixel, 0 otherwise
-/*
-int triangle(
-    ExotiqueInterface *ei,
-    f32 *zbuffer,
-    transformed_tri* tri_attributes,
-    texture* tex,
-    i32 start_x, i32 end_x,
-    i32 start_y, i32 end_y) {
-        (void)ei;
-    // swap everything for first two vertexes (actual vertex positions and attributes)
-    
-    f32 iz0 = tri_attributes->inv_z1;
-    f32 iz1 = tri_attributes->inv_z0;
-    f32 iz2 = tri_attributes->inv_z2;
-    vert3f v0 = tri_attributes->proj_v1;
-    vert3f v1 = tri_attributes->proj_v0;
-    vert3f v2 = tri_attributes->proj_v2;
-
-    vert2f uv0 = tri_attributes->uv1;
-    vert2f uv1 = tri_attributes->uv0;
-    vert2f uv2 = tri_attributes->uv2;
-    f32 c0 = tri_attributes->c1;
-    f32 c1 = tri_attributes->c0;
-    f32 c2 = tri_attributes->c2;
-    f32 avg_c = (c0+c1+c2)/3.0f;
-    
-    //f32 diffuse = (w0 * c0 + w1 * c1 + w2 * c2) * recip_area;
-
-    f32 diffuse = CLAMP(avg_c, 0.0f, 1.0f);
-    u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];// light_remap_table[quantized_brightness];
-
-
-
-    int drew_pixel = 0;
-
-    f32 v0u_over_z = uv0.x * iz0;
-    f32 v0v_over_z = uv0.y * iz0;
-
-    f32 v1u_over_z = uv1.x * iz1;
-    f32 v1v_over_z = uv1.y * iz1;
-
-    f32 v2u_over_z = uv2.x * iz2;
-    f32 v2v_over_z = uv2.y* iz2;
-
-    // 28.4 fixed point
-    
-    const i32 x0 = (i32)(v0.x * 16.0f);
-    const i32 y0 = (i32)(v0.y * 16.0f);
-    const i32 x1 = (i32)(v1.x * 16.0f);
-    const i32 y1 = (i32)(v1.y * 16.0f);
-    const i32 x2 = (i32)(v2.x * 16.0f);
-    const i32 y2 = (i32)(v2.y * 16.0f);
-    //
-    // Edge deltas
-    //
-
-    i32 dx01 = x0 - x1;
-    i32 dy01 = y0 - y1;
-    i32 dx12 = x1 - x2;
-    i32 dy12 = y1 - y2;
-    i32 dx20 = x2 - x0;
-    i32 dy20 = y2 - y0;
-    //
-    // Triangle area
-    //
-
-
-    i32 area = (dx01 * dy20 - dy01 * dx20);
-
-    // barycentric weights weights (scaled by area)
-    f32 recip_area = 1.0f / (f32)area;
-
-    
-    int tex_width = tex->width;
-    int tex_height = tex->height;
-    u8* texels = tex->texels;
-
-    // bounding box of triangle (not so good for larger triangles)
-    i32 minx = MIN(x0, MIN(x1, x2));
-    i32 maxx = MAX(x0, MAX(x1, x2));
-    i32 miny = MIN(y0, MIN(y1, y2));
-    i32 maxy = MAX(y0, MAX(y1, y2));
-    i32 pix_dx = (maxx-minx)>>4;
-    i32 pix_dy = (maxy-miny)>>4;
-    i32 dpix = MAX(1, MIN(pix_dx, pix_dy));
-    f32 maxu = MAX(uv0.x, MAX(uv1.x, uv2.x));
-    f32 maxv = MAX(uv0.y, MAX(uv1.y, uv2.y));
-    f32 minu = MIN(uv0.x, MIN(uv1.x, uv2.x));
-    f32 minv = MIN(uv0.y, MIN(uv1.y, uv2.y));
-    f32 biggest_duv = MAX(absf(maxu-minu), absf(maxv-minv));
-    f32 duv_per_pix = (biggest_duv*(f32)tex_width)/(f32)dpix;
-
-    minx = CLAMP((minx + 15) >> 4, start_x, end_x);
-    maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
-    miny = CLAMP((miny + 15) >> 4, start_y, end_y);
-    maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
-
-    
-    
-    if(tex_width > 1 && duv_per_pix > 1.0f) { // 3
-        texels = tex->mip_texels;
-        tex_width >>= MIP_SHIFT;
-        tex_height >>= MIP_SHIFT; 
-        if(duv_per_pix > 2.0f) { // 6
-            texels = tex->mip_2_texels;
-            tex_width >>= 1;
-            tex_height >>= 1;
-            if(duv_per_pix > 4.0f) { // 12
-                texels = tex->mip_3_texels;
-                tex_width >>= 1;
-                tex_height >>= 1;
-                //if(duv_per_pix > 8.0f) {
-                //    texels = tex->mip_4_texels;
-                //    tex_width >>= 1;
-                //    tex_height >>= 1;
-                //}
-            }
-        }
-    }
-
-
-
-
-    // edge constants, used for incremental edge coverage calculation
-
-    i32 e01 = dy01 * x0 - dx01 * y0;
-    i32 e12 = dy12 * x1 - dx12 * y1;
-    i32 e20 = dy20 * x2 - dx20 * y2;
-
-    // copy the edge constants into separate variables, so that the fill rule nudge below doesn't affect attribute interpolation (although it would be minor)
-    i32 c01 = e01;
-    i32 c12 = e12;
-    i32 c20 = e20;
-
-
-    // top left fill rule
-    // ensure that sample positions on a left or top edge are nudged over (to be covered).
-    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
-        c01++;
-    }
-    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
-        c12++;
-    }
-    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
-        c20++;
-    }
-
-    i32 startX = minx << 4;
-    i32 startY = miny << 4;
-    i32 cy01 = c01 + dx01 * startY - dy01 * startX;
-    i32 cy12 = c12 + dx12 * startY - dy12 * startX;
-    i32 cy20 = c20 + dx20 * startY - dy20 * startX;
-    i32 ey01 = e01 + dx01 * startY - dy01 * startX;
-    i32 ey12 = e12 + dx12 * startY - dy12 * startX;
-    i32 ey20 = e20 + dx20 * startY - dy20 * startX;
-    dy01 <<= 4;
-    dy12 <<= 4;
-    dy20 <<= 4;
-    dx01 <<= 4;
-    dx12 <<= 4;
-    dx20 <<= 4;
-
-
-    for (i32 y = miny; y < maxy; y++) {
-        i32 cx01 = cy01;
-        i32 cx12 = cy12;
-        i32 cx20 = cy20;
-        i32 ex01 = ey01;
-        i32 ex12 = ey12;
-        i32 ex20 = ey20;
-
-        //u8 *row = &ei->screen[y * kScreenWidth + minx];
-        //u8 *row = &render_target[(y-start_y)*RENDER_TILE_SIZE + (minx-start_x)];
-
-        //f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
-        //f32 *zbuf_row = &zbuffer[(y-start_y)*RENDER_TILE_SIZE + (minx-start_x)];
-
-
-        for (i32 x = minx; x < maxx; x++) {
-            f32 zbuf_val = zbuffer[TILE_IDX(x-start_x,y-start_y)];// *zbuf_row;
-            if (!((cx01|cx12|cx20)>>31)) { // check the sign bit
-                f32 w0 = (f32)ex12;
-                f32 w1 = (f32)ex20;
-                f32 w2 = (f32)ex01;
-                f32 inv_z = (w0 * iz0 + w1 * iz1 +  w2 * iz2) * recip_area;
-                f32 z = 1.0f / inv_z;
-
-                if(inv_z > zbuf_val) {
-                    u8 pal_idx = pixel_shader(
-                        z,
-                        w0, w1, w2, v0u_over_z, v0v_over_z, v1u_over_z, v1v_over_z, v2u_over_z, v2v_over_z, recip_area, 
-                        texels, tex_width, tex_height, 
-                        lit_pal_ptr
-                    );
-                    render_target[TILE_IDX(x-start_x,y-start_y)] = pal_idx; // *row = pal_idx;
-                    zbuffer[TILE_IDX(x-start_x,y-start_y)] = inv_z;// *zbuf_row = inv_z;
-                    drew_pixel = 1;
-                }
-            }
-            //zbuf_row++;
-            //row++;
-            // step horizontal edge coverage
-            cx01 -= dy01;
-            cx12 -= dy12;
-            cx20 -= dy20;
-            ex01 -= dy01;
-            ex12 -= dy12;
-            ex20 -= dy20;
-        }
-        // step vertical edge coverage
-        cy01 += dx01;
-        cy12 += dx12;
-        cy20 += dx20;
-        ey01 += dx01;
-        ey12 += dx12;
-        ey20 += dx20;
-    }
-    return drew_pixel;
-}
-*/
-
-/*
-int trivial_triangle(
-    ExotiqueInterface *ei,
-    f32 *zbuffer,
-    transformed_tri* tri_attributes,
-    texture* tex,
-    i32 start_x, i32 end_x,
-    i32 start_y, i32 end_y) {
-        (void)ei;
-    // swap everything for first two vertexes (actual vertex positions and attributes)
-    
-    f32 iz0 = tri_attributes->inv_z1;
-    f32 iz1 = tri_attributes->inv_z0;
-    f32 iz2 = tri_attributes->inv_z2;
-    vert3f v0 = tri_attributes->proj_v1;
-    vert3f v1 = tri_attributes->proj_v0;
-    vert3f v2 = tri_attributes->proj_v2;
-
-    vert2f uv0 = tri_attributes->uv1;
-    vert2f uv1 = tri_attributes->uv0;
-    vert2f uv2 = tri_attributes->uv2;
-    f32 c0 = tri_attributes->c1;
-    f32 c1 = tri_attributes->c0;
-    f32 c2 = tri_attributes->c2;
-    f32 avg_c = (c0+c1+c2)/3.0f;
-    
-    //f32 diffuse = (w0 * c0 + w1 * c1 + w2 * c2) * recip_area;
-
-    f32 diffuse = CLAMP(avg_c, 0.0f, 1.0f);
-    u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
-
-
-
-    const i32 x0 = (i32)(v0.x * 16.0f);
-    const i32 y0 = (i32)(v0.y * 16.0f);
-    const i32 x1 = (i32)(v1.x * 16.0f);
-    const i32 y1 = (i32)(v1.y * 16.0f);
-    const i32 x2 = (i32)(v2.x * 16.0f);
-    const i32 y2 = (i32)(v2.y * 16.0f);
-
-    int drew_pixel = 0;
-
-    f32 v0u_over_z = uv0.x * iz0;
-    f32 v0v_over_z = uv0.y * iz0;
-
-    f32 v1u_over_z = uv1.x * iz1;
-    f32 v1v_over_z = uv1.y * iz1;
-
-    f32 v2u_over_z = uv2.x * iz2;
-    f32 v2v_over_z = uv2.y* iz2;
-
-    int tex_width = tex->width;
-    int tex_height = tex->height;
-    u8* texels = tex->texels;
-
-    
-    //
-    // Edge deltas
-    //
-
-    //const i32 dx01 = tri_edges.dxvals[0];
-    //const i32 dx12 = tri_edges.dxvals[1];
-    //const i32 dx20 = tri_edges.dxvals[2];
-    //const i32 dy01 = tri_edges.dyvals[0];
-    //const i32 dy12 = tri_edges.dyvals[1];
-    //const i32 dy20 = tri_edges.dyvals[2];
-
-    i32 dx01 = x0 - x1; // 28.4
-    i32 dy01 = y0 - y1;
-    i32 dx12 = x1 - x2;
-    i32 dy12 = y1 - y2;
-    i32 dx20 = x2 - x0;
-    i32 dy20 = y2 - y0;
-    //
-    // Triangle area
-    //
-
-    i32 area = (dx01 * dy20 - dy01 * dx20); // 24.8
-
-    // barycentric weights weights (scaled by area)
-    f32 recip_area = 1.0f / (f32)area;
-
-    
-    i32 minx = start_x;
-    i32 maxx = end_x;
-    i32 miny = start_y;
-    i32 maxy = end_y;
-
-    // edge constants, used for incremental edge coverage calculation
-
-    i32 e01 = dy01 * x0 - dx01 * y0;
-    i32 e12 = dy12 * x1 - dx12 * y1;
-    i32 e20 = dy20 * x2 - dx20 * y2;
-
-
-    i32 startX = minx << 4;
-    i32 startY = miny << 4;
-    i32 ey01 = e01 + dx01 * startY - dy01 * startX;
-    i32 ey12 = e12 + dx12 * startY - dy12 * startX;
-    i32 ey20 = e20 + dx20 * startY - dy20 * startX;
-
-    dy01 <<= 4;
-    dy12 <<= 4;
-    dy20 <<= 4;
-    dx01 <<= 4;
-    dx12 <<= 4;
-    dx20 <<= 4;
-
-
-    for (i32 y = miny; y < maxy; y++) {
-        i32 ex01 = ey01;
-        i32 ex12 = ey12;
-        i32 ex20 = ey20;
-
-        //u8 *row = &ei->screen[y * kScreenWidth + minx];
-        u8 *row = &render_target[y*RENDER_WIDTH + minx];
-
-        //f32 *zbuf_row = &zbuffer[y * kScreenWidth + minx];
-        f32 *zbuf_row = &zbuffer[y*RENDER_WIDTH + minx];
-        
-
-        for (i32 x = minx; x < maxx; x++) {
-            f32 zbuf_val = *zbuf_row;
-
-            f32 w0 = (f32)ex12;
-            f32 w1 = (f32)ex20;
-            f32 w2 = (f32)ex01;
-            f32 inv_z = (w0 * iz0 + w1 * iz1 +  w2 * iz2) * recip_area;
-            f32 z = 1.0f / inv_z;
-            u8 pal_idx = pixel_shader(
-                z,
-                w0, w1, w2, v0u_over_z, v0v_over_z, v1u_over_z, v1v_over_z, v2u_over_z, v2v_over_z, recip_area, 
-                texels, tex_width, tex_height, 
-                lit_pal_ptr
-            );
-            if(inv_z >= zbuf_val) {
-                *row = pal_idx;
-                *zbuf_row = inv_z;
-                drew_pixel = 1;
-            }
-            zbuf_row++;
-            row++;
-            // step horizontal edge coverage
-            ex01 -= dy01;
-            ex12 -= dy12;
-            ex20 -= dy20;
-
-
-
-        }
-        // step vertical edge coverage
-        ey01 += dx01;
-        ey12 += dx12;
-        ey20 += dx20;
-    }
-    return drew_pixel;
-}
-*/
-
 
 int triangle_block(
-    ExotiqueInterface *ei,
     f32 *zbuffer,
     transformed_tri* tri_attributes,
     texture* tex,
@@ -1168,8 +696,6 @@ int triangle_block(
 ) {
 
     // swap everything for first two vertexes (actual vertex positions and attributes)
-    (void)tex;
-    (void)ei;
     f32 iz0 = tri_attributes->inv_z1;
     f32 iz1 = tri_attributes->inv_z0;
     f32 iz2 = tri_attributes->inv_z2;
@@ -1180,36 +706,29 @@ int triangle_block(
     vert2i v0 = tri_attributes->proj_v1;
     vert2i v1 = tri_attributes->proj_v0;
     vert2i v2 = tri_attributes->proj_v2;
-    //vert2f uv0 = tri_attributes->uv1;
-    //vert2f uv1 = tri_attributes->uv0;
-    //vert2f uv2 = tri_attributes->uv2;
+
     vert2f uv0_over_z = tri_attributes->uv1_over_z;
     vert2f uv1_over_z = tri_attributes->uv0_over_z;
     vert2f uv2_over_z = tri_attributes->uv2_over_z;
-    //f32 avg_c = tri_attributes->c1;
-    //f32 c1 = tri_attributes->c0;
-    //f32 c2 = tri_attributes->c2;
-    //f32 avg_c = (c0+c1+c2)/3.0f;
-    
-    //f32 diffuse = CLAMP(avg_c, 0.0f, 1.0f);
-    //u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-    u8 quantized_brightness = tri_attributes->c0;
+
+
+    u16 quantized_brightness = tri_attributes->c0;
     u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
-    //if(avg_c < 1.0f) {
-    //    exotique_printf("wut\n");
-    //}
+
+    // okay color blending for lighting isn't working so well :)
+    //u8* lit_pal_ptr = &mix_table[(quantized_brightness<<8)];
 
 
     int drew_pixel = 0;
 
-    f32 v0u_over_z = uv0_over_z.x;//uv0.x * iz0;
-    f32 v0v_over_z = uv0_over_z.y;//uv0.y * iz0;
+    f32 v0u_over_z = uv0_over_z.x;
+    f32 v0v_over_z = uv0_over_z.y;
 
-    f32 v1u_over_z = uv1_over_z.x;//uv1.x * iz1;
-    f32 v1v_over_z = uv1_over_z.y;//uv1.y * iz1;
+    f32 v1u_over_z = uv1_over_z.x;
+    f32 v1v_over_z = uv1_over_z.y;
 
-    f32 v2u_over_z = uv2_over_z.x;//uv2.x * iz2;
-    f32 v2v_over_z = uv2_over_z.y;//uv2.y * iz2;
+    f32 v2u_over_z = uv2_over_z.x;
+    f32 v2v_over_z = uv2_over_z.y;
 
     int mip_level = tri_attributes->mip_level;
     int tex_width = tex->width>>mip_level;
@@ -1599,21 +1118,10 @@ typedef struct {
 } mesh_draw_call;
 
 
-
 //const f32 focal = 500.0f;
 const f32 camx = (f32)(RENDER_WIDTH/2.0f);
 const f32 camy = (f32)(RENDER_HEIGHT/2.0f);
 
-float jitter[8][2] = {
-    {-0.025f, -0.0166f},
-    { 0.025f,  0.0166f},
-    {-0.0375f, 0.0333f},
-    { 0.0125f, -0.0333f},
-    {-0.0125f, 0.0083f},
-    { 0.0375f, -0.0416f},
-    {-0.0312f, 0.0416f},
-    { 0.0062f, -0.0083f},
-};
 
 vert3f project_coord(vert3f r) {
     //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
@@ -1982,18 +1490,14 @@ void decompress_textures(ExotiqueInterface *ei) {
 
     for(int i = 0; i < NUM_TILES; i++) {
 
-
-        //textures[i].comp_tex_ptr = &comp_tex_east;
         u8* tex_buf = texture_buffer[i];
         u8* mip_tex_buf = texture_mip_buffer[i];
         u8* mip_2_tex_buf = texture_mip_2_buffer[i];
         u8* mip_3_tex_buf = texture_mip_3_buffer[i];
-        //u8* mip_4_tex_buf = texture_mip_4_buffer[i];
         textures[i].texels[0] = tex_buf;
         textures[i].texels[1]  = mip_tex_buf;
         textures[i].texels[2]  = mip_2_tex_buf;
         textures[i].texels[3]  = mip_3_tex_buf;
-        //textures[i].mip_4_texels = mip_4_tex_buf;
         int width = textures[i].width;
         int height = textures[i].height;
 
@@ -2149,7 +1653,6 @@ void reset_game(ExotiqueInterface *ei) {
     game_board.west_hand = init_empty_hand();
 }
 
-u8 mix_table[256*256];
 
 void output_palette(ExotiqueInterface *ei) {
 
@@ -2461,7 +1964,7 @@ void game_update(ExotiqueInterface* ei) {
 
     vert3f forward = {0, 0, -1};
 
-    matrix rx = rotation_x_matrix(cam_view_trans.rotation.x);
+    matrix rx = rotation_x_matrix(.95f);
     matrix ry = rotation_y_matrix(cam_view_trans.rotation.y);
     matrix rot = mat_mul_mat(&ry, &rx); // inverse of your view rotation
 
@@ -2618,25 +2121,13 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
 
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tri_indexes[i];
-        //if(ei->input->y) {
-            drew_pix = triangle_block(
-                ei,
-                zbuffer,
-                &global_tri_buffer[global_tri_idx],
-                &textures[global_tri_buffer[global_tri_idx].tex],
-                t->start_x, t->start_x+RENDER_TILE_SIZE,
-                t->start_y, t->start_y+RENDER_TILE_SIZE
-            );
-        //} else {
-        //    drew_pix = triangle(
-        //        ei,
-        //        zbuffer,
-        //        &global_tri_buffer[global_tri_idx],
-        //        &textures[global_tri_buffer[global_tri_idx].tex],
-        //        t->start_x, t->start_x+RENDER_TILE_SIZE,
-        //        t->start_y, t->start_y+RENDER_TILE_SIZE
-        //    );
-        //}
+        drew_pix = triangle_block(
+            zbuffer,
+            &global_tri_buffer[global_tri_idx],
+            &textures[global_tri_buffer[global_tri_idx].tex],
+            t->start_x, t->start_x+RENDER_TILE_SIZE,
+            t->start_y, t->start_y+RENDER_TILE_SIZE
+        );
     }   
     t->z_dirty = t->z_dirty || drew_pix;
 
@@ -3544,45 +3035,5 @@ void game_draw(ExotiqueInterface* ei) {
     triangles_rasterized = 0;
     triangles_hi_z_culled = 0;
 
-    /*
-       for(int y = 0; y < RENDER_HEIGHT; y += 2) {
-        for(int x = 0; x < RENDER_WIDTH; x += 2) {
-            u8 tl = render_target[y*RENDER_WIDTH+x];
-            u8 tr = render_target[y*RENDER_WIDTH+x+1];
-            u8 bl = render_target[(y+1)*RENDER_WIDTH+x];
-            u8 br = render_target[(y+1)*RENDER_WIDTH+x+1];
-            u8 mix_top = mix_table[tl][tr];
-            u8 mix_bot = mix_table[bl][br];
-            u8 mix_res = mix_table[mix_top][mix_bot];
-            //if(ei->input->y) {
-                ei->screen[(y>>1)*OUTPUT_WIDTH+(x>>1)] = mix_res;
-            //} else {
-            //    ei->screen[(y>>1)*OUTPUT_WIDTH+(x>>1)] = tl;
-            //}
-        }
-    }
-        */
-    
 
-
-    /*
-    for(int y = 0; y < HEIGHT*2; y += 2) {
-        for(int x = 0; x < WIDTH*2; x++) {
-            u8 top = render_target[y*WIDTH*2+x];
-            u8 bot = render_target[(y+1)*WIDTH*2+x];
-            u8 mix_res = mix_table[top][bot];
-            render_target[y*WIDTH*2+x] = mix_res;
-        }
-    }
-
-    // now mix left and right into framebuffer
-    for(int y = 0; y < HEIGHT*2; y += 2) {
-        for(int x = 0; x < WIDTH*2; x += 2) {
-            u8 left = render_target[y*WIDTH*2+x];
-            u8 right = render_target[y*WIDTH*2+x+1];
-            u8 mix_res = mix_table[left][right];
-            ei->screen[(y>>1)*WIDTH+(x>>1)] = mix_res;
-        }
-    }
-    */
 }

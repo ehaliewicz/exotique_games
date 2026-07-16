@@ -64,7 +64,7 @@ REM  Link
 REM  NOTE: -lasan may fail with MinGW -- remove if GCC complains
 REM        it cannot find libasan.
 REM ============================================================
-"%GCC%" -Wl,-Map=output.map exotique.o "%GAME%.o" ^
+"%GCC%" exotique.o "%GAME%.o" ^
     -L "%SDL2_LIB%" -lSDL2 ^
     ^
     -o "%GAME%.exe"

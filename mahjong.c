@@ -2718,6 +2718,7 @@ typedef struct {
 
 // 8 elements seems to be the sweet spot
 #define VCACHE_SIZE 8
+
 shaded_vert vert_cache[VCACHE_SIZE];
 i16 vert_cache_idxs[VCACHE_SIZE];
 u32 vert_cache_next_entry;
@@ -2757,9 +2758,7 @@ int vertex_shader(obj_vertex* ov0,  matrix *model_to_view, matrix *model_to_worl
     // Move in front of the camera.
     vert3f r0 = mat_mul_vert3(model_to_view, &ov0->pos);
 
-    //
-    // Reject triangles behind the camera.
-    //
+    // reject triangles behind the camera.
     if (r0.z <= NEAR_Z || r0.z >= FAR_Z) {
         return 0;
     }
@@ -2793,7 +2792,6 @@ int vertex_shader(obj_vertex* ov0,  matrix *model_to_view, matrix *model_to_worl
     output->rotv = s0;
     output->uv = ov0->uv;
     return 1;
-
 }
 
 
@@ -2808,8 +2806,6 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
     vcache_reset();
 
     for (int i = 0; i < m->indexCount; i += 3) {
-
-        //obj_vertex ov0, ov1, ov2;
 
         i16 v0_idx = (i16)m->indexStream[i+0];
         i16 v1_idx = (i16)m->indexStream[i+1];
@@ -2864,17 +2860,10 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
             continue;
         }
 
-        //
-        // Draw.
-        //
         bin_triangle(
-            //ei,
             s0, s1, s2,
             uv0, uv1, uv2,
-            //&rn0, &rn1, &rn2,
             quantized_brightness,
-            //c1,
-            //c2,
             texture_id
         );
     }

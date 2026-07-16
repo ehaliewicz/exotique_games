@@ -2392,18 +2392,11 @@ void bin_triangle(
             vert2f uv0 = *v0_uv;
             vert2f uv1 = *v1_uv;
             vert2f uv2 = *v2_uv;
-            //f32 inv_z0 = 1.0f/v0->z;
-            //f32 inv_z1 = 1.0f/v1->z;
-            //f32 inv_z2 = 1.0f/v2->z;
             vert2f uv0_over_z = {uv0.x * inv_z0, uv0.y * inv_z0};
             vert2f uv1_over_z = {uv1.x * inv_z1, uv1.y * inv_z1};
             vert2f uv2_over_z = {uv2.x * inv_z2, uv2.y * inv_z2};
 
             
-            //i32 minx = MIN(proj_v0.x, MIN(proj_v1.x, proj_v2.x));
-            //i32 maxx = MAX(proj_v0.x, MAX(proj_v1.x, proj_v2.x));
-            //i32 miny = MIN(proj_v0.y, MIN(proj_v1.y, proj_v2.y)); 
-            //i32 maxy = MAX(proj_v0.y, MAX(proj_v1.y, proj_v2.y));
             f32 pix_dx = (maxx-minx);//>>4;
             f32 pix_dy = (maxy-miny);//>>4;
             f32 dpix = MAX(1.0f, MIN(pix_dx, pix_dy));

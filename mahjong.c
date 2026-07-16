@@ -380,7 +380,7 @@ typedef struct {
     //vert2f uv0, uv1, uv2;
     vert2f uv0_over_z, uv1_over_z, uv2_over_z;
     //vert3f nv0, nv1, nv2;
-    u8 tex; u8 mip_level;
+    u8 tex; u8 mip_level; u8 no_tmap; u8 color;
     f32 inv_z0, inv_z1, inv_z2;
     //edge_prep edges;
 } transformed_tri;
@@ -542,7 +542,8 @@ typedef struct {
     u8* texels[4];
     int width;
     int height;
-    compress_type compressed;
+    compress_type compressed; 
+    u8 red_variant;
 } texture;
 
 
@@ -716,7 +717,6 @@ int triangle_block(
     u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
 
     // okay color blending for lighting isn't working so well :)
-    //u8* lit_pal_ptr = &mix_table[(quantized_brightness<<8)];
 
 
     int drew_pixel = 0;
@@ -731,6 +731,7 @@ int triangle_block(
     f32 v2v_over_z = uv2_over_z.y;
 
     int mip_level = tri_attributes->mip_level;
+
     int tex_width = tex->width>>mip_level;
     int tex_height = tex->height>>mip_level;
     u8* texels = tex->texels[mip_level];
@@ -771,38 +772,6 @@ int triangle_block(
     i32 maxx = MAX(x0, MAX(x1, x2));
     i32 miny = MIN(y0, MIN(y1, y2)); 
     i32 maxy = MAX(y0, MAX(y1, y2));
-    //i32 pix_dx = (maxx-minx)>>4;
-    //i32 pix_dy = (maxy-miny)>>4;
-    //i32 dpix = MAX(1, MIN(pix_dx, pix_dy));
-    //f32 maxu = MAX(uv0.x, MAX(uv1.x, uv2.x));
-    //f32 maxv = MAX(uv0.y, MAX(uv1.y, uv2.y));
-    //f32 minu = MIN(uv0.x, MIN(uv1.x, uv2.x));
-    //f32 minv = MIN(uv0.y, MIN(uv1.y, uv2.y));
-    //f32 biggest_duv = MAX(absf(maxu-minu), absf(maxv-minv));
-    //f32 duv_per_pix = (biggest_duv*(f32)tex_width)/(f32)dpix;
-
-    /*
-    if(tex_width > 1 && duv_per_pix > 1.0f) { // 3
-        texels = tex->mip_texels;
-        tex_width >>= MIP_SHIFT;
-        tex_height >>= MIP_SHIFT; 
-        if(duv_per_pix > 2.0f) { // 6
-            texels = tex->mip_2_texels;
-            tex_width >>= 1;
-            tex_height >>= 1;
-            if(duv_per_pix > 4.0f) { // 12
-                texels = tex->mip_3_texels;
-                tex_width >>= 1;
-                tex_height >>= 1;
-                //if(duv_per_pix > 8.0f) {
-                //    texels = tex->mip_4_texels;
-                //    tex_width >>= 1;
-                //    tex_height >>= 1;
-                //}
-            }
-        }
-    }
-    */
 
     minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~1; // mask off low bit to align to 2 pixels
     maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
@@ -933,6 +902,240 @@ int triangle_block(
                         recip_area, texels, tex_width, tex_height, 
                         lit_pal_ptr
                     );
+                    
+                    
+                    i32_vec new_color_vec = i32_vec_select(in_tri_and_unoccluded, this_tri_color_vec, cbuf_val_vec);
+                    *col_val_ptr = (u32)(
+                        (new_color_vec[0]) |
+                        ((new_color_vec[1])<<8) |
+                        ((new_color_vec[2])<<16) |
+                        ((new_color_vec[3])<<24)
+                    );
+
+                    f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
+
+                    
+                    *zbuf_ptr = new_zbuf_vec;
+                }
+
+            }
+
+            // step horizontal edge coverage
+            cx01_vec -= dy01_shifted_vec;
+            cx12_vec -= dy12_shifted_vec;
+            cx20_vec -= dy20_shifted_vec;
+            ex01_vec -= dy01_shifted_vec;
+            ex12_vec -= dy12_shifted_vec;
+            ex20_vec -= dy20_shifted_vec;
+            col_val_ptr++;
+            zbuf_ptr++;
+
+        }
+        // step vertical edge coverage
+        
+        cy01_vec += dx01_shifted_vec;
+        cy12_vec += dx12_shifted_vec;
+        cy20_vec += dx20_shifted_vec;
+        ey01_vec += dx01_shifted_vec;
+        ey12_vec += dx12_shifted_vec;
+        ey20_vec += dx20_shifted_vec;
+    }
+    return drew_pixel;
+}
+
+int no_tmap_triangle_block(
+    f32 *zbuffer,
+    transformed_tri* tri_attributes,
+    u8 color,
+    i32 start_x, i32 end_x,
+    i32 start_y, i32 end_y
+) {
+
+    // swap everything for first two vertexes (actual vertex positions and attributes)
+    f32 iz0 = tri_attributes->inv_z1;
+    f32 iz1 = tri_attributes->inv_z0;
+    f32 iz2 = tri_attributes->inv_z2;
+    f32_vec iz0_vec = broadcast_f32_vec(iz0);
+    f32_vec iz1_vec = broadcast_f32_vec(iz1);
+    f32_vec iz2_vec = broadcast_f32_vec(iz2);
+
+    vert2i v0 = tri_attributes->proj_v1;
+    vert2i v1 = tri_attributes->proj_v0;
+    vert2i v2 = tri_attributes->proj_v2;
+
+
+
+    u16 quantized_brightness = tri_attributes->c0;
+    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
+    u8 lit_color = lit_pal_ptr[color];
+
+
+    int drew_pixel = 0;
+
+
+    // 28.4 fixed point
+    const i32 x0 = v0.x;
+    const i32 y0 = v0.y;
+    const i32 x1 = v1.x;
+    const i32 y1 = v1.y;
+    const i32 x2 = v2.x;
+    const i32 y2 = v2.y;
+    //
+    // Edge deltas
+    //
+    const i32 dx01 = x0 - x1;
+    const i32 dy01 = y0 - y1;
+    const i32 dx12 = x1 - x2;
+    const i32 dy12 = y1 - y2;
+    const i32 dx20 = x2 - x0;
+    const i32 dy20 = y2 - y0;
+
+    const i32_vec dy01_shifted_vec = broadcast_i32_vec(dy01<<5);
+    const i32_vec dy12_shifted_vec = broadcast_i32_vec(dy12<<5);
+    const i32_vec dy20_shifted_vec = broadcast_i32_vec(dy20<<5);
+    const i32_vec dx01_shifted_vec = broadcast_i32_vec(dx01<<5);
+    const i32_vec dx12_shifted_vec = broadcast_i32_vec(dx12<<5);
+    const i32_vec dx20_shifted_vec = broadcast_i32_vec(dx20<<5); // shift by 4 for subpixel, but double again because we're using 2x2 quad blocks now 
+
+
+    i32 area = (dx01 * dy20 - dy01 * dx20);
+    // barycentric weights weights (scaled by area)
+    f32 recip_area = 1.0f / (f32)area;
+    f32_vec recip_area_vec = broadcast_f32_vec(recip_area);
+
+    
+    // bounding box of triangle (not so good for larger triangles)
+    i32 minx = MIN(x0, MIN(x1, x2));
+    i32 maxx = MAX(x0, MAX(x1, x2));
+    i32 miny = MIN(y0, MIN(y1, y2)); 
+    i32 maxy = MAX(y0, MAX(y1, y2));
+
+    minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~1; // mask off low bit to align to 2 pixels
+    maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
+    miny = CLAMP((miny + 15) >> 4, start_y, end_y) & ~1; // mask off low bit to align to 2 pixels
+    maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
+
+
+
+    // edge constants, used for incremental edge coverage calculation
+    i32 e01 = dy01 * x0 - dx01 * y0;
+    i32 e12 = dy12 * x1 - dx12 * y1;
+    i32 e20 = dy20 * x2 - dx20 * y2;
+
+    // copy the edge constants into separate variables, so that the fill rule nudge below doesn't affect attribute interpolation (although it would be minor)
+    i32 c01 = e01;
+    i32 c12 = e12;
+    i32 c20 = e20;
+
+    // top left fill rule
+    // ensure that sample positions on a left or top edge are nudged over (to be covered).
+    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
+        c01++;
+    }
+    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
+        c12++;
+    }
+    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
+        c20++;
+    }
+
+    i32 startX = minx << 4;
+    i32 startY = miny << 4;
+    #define FIXED_ONE_PX 16
+
+    i32_vec cy01_vec = init_i32_vec(
+        c01 + dx01 * startY - dy01 * startX,
+        c01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
+        c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
+        c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
+    );
+    i32_vec cy12_vec = init_i32_vec(
+        c12 + dx12 * startY - dy12 * startX,
+        c12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
+        c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
+        c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
+    );
+    i32_vec cy20_vec = init_i32_vec(
+        c20 + dx20 * startY - dy20 * startX,
+        c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
+        c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
+        c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
+    );
+    i32_vec ey01_vec = init_i32_vec(
+        e01 + dx01 * startY - dy01 * startX,
+        e01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
+        e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
+        e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
+    );
+    i32_vec ey12_vec = init_i32_vec(
+        e12 + dx12 * startY - dy12 * startX,
+        e12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
+        e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
+        e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
+    );
+    i32_vec ey20_vec = init_i32_vec(
+        e20 + dx20 * startY - dy20 * startX,
+        e20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
+        e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
+        e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
+    );
+
+
+
+    //const i32_vec i32_zero_vec = broadcast_i32_vec(0);
+    for (i32 y = miny; y < maxy; y += 2)
+    {
+        i32_vec cx01_vec = cy01_vec;
+        i32_vec cx12_vec = cy12_vec;
+        i32_vec cx20_vec = cy20_vec;
+        i32_vec ex01_vec = ey01_vec;
+        i32_vec ex12_vec = ey12_vec;
+        i32_vec ex20_vec = ey20_vec;
+
+        int in_tile_y = y-start_y;
+        int in_tile_x = minx-start_x;
+        int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
+        u32 *col_val_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
+        f32_vec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 16);
+        for (i32 x = 0; x < (maxx-minx); x += 2) {
+
+            i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
+
+
+            u8 coverage_mask = i32_vec_extract_low_bits(covered_vec);
+            //if(coverage_mask != 0xF) {
+            //} else 
+            if(coverage_mask != 0x0) {
+                // skip completely uncovered quads
+                f32_vec zbuf_val_vec = *zbuf_ptr;
+
+                f32_vec w0_vec = i32_vec_convert_f32(ex12_vec);
+                f32_vec w1_vec = i32_vec_convert_f32(ex20_vec);
+                f32_vec w2_vec = i32_vec_convert_f32(ex01_vec);
+                f32_vec inv_z_vec = ((w0_vec * iz0_vec) + 
+                                    (w1_vec * iz1_vec) +
+                                    (w2_vec * iz2_vec));
+                inv_z_vec = (inv_z_vec * recip_area_vec);
+
+                i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
+                i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
+
+                u8 mask = i32_vec_extract_low_bits(in_tri_and_unoccluded);
+                if(mask != 0) {
+                    drew_pixel = 1;
+                    u32 cbuf_val = *col_val_ptr;
+                    i32_vec cbuf_val_vec = init_i32_vec(
+                        (i32)cbuf_val&0xFF,
+                        (i32)(cbuf_val>>8)&0xFF,
+                        (i32)(cbuf_val>>16)&0xFF,
+                        (i32)(cbuf_val>>24)
+                    );
+                    
+                    i32_vec this_tri_color_vec;
+                    this_tri_color_vec[0] = lit_color;
+                    this_tri_color_vec[1] = lit_color;
+                    this_tri_color_vec[2] = lit_color;
+                    this_tri_color_vec[3] = lit_color;
                     
                     
                     i32_vec new_color_vec = i32_vec_select(in_tri_and_unoccluded, this_tri_color_vec, cbuf_val_vec);
@@ -1105,8 +1308,10 @@ typedef struct {
 } bbox;
 
 typedef enum {
-    VERTEX_LIGHTING,
-    UNLIT
+    //UNLIT_UNTEXTURED,
+    UNLIT_TEXTURED,
+    LIT_TEXTURED,
+    //LIT_UNTEXTURED
 } shader;
 
 typedef struct {
@@ -1280,7 +1485,11 @@ u32 roll_die() {
 #include "texture_east.h"
 #include "texture_south.h"
 #include "texture_west.h"
+#include "texture_one_pin.h"
 #include "texture_two_pin.h"
+#include "texture_three_pin.h"
+#include "texture_four_pin.h"
+#include "texture_five_pin.h"
 #include "texture_eight_pin.h"
 #include "texture_five_man.h"
 #include "texture_seven_man.h"
@@ -1296,7 +1505,12 @@ typedef enum {
     EAST,
     SOUTH,
     WEST,
+    ONE_PIN,
     TWO_PIN,
+    THREE_PIN,
+    FOUR_PIN,
+    FIVE_PIN,
+    FIVE_PIN_RED,
     EIGHT_PIN,
     FIVE_MAN,
     SEVEN_MAN,
@@ -1314,51 +1528,66 @@ u8 texture_mip_3_buffer[34][64*64];
 
 texture textures[NUM_TILES+2] = {
     {
-        &comp_tex_white_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_white_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_red_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_red_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_green_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_green_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_north, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_north, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_east, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_east, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_south, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_south, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_west, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_west, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_two_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_one_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_eight_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_two_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_five_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_three_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_seven_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_four_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_two_sou, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED
+        &comp_tex_five_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
-        &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED
+        &comp_tex_five_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 1
     },
     {
-        &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED
+        &comp_tex_eight_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_five_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_seven_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_two_sou, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED, 0
+    },
+    {
+        &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED, 0
     },
 };
 
 
-void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_bytes) {
+void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_bytes, u8 red_version) {
     u8 *packets = comp_tex->compressed_packets;
     u8 *local_palette = comp_tex->palette;
     int packet_idx = 0;
@@ -1370,7 +1599,7 @@ void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byt
         if(packet&1) {
             // non-white packet
             u8 bit = (u8)((packet>>1)&1);
-            u8 pal_idx = local_palette[bit];
+            u8 pal_idx = (red_version ? RED : local_palette[bit]);
             global_pal_idx = light_remap_table[NUM_SHADES-1][pal_idx];
             length = (packet>>2)+1;
         } else {
@@ -1501,7 +1730,7 @@ void decompress_textures(ExotiqueInterface *ei) {
         int width = textures[i].width;
         int height = textures[i].height;
 
-        decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height);    
+        decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height, textures[i].red_variant);    
     
         if(width > 1) {
             mip_texture(ei, tex_buf, mip_tex_buf, width);
@@ -1636,7 +1865,8 @@ void clear_shuffle() {
 }
 
 void reset_game(ExotiqueInterface *ei) {
-    s[0] = ei->ticks;
+    _rand_state = (u16)ei->ticks;
+    s[0] = (ei->ticks>>16);
     cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     frame = 0;
     deal_steps = 0;
@@ -1690,7 +1920,7 @@ void output_full_light_remap_table(ExotiqueInterface *ei) {
 
 void game_load(ExotiqueInterface* ei) {
     reset_game(ei);
-
+    
 
     int i;
     int last_used_pal_idx = 0;
@@ -2119,15 +2349,26 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t) {
     //    );
     //}
 
+    // NOTE: SEPARATE LISTS!
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tri_indexes[i];
-        drew_pix = triangle_block(
-            zbuffer,
-            &global_tri_buffer[global_tri_idx],
-            &textures[global_tri_buffer[global_tri_idx].tex],
-            t->start_x, t->start_x+RENDER_TILE_SIZE,
-            t->start_y, t->start_y+RENDER_TILE_SIZE
-        );
+        if(global_tri_buffer[global_tri_idx].no_tmap) {
+            drew_pix = no_tmap_triangle_block(
+                zbuffer,
+                &global_tri_buffer[global_tri_idx],
+                global_tri_buffer[global_tri_idx].color,
+                t->start_x, t->start_x+RENDER_TILE_SIZE,
+                t->start_y, t->start_y+RENDER_TILE_SIZE
+            );
+        } else {
+            drew_pix = triangle_block(
+                zbuffer,
+                &global_tri_buffer[global_tri_idx],
+                &textures[global_tri_buffer[global_tri_idx].tex],
+                t->start_x, t->start_x+RENDER_TILE_SIZE,
+                t->start_y, t->start_y+RENDER_TILE_SIZE
+            );
+        }
     }   
     t->z_dirty = t->z_dirty || drew_pix;
 
@@ -2334,6 +2575,12 @@ void bin_triangle(
         int tile_end_y = endY / RENDER_TILE_SIZE;
 
         edge_prep tri_edges = calc_edges(v0, v1, v2);
+        u8 no_tmap = (
+            f32s_equal(v0_uv->x, v1_uv->x) && 
+            f32s_equal(v0_uv->x, v2_uv->x) && 
+            f32s_equal(v0_uv->y, v1_uv->y) && 
+            f32s_equal(v0_uv->y, v2_uv->y)
+        );
 
         int rasterized_at_least_once = 0;
         for(int y = tile_start_y; y <= tile_end_y; y++) {
@@ -2409,11 +2656,11 @@ void bin_triangle(
             f32 duv_per_pix = (biggest_duv*(f32)tex_width)/dpix;
             u8 mip_level = 0;
 
-            if(tex_width > 1 && duv_per_pix > 1.0f) { // 3
+            if(tex_width > 1 && duv_per_pix > 2.0f) { // 3
                 mip_level = 1;
-                if(duv_per_pix > 2.0f) { // 6
+                if(duv_per_pix > 3.0f) { // 6
                     mip_level = 2;
-                    if(duv_per_pix > 4.0f) { // 12
+                    if(duv_per_pix > 5.0f) { // 12
                         mip_level = 3;
                     }
                 }
@@ -2432,6 +2679,21 @@ void bin_triangle(
             global_tri_buffer[total_triangles].uv0_over_z = uv0_over_z;
             global_tri_buffer[total_triangles].uv1_over_z = uv1_over_z;
             global_tri_buffer[total_triangles].uv2_over_z = uv2_over_z;
+
+            global_tri_buffer[total_triangles].no_tmap = no_tmap;
+            if(no_tmap) {
+                texture tex = textures[texture_id];
+                u8 *texels = tex.texels[0];
+
+                i32 int_u = (i32)fast_floor(uv0.x * (f32)tex.width);
+                i32 int_v = (i32)fast_floor(uv0.y * (f32)tex.height);
+                int_u &= (tex.width-1);
+                int_v &= (tex.height-1);
+                u8 tex_pal_idx = texels[((tex.height-1)-int_v)*tex.width+int_u];
+
+
+                global_tri_buffer[total_triangles].color = tex_pal_idx;
+            }
             
             global_tri_buffer[total_triangles].inv_z0 = inv_z0;
             global_tri_buffer[total_triangles].inv_z1 = inv_z1;
@@ -2512,7 +2774,7 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
         //l0 = ambient;// * (1.0f - ambient);
         //l1 = ambient;// * (1.0f - ambient);
         //l2 = ambient;// * (1.0f - ambient);
-        if(cur_shader == UNLIT) {
+        if(cur_shader == UNLIT_TEXTURED) {
             l0 = ambient;
             //l1 = ambient;
             //l2 = ambient;
@@ -2531,6 +2793,11 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
         // Perspective projection.
         //
 
+        //if(cur_shader == UNLIT_UNTEXTURED || cur_shader == LIT_UNTEXTURED) {
+        //    ov0.uv = (vert2f){0.0f,0.0f};
+        //    ov1.uv = (vert2f){0.0f,0.0f};
+        //    ov2.uv = (vert2f){0.0f,0.0f};
+        //}
 
 
 
@@ -2765,7 +3032,7 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tile_mat);
         matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
 
-        draw_calls[draw_idx].shdr = VERTEX_LIGHTING; 
+        draw_calls[draw_idx].shdr = LIT_TEXTURED; 
         draw_calls[draw_idx].mesh = &tile_mesh;
         draw_calls[draw_idx].texture = h->tiles[i];
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
@@ -2827,7 +3094,7 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &discard_tile_mat);
         matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &discard_tile_mat);
 
-        draw_calls[draw_idx].shdr = VERTEX_LIGHTING; 
+        draw_calls[draw_idx].shdr = LIT_TEXTURED; 
         draw_calls[draw_idx].mesh = &tile_mesh;
         draw_calls[draw_idx].texture = h->discards[i];
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
@@ -2884,7 +3151,7 @@ void draw_wall(game_state cur_state, u32 cur_frame, wall *w, matrix *view_mat) {
         matrix tile_to_view_matrix = mat_mul_mat(&wall_view_matrixes[wall_side], &tile_mat);
         matrix tile_to_world_matrix = mat_mul_mat(&wall_matrixes[wall_side], &tile_mat);
 
-        draw_calls[draw_idx].shdr = VERTEX_LIGHTING;
+        draw_calls[draw_idx].shdr = LIT_TEXTURED;
         draw_calls[draw_idx].mesh = &tile_mesh;
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
         draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
@@ -2929,7 +3196,7 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
     matrix board_matrix = transform_to_matrix(&board_transform);
     matrix board_to_view_matrix = mat_mul_mat(view_mat, &board_matrix);
     
-    draw_board_call.shdr = UNLIT;
+    draw_board_call.shdr = UNLIT_TEXTURED;
     draw_board_call.mesh = &board_mesh;
     draw_board_call.model_to_view = board_to_view_matrix;
     draw_board_call.model_to_world = board_matrix;

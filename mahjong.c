@@ -423,7 +423,7 @@ typedef struct {
 
 typedef struct {
     obj_vertex *vertexStream;
-    u32 *indexStream; 
+    u16 *indexStream; 
 
     int vertexCount;
     int indexCount;
@@ -433,14 +433,14 @@ obj_mesh tile_mesh = {
     .vertexStream = mahjong_tile_vertexes,
     .indexStream = mahjong_tile_indexes,
     .vertexCount = (sizeof(mahjong_tile_vertexes)/sizeof(obj_vertex)),
-    .indexCount = (sizeof(mahjong_tile_indexes)/sizeof(u32))
+    .indexCount = (sizeof(mahjong_tile_indexes)/sizeof(mahjong_tile_indexes[0]))
 };
 
 obj_mesh board_mesh = {
     .vertexStream = board_vertexes,
     .indexStream = board_indexes,
     .vertexCount = (sizeof(board_vertexes)/sizeof(obj_vertex)),
-    .indexCount = (sizeof(board_indexes)/sizeof(u32))
+    .indexCount = (sizeof(board_indexes)/sizeof(board_indexes[0]))
 };
 
 
@@ -1316,6 +1316,7 @@ typedef enum {
 
 typedef struct {
     obj_mesh* mesh; 
+    bbox* bounds;
     u8 texture;
     matrix model_to_view;
     matrix model_to_world;
@@ -1348,7 +1349,9 @@ typedef enum {
 } clip_res;
 
 
-clip_res clip_bounding_box(mesh_draw_call* m, bbox* box) {
+clip_res clip_bounding_box(mesh_draw_call* m) {
+     bbox* box = m->bounds;
+
     vert3f verts[8] = {
         {.x = box->min_x, .y = box->min_y, .z = box->min_z},
         {.x = box->max_x, .y = box->min_y, .z = box->min_z},
@@ -1425,6 +1428,7 @@ clip_res clip_bounding_box(mesh_draw_call* m, bbox* box) {
 
 
 bbox tile_bbox;
+bbox board_bbox;
 
 bbox get_mesh_bbox(obj_mesh *m) {
     bbox mesh_bbox;
@@ -1992,6 +1996,7 @@ void game_load(ExotiqueInterface* ei) {
     init_tiles();
 
     tile_bbox = get_mesh_bbox(&tile_mesh);
+    board_bbox = get_mesh_bbox(&board_mesh);
 
     for(i = 0; i < 256; i++) {
         vert3f c1 = rgba_to_f32_rgb(ei->palette[i]);
@@ -2545,7 +2550,7 @@ void bin_triangle(
     vert2f *v0_uv,
     vert2f *v1_uv,
     vert2f *v2_uv,
-    f32 c0,
+    u8 c0,
     u8 texture_id) {
 
         if(total_triangles == MAX_GLOBAL_TRIS) {
@@ -2671,9 +2676,7 @@ void bin_triangle(
             global_tri_buffer[total_triangles].proj_v1 = proj_v1;
             global_tri_buffer[total_triangles].proj_v2 = proj_v2;
             
-            f32 diffuse = CLAMP(c0, 0.0f, 1.0f);
-            u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-            global_tri_buffer[total_triangles].c0 = quantized_brightness;
+            global_tri_buffer[total_triangles].c0 = c0;
             global_tri_buffer[total_triangles].mip_level = mip_level;
 
             global_tri_buffer[total_triangles].uv0_over_z = uv0_over_z;
@@ -2706,6 +2709,94 @@ int meshes_transformed = 0;
 int triangles_transformed = 0;
 
 
+
+typedef struct {
+    vert3f rotv;
+    vert2f uv;
+    u8 brightness;
+} shaded_vert;
+
+// 8 elements seems to be the sweet spot
+#define VCACHE_SIZE 8
+shaded_vert vert_cache[VCACHE_SIZE];
+i16 vert_cache_idxs[VCACHE_SIZE];
+u32 vert_cache_next_entry;
+
+u64 hits;
+u64 misses;
+void vcache_reset() {
+    vert_cache_next_entry = 0;
+    for(int i = 0; i < VCACHE_SIZE; i++) { vert_cache_idxs[i] = -1; }
+    hits = 0;
+    misses = 0;
+}
+
+int vcache_lookup(i16 vidx, shaded_vert *out) {
+    for(int i = 0; i < VCACHE_SIZE; i++) {
+        if(vert_cache_idxs[i] == vidx) {
+            *out = vert_cache[i];
+            hits++;
+            return i;
+        }
+    }
+    misses++;
+    return -1;
+}
+
+void vcache_insert(shaded_vert v, i16 vidx) {
+    shaded_vert *e = &vert_cache[vert_cache_next_entry];
+
+    *e = v;
+    vert_cache_idxs[vert_cache_next_entry] = vidx;
+
+    vert_cache_next_entry++;
+    vert_cache_next_entry &= (VCACHE_SIZE-1); // FIFO for 4 entries
+}
+
+int vertex_shader(obj_vertex* ov0,  matrix *model_to_view, matrix *model_to_world, shader cur_shader, shaded_vert *output) {
+    // Move in front of the camera.
+    vert3f r0 = mat_mul_vert3(model_to_view, &ov0->pos);
+
+    //
+    // Reject triangles behind the camera.
+    //
+    if (r0.z <= NEAR_Z || r0.z >= FAR_Z) {
+        return 0;
+    }
+
+    vert3f s0 = project_coord(r0);
+    
+
+    triangles_transformed += 1;
+
+    vert3f *n0 = &ov0->norm;
+    float hemi = n0->y * 0.5f + 0.5f;
+
+    float ambient = lerp(0.20f, 0.40f, hemi);
+    f32 l0;
+    if(cur_shader == UNLIT_TEXTURED) {
+        l0 = ambient;
+    } else {
+
+        // Rotate normals into world space (not view)
+        vert3f rn0 = mat_mul_normal(model_to_world, n0);
+
+        l0 = dot(normalize(rn0), light) + ambient;
+
+    }
+
+
+    f32 c0 = CLAMP(l0, 0.0f, 1.0f);
+    f32 diffuse = CLAMP(c0, 0.0f, 1.0f);
+    u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
+    output->brightness = quantized_brightness;
+    output->rotv = s0;
+    output->uv = ov0->uv;
+    return 1;
+
+}
+
+
 void submit_mesh_draw_call(mesh_draw_call* mdc) {
     obj_mesh *m = mdc->mesh;
     matrix *model_to_view = &mdc->model_to_view;
@@ -2714,108 +2805,80 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
     shader cur_shader = mdc->shdr;
 
     meshes_transformed += 1;
-
+    vcache_reset();
 
     for (int i = 0; i < m->indexCount; i += 3) {
 
-        obj_vertex ov0 = m->vertexStream[m->indexStream[i + 0]];
-        obj_vertex ov1 = m->vertexStream[m->indexStream[i + 1]];
-        obj_vertex ov2 = m->vertexStream[m->indexStream[i + 2]];
+        //obj_vertex ov0, ov1, ov2;
 
-        vert3f v0 = ov0.pos;
-        vert3f v1 = ov1.pos;
-        vert3f v2 = ov2.pos;
+        i16 v0_idx = (i16)m->indexStream[i+0];
+        i16 v1_idx = (i16)m->indexStream[i+1];
+        i16 v2_idx = (i16)m->indexStream[i+2];
 
-
-        // Move in front of the camera.
-
-
-        vert3f r0 = mat_mul_vert3(model_to_view, &v0);
-        vert3f r1 = mat_mul_vert3(model_to_view, &v1);
-        vert3f r2 = mat_mul_vert3(model_to_view, &v2);
-
-        //
-        // Reject triangles behind the camera.
-        //
-
-        if (r0.z <= NEAR_Z || r1.z <= NEAR_Z || r2.z <= NEAR_Z || r0.z >= FAR_Z || r1.z >= FAR_Z || r2.z >= FAR_Z) {
-            continue;
+        shaded_vert shaded_v0, shaded_v1, shaded_v2;
+        int v0_in_cache = vcache_lookup(v0_idx, &shaded_v0);
+        if(v0_in_cache == -1) {
+            int onscreen = vertex_shader(
+                &m->vertexStream[v0_idx],
+                model_to_view, model_to_world,
+                cur_shader,
+                &shaded_v0
+            );
+            if(!onscreen) { continue; }
+            vcache_insert(shaded_v0, v0_idx);
+        }
+        int v1_in_cache = vcache_lookup(v1_idx, &shaded_v1);
+        if(v1_in_cache == -1) {
+            int onscreen = vertex_shader(
+                &m->vertexStream[v1_idx],
+                model_to_view, model_to_world,
+                cur_shader,
+                &shaded_v1
+            );
+            if(!onscreen) { continue; }
+            vcache_insert(shaded_v1, v1_idx);
+        }
+        int v2_in_cache = vcache_lookup(v2_idx, &shaded_v2);
+        if(v2_in_cache == -1) {
+            int onscreen = vertex_shader(
+                &m->vertexStream[v2_idx],
+                model_to_view, model_to_world,
+                cur_shader,
+                &shaded_v2
+            );
+            if(!onscreen) { continue; }
+            vcache_insert(shaded_v2, v2_idx);
         }
 
-        vert3f s0 = project_coord(r0);
-        vert3f s1 = project_coord(r1);
-        vert3f s2 = project_coord(r2);
-        if(triangle_backfacing(&s0, &s1, &s2)) {
+
+        vert3f *s0 = &shaded_v0.rotv;
+        vert3f *s1 = &shaded_v1.rotv;
+        vert3f *s2 = &shaded_v2.rotv;
+        vert2f *uv0 = &shaded_v0.uv;
+        vert2f *uv1 = &shaded_v1.uv;
+        vert2f *uv2 = &shaded_v2.uv;
+        u8 quantized_brightness = shaded_v0.brightness;
+
+        if(triangle_backfacing(s0, s1, s2)) {
             // do not submit backfacing triangles
             continue;
         }
-
-        triangles_transformed += 1;
-
-        vert3f n0 = ov0.norm;
-        vert3f n1 = ov1.norm;
-        vert3f n2 = ov2.norm;
-
-        // Rotate normals into world space (not view)
-        vert3f rn0 = mat_mul_normal(model_to_world, &n0);
-        //vert3f rn1 = mat_mul_normal(model_to_world, &n1);
-        //vert3f rn2 = mat_mul_normal(model_to_world, &n2);
-
-        vert3f avg_norm = normalize(scale_vert3(add_vert3(add_vert3(n0, n1), n2), 1.0f/3.0f));
-        f32 l0 = dot(normalize(rn0), light);
-        //f32 l1 = dot(normalize(rn1), light);
-        //f32 l2 = dot(normalize(rn2), light);
-
-        
-        float hemi = avg_norm.y * 0.5f + 0.5f;
-
-        float ambient = lerp(0.20f, 0.40f, hemi);
-
-        //l0 = ambient;// * (1.0f - ambient);
-        //l1 = ambient;// * (1.0f - ambient);
-        //l2 = ambient;// * (1.0f - ambient);
-        if(cur_shader == UNLIT_TEXTURED) {
-            l0 = ambient;
-            //l1 = ambient;
-            //l2 = ambient;
-        } else {
-            l0 = l0 + ambient;
-            //l1 = l1 + ambient;
-            //l2 = l2 + ambient;
-        }
-
-
-        f32 c0 = CLAMP(l0, 0.0f, 1.0f);
-        //f32 c1 = CLAMP(l1, 0.0f, 1.0f);
-        //f32 c2 = CLAMP(l2, 0.0f, 1.0f);
-
-        //
-        // Perspective projection.
-        //
-
-        //if(cur_shader == UNLIT_UNTEXTURED || cur_shader == LIT_UNTEXTURED) {
-        //    ov0.uv = (vert2f){0.0f,0.0f};
-        //    ov1.uv = (vert2f){0.0f,0.0f};
-        //    ov2.uv = (vert2f){0.0f,0.0f};
-        //}
-
-
-
 
         //
         // Draw.
         //
         bin_triangle(
             //ei,
-            &s0, &s1, &s2,
-            &ov0.uv, &ov1.uv, &ov2.uv,
+            s0, s1, s2,
+            uv0, uv1, uv2,
             //&rn0, &rn1, &rn2,
-            c0,
+            quantized_brightness,
             //c1,
             //c2,
             texture_id
         );
     }
+    //exotique_printf("h%f\n", (double)((f32)hits/(f32)(misses+hits)));
 }
 
 void sort_draw_calls_near_to_far(mesh_draw_call *list, int num_meshes) {
@@ -2863,7 +2926,7 @@ void submit_draw_calls(mesh_draw_call *list, int num_meshes, culling_mode frustu
     int meshes_clipped = 0;
     for(int i = 0; i < num_meshes; i++) {
         if(frustum_cull_mode == FRUSTUM_CULL) {
-            clip_res clipped = clip_bounding_box(&list[i], &tile_bbox);
+            clip_res clipped = clip_bounding_box(&list[i]);
             if(clipped == FAR_CLIPPED || clipped == NEAR_CLIPPED || clipped == OFF_SCREEN) {
                 meshes_clipped++;
                 continue;
@@ -3034,6 +3097,7 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED; 
         draw_calls[draw_idx].mesh = &tile_mesh;
+        draw_calls[draw_idx].bounds = &tile_bbox;
         draw_calls[draw_idx].texture = h->tiles[i];
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
         draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
@@ -3096,6 +3160,7 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED; 
         draw_calls[draw_idx].mesh = &tile_mesh;
+        draw_calls[draw_idx].bounds = &tile_bbox;
         draw_calls[draw_idx].texture = h->discards[i];
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
         draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
@@ -3153,6 +3218,7 @@ void draw_wall(game_state cur_state, u32 cur_frame, wall *w, matrix *view_mat) {
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED;
         draw_calls[draw_idx].mesh = &tile_mesh;
+        draw_calls[draw_idx].bounds = &tile_bbox;
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
         draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
         draw_calls[draw_idx++].texture = this_tile;
@@ -3198,6 +3264,7 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
     
     draw_board_call.shdr = UNLIT_TEXTURED;
     draw_board_call.mesh = &board_mesh;
+    draw_board_call.bounds = &board_bbox;
     draw_board_call.model_to_view = board_to_view_matrix;
     draw_board_call.model_to_world = board_matrix;
     draw_board_call.texture = BOARD;

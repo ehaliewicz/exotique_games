@@ -2,6 +2,70 @@ def parse_face(f):
     return tuple(int(s) for s in f.split("/"))
 
 
+# let's say a 16 vertex cache
+def sort_faces(verts, faces, vert_cache_size):
+
+    res = []
+    faces = faces[1:]
+
+
+    vertex_cache = []
+    def add_face_to_cache(face):
+        (v0, v1, v2) = face 
+
+        def find_or_add(vidx):
+            nonlocal vertex_cache
+            for idx in vertex_cache:
+                if idx == vidx:
+                    return
+            # otherwise, pop first element, shift left, and place at end of cache
+            if len(vertex_cache) == vert_cache_size:
+                vertex_cache.pop()
+            vertex_cache = [vidx] + vertex_cache
+
+
+        find_or_add(v0)
+        find_or_add(v1)
+        find_or_add(v2)
+
+    def count_verts_in_cache(face):
+        (v0, v1, v2) = face
+        count = 0
+        for idx in vertex_cache:
+            if idx == v0 or idx == v1 or idx == v2:
+                count += 1
+        return count   
+
+
+    res = [faces[0]]
+    add_face_to_cache(faces[0])
+
+    cache_hits = 0
+    cache_misses = 0
+    while len(faces):
+        best_res = None
+        best_res_face = None
+
+        for face_idx,face in enumerate(faces):
+            verts_in_cache = count_verts_in_cache(face)
+            if best_res is None or verts_in_cache > best_res:
+                best_res_face = face_idx
+                best_res = verts_in_cache
+        
+        picked_face = faces.pop(best_res_face)
+        res.append(picked_face)
+        cache_hits += best_res 
+        cache_misses += (3 - best_res)
+        add_face_to_cache(picked_face)
+
+
+
+
+    #print("hits: {}, misses: {}".format(cache_hits, cache_misses))
+    #print("hit rate {}".format(cache_hits/(len(res)*3)))
+    #exit(1)
+    return verts, res
+
 def parse(file):
     verts = []
     vert_norms = []
@@ -88,7 +152,9 @@ def format_double(tup):
 import sys
 if __name__ == '__main__':
     obj_name = sys.argv[1]
+    vert_cache_size = 4 #sys.argv[2]
     verts, faces = parse("./models/{}.obj".format(obj_name))
+    verts, faces = sort_faces(verts, faces, vert_cache_size)
     
     print("obj_vertex {}_vertexes[]".format(obj_name) + " = {")
     for (vert, uv, norm) in verts:
@@ -97,7 +163,7 @@ if __name__ == '__main__':
         ) + "},")
     print("};")
 
-    print("u32 {}_indexes[]".format(obj_name) + " = {")
+    print("u16 {}_indexes[]".format(obj_name) + " = {")
     for face in faces:
         (v0, v1, v2) = face
         print("{}, {}, {},".format(v0, v1, v2))

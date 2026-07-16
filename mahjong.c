@@ -870,7 +870,7 @@ int triangle_block(
             //} else 
             if(coverage_mask != 0x0) {
                 // skip completely uncovered quads
-                f32_vec zbuf_val_vec = *zbuf_ptr;
+                //f32_vec zbuf_val_vec = *zbuf_ptr;
 
                 f32_vec w0_vec = i32_vec_convert_f32(ex12_vec);
                 f32_vec w1_vec = i32_vec_convert_f32(ex20_vec);
@@ -880,8 +880,8 @@ int triangle_block(
                                     (w2_vec * iz2_vec));
                 inv_z_vec = (inv_z_vec * recip_area_vec);
 
-                i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
-                i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
+                //i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
+                i32_vec in_tri_and_unoccluded = covered_vec;// & unoccluded;
 
                 u8 mask = i32_vec_extract_low_bits(in_tri_and_unoccluded);
                 if(mask != 0) {
@@ -912,10 +912,10 @@ int triangle_block(
                         ((new_color_vec[3])<<24)
                     );
 
-                    f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
+                    //f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
 
                     
-                    *zbuf_ptr = new_zbuf_vec;
+                    //*zbuf_ptr = new_zbuf_vec;
                 }
 
             }
@@ -1107,7 +1107,7 @@ int no_tmap_triangle_block(
             //} else 
             if(coverage_mask != 0x0) {
                 // skip completely uncovered quads
-                f32_vec zbuf_val_vec = *zbuf_ptr;
+                //f32_vec zbuf_val_vec = *zbuf_ptr;
 
                 f32_vec w0_vec = i32_vec_convert_f32(ex12_vec);
                 f32_vec w1_vec = i32_vec_convert_f32(ex20_vec);
@@ -1117,8 +1117,8 @@ int no_tmap_triangle_block(
                                     (w2_vec * iz2_vec));
                 inv_z_vec = (inv_z_vec * recip_area_vec);
 
-                i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
-                i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
+                //i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
+                i32_vec in_tri_and_unoccluded = covered_vec; // unoccluded & ;
 
                 u8 mask = i32_vec_extract_low_bits(in_tri_and_unoccluded);
                 if(mask != 0) {
@@ -1146,10 +1146,10 @@ int no_tmap_triangle_block(
                         ((new_color_vec[3])<<24)
                     );
 
-                    f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
+                    //f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
 
                     
-                    *zbuf_ptr = new_zbuf_vec;
+                    //*zbuf_ptr = new_zbuf_vec;
                 }
 
             }
@@ -1321,6 +1321,7 @@ typedef struct {
     matrix model_to_view;
     matrix model_to_world;
     shader shdr;
+    f32 trans_centroid_z;
 } mesh_draw_call;
 
 
@@ -1809,7 +1810,7 @@ typedef struct {
 #define TILE_FALL_DURATION .4f
 #define TILE_SPAWN_POS_Y 20.0f
 #define TILE_DEAL_DURATION .4f
-#define DISCARD_DURATION .4f
+#define DISCARD_DURATION .3f
 
 static u64 bench_frame_ms;
 u32 get_frames_for_duration(f32 duration) {
@@ -2912,16 +2913,27 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
 void sort_draw_calls_near_to_far(mesh_draw_call *list, int num_meshes) {
     (void)list; (void)num_meshes;
 
-    //for(int i = 0; i < num_meshes; i++) {
-    //    vert3f model_pos = (vert3f){list[i].pos_x, list[i].pos_y, list[i].pos_z};
-    //    vert3f trans_pos = transform_coord(model_pos, 0.0f, 0.0f, 0.0f, 
-    //        sinf(list[i].angle_x), sinf(list[i].angle_y),
-    //        cosf(list[i].angle_x), cosf(list[i].angle_y)
-    //    );
-    //    list[i].trans_centroid_z = trans_pos.z;
-    //}
+    for(int i = 0; i < num_meshes; i++) {
+        //vert3f model_pos = (vert3f){list[i].pos_x, list[i].pos_y, list[i].pos_z};
 
-    /*
+        f32 cx = (list->bounds->max_x + list->bounds->min_x)/2.0f;
+        f32 cy = (list->bounds->max_y + list->bounds->min_y)/2.0f;
+        f32 cz = (list->bounds->max_z + list->bounds->min_z)/2.0f;
+        vert3f cv = (vert3f){cx,cy,cz};
+
+
+
+        //vert3f trans_pos = transform_coord(model_pos, 0.0f, 0.0f, 0.0f, 
+        //    sinf(list[i].angle_x), sinf(list[i].angle_y),
+        //    cosf(list[i].angle_x), cosf(list[i].angle_y)
+        //);
+        vert3f trans_pos = mat_mul_vert3(&list[i].model_to_view, &cv);
+        f32 dist = my_sqrt(trans_pos.x*trans_pos.x + trans_pos.y*trans_pos.y + trans_pos.z*trans_pos.z);
+
+        list[i].trans_centroid_z = dist;
+    }
+
+    
     int gaps[] = {701, 301, 132, 57, 23, 10, 4, 1};
     int num_gaps = sizeof(gaps)/sizeof(gaps[0]);
     for(int gi = 0; gi < num_gaps; gi++) {
@@ -2932,7 +2944,7 @@ void sort_draw_calls_near_to_far(mesh_draw_call *list, int num_meshes) {
 
             int j;
             // shift earlier gap-sorted elements up until the correct location for a[i] is found
-            for (j = i; (j >= gap) && (list[j - gap].trans_centroid_z > temp.trans_centroid_z); j -= gap)
+            for (j = i; (j >= gap) && (list[j - gap].trans_centroid_z < temp.trans_centroid_z); j -= gap)
             {
                 list[j] = list[j - gap];
             }
@@ -2940,7 +2952,7 @@ void sort_draw_calls_near_to_far(mesh_draw_call *list, int num_meshes) {
             list[j] = temp;
         }
     }
-    */
+    
     //exotique_printf("sorted\n");
     
 }
@@ -2952,6 +2964,7 @@ typedef enum {
 
 void submit_draw_calls(mesh_draw_call *list, int num_meshes, culling_mode frustum_cull_mode) {
     int meshes_clipped = 0;
+    sort_draw_calls_near_to_far(list, num_meshes);
     for(int i = 0; i < num_meshes; i++) {
         if(frustum_cull_mode == FRUSTUM_CULL) {
             clip_res clipped = clip_bounding_box(&list[i]);
@@ -3280,6 +3293,24 @@ void draw_wall(game_state cur_state, u32 cur_frame, wall *w, matrix *view_mat) {
 
 
 void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, board* b, matrix* view_mat) {
+    mesh_draw_call draw_board_call;
+    transform board_transform = identity_transform();
+    board_transform.position.y = -0.73f;
+    board_transform.scale.x = 30.0f;
+    board_transform.scale.z = 30.0f;
+    board_transform.scale.y = 2.0f;
+    matrix board_matrix = transform_to_matrix(&board_transform);
+    matrix board_to_view_matrix = mat_mul_mat(view_mat, &board_matrix);
+    
+    draw_board_call.shdr = UNLIT_TEXTURED;
+    draw_board_call.mesh = &board_mesh;
+    draw_board_call.bounds = &board_bbox;
+    draw_board_call.model_to_view = board_to_view_matrix;
+    draw_board_call.model_to_world = board_matrix;
+    draw_board_call.texture = BOARD;
+
+    submit_draw_calls(&draw_board_call, 1, FRUSTUM_CULL);
+    
     transform t_east = identity_transform(); t_east.rotation.y = (f32)M_PI * 0.5f; t_east.position.x = 26.5f; // push 10 units to the right
     transform t_south = identity_transform(); t_south.rotation.y = 0; t_south.position.z = 26.5f; // push 10 units down
     transform t_west = identity_transform(); t_west.rotation.y = -(f32)M_PI * 0.5f; t_west.position.x = -26.5f; // push 10 units left
@@ -3304,23 +3335,7 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
     draw_wall(cur_state, cur_frame, &b->board_wall, view_mat);
 
 
-    mesh_draw_call draw_board_call;
-    transform board_transform = identity_transform();
-    board_transform.position.y = -0.73f;
-    board_transform.scale.x = 30.0f;
-    board_transform.scale.z = 30.0f;
-    board_transform.scale.y = 2.0f;
-    matrix board_matrix = transform_to_matrix(&board_transform);
-    matrix board_to_view_matrix = mat_mul_mat(view_mat, &board_matrix);
-    
-    draw_board_call.shdr = UNLIT_TEXTURED;
-    draw_board_call.mesh = &board_mesh;
-    draw_board_call.bounds = &board_bbox;
-    draw_board_call.model_to_view = board_to_view_matrix;
-    draw_board_call.model_to_world = board_matrix;
-    draw_board_call.texture = BOARD;
 
-    submit_draw_calls(&draw_board_call, 1, FRUSTUM_CULL);
 
     draw_tiles(ei, zbuf);
 }

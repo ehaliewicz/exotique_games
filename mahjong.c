@@ -506,7 +506,7 @@ int triangle_backfacing(
     return (area <= 0);
 }
 
-#define DEFAULT_CAM_ROT_X 0.45f
+#define DEFAULT_CAM_ROT_X 0.55f
 #define DEFAULT_CAM_ROT_Y 0.0f
 f32 camera_rot_y = DEFAULT_CAM_ROT_Y;
 f32 camera_rot_x = DEFAULT_CAM_ROT_X;
@@ -1494,7 +1494,10 @@ u32 roll_die() {
 #include "texture_three_pin.h"
 #include "texture_four_pin.h"
 #include "texture_five_pin.h"
+#include "texture_six_pin.h"
+#include "texture_seven_pin.h"
 #include "texture_eight_pin.h"
+#include "texture_nine_pin.h"
 #include "texture_five_man.h"
 #include "texture_seven_man.h"
 #include "texture_two_sou.h"
@@ -1502,23 +1505,26 @@ u32 roll_die() {
 
 
 typedef enum {
-    WHITE_DRAGON,
-    RED_DRAGON,
-    GREEN_DRAGON,
-    NORTH,
-    EAST,
-    SOUTH,
-    WEST,
     ONE_PIN,
     TWO_PIN,
     THREE_PIN,
     FOUR_PIN,
     FIVE_PIN,
     FIVE_PIN_RED,
+    SIX_PIN,
+    SEVEN_PIN,
     EIGHT_PIN,
+    NINE_PIN,
     FIVE_MAN,
     SEVEN_MAN,
     TWO_SOU,
+    NORTH,
+    EAST,
+    SOUTH,
+    WEST,
+    WHITE_DRAGON,
+    RED_DRAGON,
+    GREEN_DRAGON,
     NUM_TILES,
     BOARD
 } tile_type;
@@ -1531,27 +1537,6 @@ u8 texture_mip_3_buffer[34][64*64];
 #define NULL 0
 
 texture textures[NUM_TILES+2] = {
-    {
-        &comp_tex_white_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
-    },
-    {
-        &comp_tex_red_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
-    },
-    {
-        &comp_tex_green_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
-    },
-    {
-        &comp_tex_north, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
-    },
-    {
-        &comp_tex_east, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
-    },
-    {
-        &comp_tex_south, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
-    },
-    {
-        &comp_tex_west, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
-    },
     {
         &comp_tex_one_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
@@ -1571,7 +1556,16 @@ texture textures[NUM_TILES+2] = {
         &comp_tex_five_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 1
     },
     {
+        &comp_tex_six_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_seven_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
         &comp_tex_eight_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_nine_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
     {
         &comp_tex_five_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
@@ -1582,6 +1576,29 @@ texture textures[NUM_TILES+2] = {
     {
         &comp_tex_two_sou, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
     },
+    {
+        &comp_tex_north, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_east, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_south, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_west, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_white_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_red_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+    {
+        &comp_tex_green_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+    },
+
+
     {
         &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED, 0
     },
@@ -1784,12 +1801,15 @@ typedef struct {
     int selected_tile_idx;
     tile_type discards[MAX_DISCARDS];
     int num_discards;
+    u32 discard_frames[MAX_DISCARDS];
+    int discard_from_hand_idx[MAX_DISCARDS];
 } hand;
 
 #define TILES_IN_DECK 136
 #define TILE_FALL_DURATION .4f
 #define TILE_SPAWN_POS_Y 20.0f
 #define TILE_DEAL_DURATION .4f
+#define DISCARD_DURATION .4f
 
 static u64 bench_frame_ms;
 u32 get_frames_for_duration(f32 duration) {
@@ -2046,6 +2066,8 @@ void step_shuffle_and_setup(u32 cur_frame) {
     }
 }
 
+int switch_player_timer = -1;
+
 void step_deal(u32 cur_frame) {
     // start with east
     if((cur_frame & 31) != 0) {
@@ -2086,6 +2108,7 @@ void step_deal(u32 cur_frame) {
     deal_steps++;
     if(deal_steps == 17) {
         cur_game_state = IN_GAME;
+        switch_player_timer = -1;
     }
 }
 
@@ -2108,7 +2131,7 @@ void sort_hand(hand* h) {
 
         for(int j = i+1; j < h->num_closed_tiles; j++) {
             int cur_tile = h->tiles[j];
-            if(cur_tile > biggest_tile) {
+            if(cur_tile < biggest_tile) {
                 h->tiles[i] = cur_tile;
                 h->tiles[j] = biggest_tile;
                 biggest_tile = cur_tile;
@@ -2117,7 +2140,7 @@ void sort_hand(hand* h) {
     }
 }
 
-void discard_current_tile(int player) {
+void discard_current_tile(int player, u32 cur_frame) {
     hand* hands_in_order[4] = {
         &game_board.east_hand, 
         &game_board.south_hand, 
@@ -2126,7 +2149,11 @@ void discard_current_tile(int player) {
     };
     hand* cur_player_hand = hands_in_order[player];
 
-    cur_player_hand->discards[cur_player_hand->num_discards++] = cur_player_hand->tiles[cur_player_hand->selected_tile_idx];
+    int selected_tile_idx = cur_player_hand->selected_tile_idx;
+    cur_player_hand->discards[cur_player_hand->num_discards] = cur_player_hand->tiles[selected_tile_idx];
+
+    cur_player_hand->discard_frames[cur_player_hand->num_discards] = cur_frame;
+    cur_player_hand->discard_from_hand_idx[cur_player_hand->num_discards++] = selected_tile_idx;
 
     for(int i = cur_player_hand->selected_tile_idx; i < cur_player_hand->num_closed_tiles-1; i++) {
         cur_player_hand->tiles[i] = cur_player_hand->tiles[i+1];
@@ -2148,6 +2175,7 @@ void draw_next_tile(u32 cur_frame, int player) {
     cur_player_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
     cur_player_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
     cur_player_hand->tiles[cur_num_tiles] = game_board.board_wall.tiles[game_board.board_wall.rem];
+    cur_player_hand->selected_tile_idx = cur_num_tiles;
     //exotique_printf("player %i drawing up to %i\n", player, cur_player_hand->num_closed_tiles);
     //if(cur_num_tiles > 14) {
         //exotique_printf("WhoaTT!!\n");
@@ -2184,12 +2212,13 @@ void game_update(ExotiqueInterface* ei) {
 
     f32 abs_cam_rot_y = wall_rots_y[cur_player];
 
-    if(ei->input->up) {
-        camera_rot_x += 0.0005f * (f32)ms_per_frame; // 16 -> .008
-    } else if (ei->input->down) {
-        camera_rot_x -= 0.0005f * (f32)ms_per_frame;
-    }
-    camera_rot_x = CLAMP(camera_rot_x, -0.0f, 1.568f);
+
+    //if(ei->input->up) {
+    //    camera_rot_x += 0.0005f * (f32)ms_per_frame; // 16 -> .008
+    //} else if (ei->input->down) {
+    //    camera_rot_x -= 0.0005f * (f32)ms_per_frame;
+    //}
+    camera_rot_x = (ei->input->x ? 1.568f : DEFAULT_CAM_ROT_X); //CLAMP(camera_rot_x, -0.0f, 1.568f);
     //f32 rot_x_portion = camera_rot_x/1.0f;
     f32 lerped_cam_dist = lerp(camera_radius, camera_radius_top, camera_rot_x);
     //f32 abs_cam_rot_y = (f32)((cur_player+1)%4) * 1.57f + camera_rot_y;
@@ -2229,16 +2258,26 @@ void game_update(ExotiqueInterface* ei) {
         } else if (hands_in_order[cur_player]->selected_tile_idx >= hands_in_order[cur_player]->num_closed_tiles) {
             hands_in_order[cur_player]->selected_tile_idx = 0;
         }
+        if(switch_player_timer != -1) {
+            switch_player_timer--;
+            if(switch_player_timer == 0) {
+                cur_player += 1;
+                cur_player &= 3;
+                draw_next_tile(frame, cur_player);
+                camera_rot_y = DEFAULT_CAM_ROT_Y;
+                camera_rot_x = DEFAULT_CAM_ROT_X;
+                switch_player_timer = -1;
+            }
+        } else {
 
-
-        if(ei->input->a && !last_a_pushed) {
-            discard_current_tile(cur_player);
-            cur_player += 1;
-            cur_player &= 3;
-            draw_next_tile(frame, cur_player);
-            camera_rot_y = DEFAULT_CAM_ROT_Y;
-            camera_rot_x = DEFAULT_CAM_ROT_X;
+            if(ei->input->a && !last_a_pushed) {
+                discard_current_tile(cur_player, frame);
+                switch_player_timer = (int)get_frames_for_duration(DISCARD_DURATION+0.2f);
+            }
         }
+
+
+        
         last_a_pushed = ei->input->a;
     }
     last_left_pushed = ei->input->left;
@@ -2966,7 +3005,6 @@ f32 calc_wall_tile_y_position(u32 cur_frame, wall *d, int tot_tile_idx) {
     f32 lerp_top_position = lerp(1.10f, TILE_SPAWN_POS_Y, 1.0f-tile_fall_pos);
     f32 lerp_bot_position = lerp(0.0f, TILE_SPAWN_POS_Y, 1.0f-tile_fall_pos);
     return top ? lerp_top_position : lerp_bot_position;//1.40f : 0.0f;
-
 }
 
 int mod_positive(int x, int m) {
@@ -3011,8 +3049,11 @@ f32 calc_hand_x_position(int idx) {
         return normal;
     }
 }
+
+#define SELECTED_TILE_Y_POS 1.47f
+#define UNSELECTED_TILE_Y_POS 0.455f
 f32 calc_hand_y_position(hand* h, int idx) {
-    return (h->selected_tile_idx == idx ? 1.47f : 0.455f);
+    return (h->selected_tile_idx == idx ? SELECTED_TILE_Y_POS : UNSELECTED_TILE_Y_POS);
 }
 
 vert3f calc_global_hand_position(hand* h, int idx, matrix* hand_to_world_matrix) {
@@ -3022,7 +3063,10 @@ vert3f calc_global_hand_position(hand* h, int idx, matrix* hand_to_world_matrix)
     f32 base_position_x = half;
     vert3f local;
     local.x = base_position_x - hand_tile_spacing*(f32)idx;
-    local.y = 0.455f; //calc_hand_y_position(h, idx);
+    if(idx == 13) {
+        local.x -= 1.0f;
+    }
+    local.y = calc_hand_y_position(h, idx);
     local.z = 0.0f;
     return mat_mul_vert3(hand_to_world_matrix, &local);
 }
@@ -3127,6 +3171,7 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
 
     */
 
+    u32 discard_frames = get_frames_for_duration(DISCARD_DURATION);
     for(int i = 0; i < h->num_discards; i++) {
         int discard_row = i/6;
         f32 pos_z = -7.5f + (f32)discard_row * 2.5f;
@@ -3135,13 +3180,30 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
         const f32 half_row_size = discard_row_size/2.0f;
         f32 pos_x = half_row_size + (f32)pos_in_row * -2.0f;
 
+
+        f32 discard_progress = (f32)(cur_frame - h->discard_frames[i])/ (f32)discard_frames;
+        discard_progress = CLAMP(discard_progress, 0.0f, 1.0f);
+        int hand_slot_idx = h->discard_from_hand_idx[i];
+        
+        f32 old_x_pos = calc_hand_x_position(hand_slot_idx);
+        f32 old_y_pos = SELECTED_TILE_Y_POS;// calc_hand_y_position(h, hand_slot_idx);
+        f32 old_z_pos = 0.0f;
+        f32 old_rot = 1.57f;
+
+        f32 cur_x_pos = lerp(old_x_pos, pos_x, discard_progress);
+        f32 cur_y_pos = lerp(old_y_pos, 0.0f, discard_progress);
+        f32 cur_z_pos = lerp(old_z_pos, pos_z, discard_progress);
+        f32 cur_rot_x = lerp(old_rot, 0.0f, discard_progress);
+
+
+
         // rotate up
         // position downwards
         transform discard_transform = identity_transform();
-        discard_transform.position.x = pos_x;
-        discard_transform.position.z = pos_z;
-        discard_transform.position.y = 0.0f;
-        discard_transform.rotation.x = 0.0f;
+        discard_transform.position.x = cur_x_pos;
+        discard_transform.position.y = cur_y_pos;
+        discard_transform.position.z = cur_z_pos;
+        discard_transform.rotation.x = cur_rot_x;
         matrix discard_tile_mat = transform_to_matrix(&discard_transform);
       
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &discard_tile_mat);

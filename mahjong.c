@@ -1329,6 +1329,16 @@ const f32 camx = (f32)(RENDER_WIDTH/2.0f);
 const f32 camy = (f32)(RENDER_HEIGHT/2.0f);
 
 
+vert3f isometric_project_coord(vert3f r) {
+    //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
+    const f32 focal = (RENDER_HEIGHT / 2.0f) / 0.6f; //tanf(fov_y / 2.0f);
+
+    return (vert3f){
+            camx + focal * r.x / 40.0f,
+            camy - focal * r.y / 40.0f,
+            r.z
+    };
+}
 vert3f project_coord(vert3f r) {
     //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
     const f32 focal = (RENDER_HEIGHT / 2.0f) / 0.6f; //tanf(fov_y / 2.0f);

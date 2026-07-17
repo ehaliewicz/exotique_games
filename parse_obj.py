@@ -6,7 +6,7 @@ def parse_face(f):
 def sort_faces(verts, faces, vert_cache_size):
 
     res = []
-    faces = faces[1:]
+    #faces = faces[1:]
 
 
     vertex_cache = []
@@ -39,6 +39,7 @@ def sort_faces(verts, faces, vert_cache_size):
 
     res = [faces[0]]
     add_face_to_cache(faces[0])
+    faces = faces[1:]
 
     cache_hits = 0
     cache_misses = 0

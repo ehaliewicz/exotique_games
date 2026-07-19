@@ -657,32 +657,22 @@ i32_vec parallel_pixel_shader(
 
     int_u &= (tex_height-1);
     int_v &= (tex_height-1);
-    //int_v = (tex_height-1)-int_v;
-    //i32_vec in_tile_u = int_u & 3;
-    //i32_vec in_tile_v = (int_v & 3)<<2;
-    //i32_vec out_tile_v = (int_v & ~3)*tex_height;
-    //i32_vec out_tile_u = (int_u & ~3)<<2;
     
 
     // 9 or less bits each
     // yyyyyyyyy xxxxxxxxx
     // yyyyyyyxxxxxxxyyxx
-    //i32_vec uv = out_tile_v|out_tile_u|in_tile_v|in_tile_u;
     i32_vec scaled_v = tex_height * int_v;
     i32_vec uv = scaled_v + int_u;
 
-
     i32_vec tex_pal_idx;
+
+
     tex_pal_idx[0] = texels[uv[0]];
     tex_pal_idx[1] = texels[uv[1]];
     tex_pal_idx[2] = texels[uv[2]];
     tex_pal_idx[3] = texels[uv[3]];
 
-    //u8 col_top = mix_table[(texels[uv[0]]<<8)|texels[uv[1]]];
-    //u8 col_bot = mix_table[(texels[uv[2]]<<8)|texels[uv[3]]];
-    //u8 col = mix_table[(col_top<<8)|col_bot];
-    //return tex_pal_idx;
-    //return col;
 
     i32_vec res;
     res[0] = lit_pal_ptr[tex_pal_idx[0]];
@@ -1810,7 +1800,7 @@ u8 closest_overall_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
 }
 
 
-void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size) {
+void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size, i16 override_color) {
     int dst_size = src_size>>1;
     for(int y = 0; y < src_size; y+=2) {
         for(int x = 0 ; x < src_size; x+=2) {
@@ -1849,8 +1839,25 @@ void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size) {
                     break;
                 }
             }
+            u8 pick_color = (override_color != -1) ? (u8)override_color : best_idx;
+            dst[(y>>1)*dst_size + (x>>1)] = pick_color;
 
-            dst[(y>>1)*dst_size + (x>>1)] = best_idx;
+            // so we have to calculate tiles in the destination.
+            //int tex_y = y>>1;
+            //int tex_x = x>>1;
+            //int tile_y = tex_y>>1;
+            //int tile_x = tex_x>>1;
+            //int tex_in_tile_y = tex_y&1;
+            //int tex_in_tile_x = tex_x&1;
+            //int tile_idx = (tile_y)*dst_size*2 + (tile_x)*4;
+            //int in_tile_idx = tex_in_tile_y*2+tex_in_tile_x;
+            //((u32*)__builtin_assume_aligned(dst,4))[tile_idx] |= (((u32)pick_color) << (8*in_tile_idx));
+
+            // y = 2 means an offset of (y>>1)*width*2
+            // so normally 01 45
+            //             23 67
+            //             89 CD 
+            //             AB EF
         }
     }
 }
@@ -1873,7 +1880,7 @@ void decompress_textures(ExotiqueInterface *ei) {
         decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height, textures[i].red_variant);    
     
         if(width > 1) {
-            mip_texture(ei, tex_buf, mip_tex_buf, width);
+            mip_texture(ei, tex_buf, mip_tex_buf, width, -1); //(i16)light_remap_table[NUM_SHADES-1][BLUE]);
             int mip_width = width>>1;
             int mip_height = height>>1;
             mip_tex_buf[(mip_height-2)*mip_width+mip_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
@@ -1881,7 +1888,7 @@ void decompress_textures(ExotiqueInterface *ei) {
             mip_tex_buf[(mip_height-1)*mip_width+mip_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
             mip_tex_buf[(mip_height-1)*mip_width+mip_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
-            mip_texture(ei, mip_tex_buf, mip_2_tex_buf, mip_width);
+            mip_texture(ei, mip_tex_buf, mip_2_tex_buf, mip_width, -1); //(i16)light_remap_table[NUM_SHADES-1][GOLD]);
             int mip2_width = mip_width>>1;
             int mip2_height = mip_height>>1;
             mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
@@ -1890,7 +1897,7 @@ void decompress_textures(ExotiqueInterface *ei) {
             mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
             
-            mip_texture(ei, mip_2_tex_buf, mip_3_tex_buf, mip2_width);
+            mip_texture(ei, mip_2_tex_buf, mip_3_tex_buf, mip2_width, -1); //(i16)light_remap_table[NUM_SHADES-1][RED]);
             int mip3_width = mip2_width>>1;
             int mip3_height = mip2_height>>1;
 
@@ -2318,7 +2325,7 @@ void game_update(ExotiqueInterface* ei) {
     u64 cur_frame_ticks = ei->ticks;
 
     exotique_printf("%llu ms\n", cur_frame_ticks - last_frame_ticks);
-    exotique_printf("cam radius %f rot x %f\n", (double)camera_radius, (double)camera_rot_x);
+    //exotique_printf("cam radius %f rot x %f\n", (double)camera_radius, (double)camera_rot_x);
 
     //exotique_printf("trivial reject %i\n", trivial_reject_enabled);
     ms_per_frame = cur_frame_ticks - last_frame_ticks;
@@ -2345,7 +2352,8 @@ void game_update(ExotiqueInterface* ei) {
     } else if (ei->input->down) {
         camera_rot_x -= 0.0005f * (f32)ms_per_frame;
     }
-    f32 use_camera_rot_x = (ei->input->x ? 1.568f : CLAMP(camera_rot_x, 0.0f, 1.568f));
+    camera_rot_x = CLAMP(camera_rot_x, 0.0f, 1.568f);
+    f32 use_camera_rot_x = (ei->input->x ? 1.568f : camera_rot_x);
     //f32 rot_x_portion = camera_rot_x/1.0f;
     f32 lerped_cam_dist = camera_radius; //lerp(camera_radius, camera_radius_top, use_camera_rot_x);
     //f32 abs_cam_rot_y = (f32)((cur_player+1)%4) * 1.57f + camera_rot_y;
@@ -2490,7 +2498,7 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
         f32 y_portion = (f32)global_y / (f32)RENDER_HEIGHT;
         int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
 
-        if(global_y >= board_min_y && global_y < board_max_y) {
+        if(global_y >= board_min_y && global_y < board_max_y-2) {
             f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
             f32 right = board_top_max_x + right_dx_per_dy * ((f32) global_y - board_min_y);
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
@@ -2502,7 +2510,7 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
                 int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
 
                 if(global_x >= (i32)left && global_x < (i32)right) {
-                    bkgd_idx = light_remap_table[NUM_SHADES/2][GREEN];
+                    bkgd_idx = light_remap_table[9][GREEN];
                 } else {
                     bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
                 }
@@ -2595,15 +2603,16 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
         }
     }
     
-
-    //if(draw_mode == TILE_DRAW) {
-    //    for(int cnt = 0; cnt < OUTPUT_TILE_SIZE; cnt++) {
-    //        ei->screen[((t->start_y>>1)+cnt)*kScreenWidth + (t->start_x>>1)] = 0;
-    //        ei->screen[((t->start_y>>1)+cnt)*kScreenWidth + (t->start_x>>1)+OUTPUT_TILE_SIZE] = 0;
-    //        ei->screen[(t->start_y>>1)*kScreenWidth + (t->start_x>>1)+cnt] = 0;
-    //        ei->screen[((t->start_y>>1)+OUTPUT_TILE_SIZE)*kScreenWidth + (t->start_x>>1)+cnt] = 0;
-    //    }
-    //}
+    /*
+    if(draw_mode == TILE_DRAW) {
+        for(int cnt = 0; cnt < OUTPUT_TILE_SIZE; cnt++) {
+            ei->screen[((t->start_y>>1)+cnt)*kScreenWidth + (t->start_x>>1)] = 0;
+            ei->screen[((t->start_y>>1)+cnt)*kScreenWidth + (t->start_x>>1)+OUTPUT_TILE_SIZE] = 0;
+            ei->screen[(t->start_y>>1)*kScreenWidth + (t->start_x>>1)+cnt] = 0;
+            ei->screen[((t->start_y>>1)+OUTPUT_TILE_SIZE)*kScreenWidth + (t->start_x>>1)+cnt] = 0;
+        }
+    }
+    */
 }
 
 
@@ -2776,13 +2785,24 @@ void bin_triangle(
         int tile_end_x = endX / RENDER_TILE_SIZE;
         int tile_end_y = endY / RENDER_TILE_SIZE;
 
-        edge_prep tri_edges = calc_edges(v0, v1, v2);
-        u8 no_tmap = (
-            f32s_equal(v0_uv->x, v1_uv->x) && 
-            f32s_equal(v0_uv->x, v2_uv->x) && 
-            f32s_equal(v0_uv->y, v1_uv->y) && 
-            f32s_equal(v0_uv->y, v2_uv->y)
-        );
+        //edge_prep tri_edges = calc_edges(v0, v1, v2);
+        //u8 no_tmap = (
+        //    f32s_equal(v0_uv->x, v1_uv->x) && 
+        //    f32s_equal(v0_uv->x, v2_uv->x) && 
+        //    f32s_equal(v0_uv->y, v1_uv->y) && 
+        //    f32s_equal(v0_uv->y, v2_uv->y)
+        //);
+        // if there are two different
+        // HACK
+        // only texturemap if there is a difference in U and V
+        // we only have two models, and the only textured face is mapped over a 2d area (so it changes in both U and V)
+        // TODO: implement this with materials lol
+        u8 no_tmap = ((f32s_equal(v0_uv->x, v1_uv->x) &&
+         f32s_equal(v0_uv->x, v2_uv->x)) ||
+        (f32s_equal(v0_uv->y, v1_uv->y) &&
+         f32s_equal(v0_uv->y, v2_uv->y)));
+
+
 
         int rasterized_at_least_once = 0;
         for(int y = tile_start_y; y <= tile_end_y; y++) {
@@ -2790,10 +2810,10 @@ void bin_triangle(
                 u32 num_tris_in_tile = tiles[y*TILES_WIDE+x].num_triangles;
                 u32 num_trivial_tris_in_tile = tiles[y*TILES_WIDE+x].num_trivial_triangles;
 
-                trivial_res triv = check_trivial_reject_accept(x, y, tri_edges);
-                if(triv == TRIVIAL_REJECT) {
-                    continue;
-                }
+                //trivial_res triv = check_trivial_reject_accept(x, y, tri_edges);
+                //if(triv == TRIVIAL_REJECT) {
+                //    continue;
+                //}
 
                 if(0) { // triv == TRIVIAL_ACCEPT) {
                     //continue;
@@ -2857,38 +2877,47 @@ void bin_triangle(
             //f32 pix_dy = (maxy-miny);//>>4;
             //f32 dpix = MAX(1.0f, MIN(pix_dx, pix_dy));
 
-            f32 v1v0dx = v1->x - v0->x;
-            f32 v1v0dy = v1->y - v0->x;
-            f32 v1v0len = v1v0dx * v1v0dx + v1v0dy * v1v0dy;
-            f32 v2v0dx = v2->x - v0->x;
-            f32 v2v0dy = v2->y - v0->x;
-            f32 v2v0len = v2v0dx * v2v0dx + v2v0dy * v2v0dy;
-            f32 v1v0du = uv1.x - uv0.x;
-            f32 v1v0dv = uv1.y - uv1.y;
-            f32 v1v0uvlen = v1v0du * v1v0du + v1v0dv * v1v0dv;
-            f32 v2v0du = uv2.x - uv0.x;
-            f32 v2v0dv = uv2.x - uv0.x;
-            f32 v2v0uvlen = v2v0du * v2v0du + v2v0dv * v2v0dv;
-
-            f32 edge0_dv_per_len = v1v0uvlen / v1v0len;
-            f32 edge1_dv_per_len = v2v0uvlen / v2v0len;
-            f32 duv_per_pix = MAX(edge0_dv_per_len, edge1_dv_per_len);
-            (void)duv_per_pix;
-            
-
-            int tex_width = textures[texture_id].width;
-            //f32 duv_per_pix = (biggest_duv*(f32)tex_width)/dpix;
             u8 mip_level = 0;
-
-            if(tex_width > 1 && duv_per_pix > 2.0f) { // 3
+            int tex_width = textures[texture_id].width;
+            if(!no_tmap && tex_width > 1) {
                 mip_level = 1;
-                if(duv_per_pix > 3.0f) { // 6
-                    mip_level = 2;
-                    if(duv_per_pix > 5.0f) { // 12
-                        mip_level = 3;
+                f32 v1v0dx = fabsf(v1->x - v0->x);
+                f32 v1v0dy = fabsf(v1->y - v0->y);
+                f32 v1v0len = (v1v0dx * v1v0dx + v1v0dy * v1v0dy);
+                f32 v2v0dx = fabsf(v2->x - v0->x);
+                f32 v2v0dy = fabsf(v2->y - v0->y);
+                f32 v2v0len = (v2v0dx * v2v0dx + v2v0dy * v2v0dy);
+                f32 v1v0du = fabsf(uv1.x - uv0.x);
+                f32 v1v0dv = fabsf(uv1.y - uv0.y);
+                f32 v1v0uvlen = (v1v0du * v1v0du + v1v0dv * v1v0dv);
+                f32 v2v0du = fabsf(uv2.x - uv0.x);
+                f32 v2v0dv = fabsf(uv2.y - uv0.y);
+                f32 v2v0uvlen = (v2v0du * v2v0du + v2v0dv * v2v0dv);
+
+                f32 edge0_dv_per_len = v1v0uvlen / v1v0len;
+                f32 edge1_dv_per_len = v2v0uvlen / v2v0len;
+                f32 duv_per_pix = MAX(edge0_dv_per_len, edge1_dv_per_len) * (f32)tex_width;
+                (void)duv_per_pix;
+                
+
+                //f32 duv_per_pix = (biggest_duv*(f32)tex_width)/dpix;
+                
+                //if(duv_per_pix > 1.0f) {
+                //    mip_level = 1;
+                    if(duv_per_pix > 2.0f) { // 6
+                        mip_level = 2;
+                        if(duv_per_pix > 4.0f) { // 12
+                            mip_level = 3;
+                        }
                     }
+                //}
+                duv_per_pix /= (f32)(2 << mip_level);
+                duv_per_pix = duv_per_pix;
+                if(duv_per_pix > 1.0f) {
+                    exotique_printf("wtf\n");
                 }
             }
+            
 
             
             global_tri_buffer[total_triangles].proj_v0 = proj_v0;
@@ -3204,6 +3233,7 @@ typedef enum {
 
 void submit_draw_calls(mesh_draw_call *list, int num_meshes, culling_mode frustum_cull_mode) {
     int meshes_clipped = 0;
+    (void)frustum_cull_mode;
     for(int i = 0; i < num_meshes; i++) {
         if(frustum_cull_mode == FRUSTUM_CULL) {
             clip_res clipped = clip_bounding_box(&list[i]);
@@ -3577,53 +3607,62 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
 
      
     
-    //mesh_draw_call draw_board_call;
+    mesh_draw_call draw_board_call;
     transform board_transform = identity_transform();
     board_transform.position.y = -0.73f;
     board_transform.scale.x = 30.0f;
     board_transform.scale.z = 30.0f;
-    board_transform.scale.y = 2.0f;
+    board_transform.scale.y = 10.0f;
     matrix board_matrix = transform_to_matrix(&board_transform);
     matrix board_to_view_matrix = mat_mul_mat(view_mat, &board_matrix);
-    /*
+    
     draw_board_call.shdr = UNLIT_TEXTURED;
-    draw_board_call.mesh = &board_mesh;
+    //draw_board_call.mesh = &board_mesh;
     draw_board_call.bounds = &board_bbox;
     draw_board_call.model_to_view = board_to_view_matrix;
     draw_board_call.model_to_world = board_matrix;
     draw_board_call.texture = BOARD;
-    */
-    vert3f board_verts[8];
-    project_bounding_box(&board_bbox, &board_to_view_matrix, board_verts);
-    f32 min_y = board_verts[0].y, max_y = board_verts[0].y;
-    for(int i = 0; i < 8; i++) {
-        min_y = MIN(min_y, board_verts[i].y);
-        max_y = MAX(max_y, board_verts[i].y);
-    }
-    f32 top_min_x = 100000.0f, top_max_x = -100000.0f;
-    f32 bot_min_x = 100000.0f, bot_max_x = -100000.0f;
-    for(int i = 0; i < 8; i++) {
-        if(fabsf(board_verts[i].y-min_y) < 4.0f) {
-            top_min_x = MIN(top_min_x, board_verts[i].x);
-            top_max_x = MAX(top_max_x, board_verts[i].x);
-        }
 
-        if(fabsf(board_verts[i].y-max_y) < 4.0f) {
-            bot_min_x = MIN(bot_min_x, board_verts[i].x);
-            bot_max_x = MAX(bot_max_x, board_verts[i].x);
-        }
-    }
-    board_min_y = min_y;
-    board_max_y = max_y;
-    board_top_min_x = top_min_x;
-    board_top_max_x = top_max_x;
-    board_bot_min_x = bot_min_x;
-    board_bot_max_x = bot_max_x;
+    static obj_mesh board_sides;
+    board_sides.indexCount = board_mesh.indexCount - 12;
+    board_sides.indexStream = board_mesh.indexStream + 12;
+    board_sides.vertexCount = board_mesh.vertexCount;
+    board_sides.vertexStream = board_mesh.vertexStream;
+    draw_board_call.mesh = &board_sides;
     
 
-    /*
-    submit_draw_calls(&draw_board_call, 1, NO_FRUSTUM_CULL);
-    */
+    if(1) {
+        vert3f board_verts[8];
+        project_bounding_box(&board_bbox, &board_to_view_matrix, board_verts);
+        f32 min_y = board_verts[0].y, max_y = board_verts[0].y;
+        for(int i = 0; i < 8; i++) {
+            min_y = MIN(min_y, board_verts[i].y);
+            max_y = MAX(max_y, board_verts[i].y);
+        }
+        f32 top_min_x = 100000.0f, top_max_x = -100000.0f;
+        f32 bot_min_x = 100000.0f, bot_max_x = -100000.0f;
+        for(int i = 0; i < 8; i++) {
+            if(fabsf(board_verts[i].y-min_y) < 4.0f) {
+                top_min_x = MIN(top_min_x, board_verts[i].x);
+                top_max_x = MAX(top_max_x, board_verts[i].x);
+            }
+
+            if(fabsf(board_verts[i].y-max_y) < 4.0f) {
+                bot_min_x = MIN(bot_min_x, board_verts[i].x);
+                bot_max_x = MAX(bot_max_x, board_verts[i].x);
+            }
+        }
+        board_min_y = min_y;
+        board_max_y = max_y;
+        board_top_min_x = top_min_x;
+        board_top_max_x = top_max_x;
+        board_bot_min_x = bot_min_x;
+        board_bot_max_x = bot_max_x;
+    } else {
+    }
+    submit_draw_calls(&draw_board_call, 1, FRUSTUM_CULL);
+
+    
 
     draw_tiles(ei, zbuf);
 }

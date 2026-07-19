@@ -406,8 +406,6 @@ typedef struct {
     vert2f uv;
 } obj_vertex;
 
-//#define TEXTURE_WIDTH 512
-//#define TEXTURE_HEIGHT 512
 
 #include "mesh_mahjong_tile.h"
 #include "mesh_board.h"
@@ -1553,29 +1551,43 @@ u32 roll_die() {
     return 1+(nextrand()%6);
 }
 
-#include "texture_green_dragon.h"
-#include "texture_red_dragon.h"
-#include "texture_white_dragon.h"
-#include "texture_north.h"
-#include "texture_east.h"
-#include "texture_south.h"
-#include "texture_west.h"
-#include "texture_one_pin.h"
-#include "texture_two_pin.h"
-#include "texture_three_pin.h"
-#include "texture_four_pin.h"
-#include "texture_five_pin.h"
-#include "texture_six_pin.h"
-#include "texture_seven_pin.h"
-#include "texture_eight_pin.h"
-#include "texture_nine_pin.h"
 #include "texture_one_man.h"
 #include "texture_two_man.h"
 #include "texture_three_man.h"
 #include "texture_four_man.h"
 #include "texture_five_man.h"
+#include "texture_five_man_red.h"
+#include "texture_six_man.h"
 #include "texture_seven_man.h"
+#include "texture_eight_man.h"
+#include "texture_nine_man.h"
+#include "texture_one_pin.h"
+#include "texture_two_pin.h"
+#include "texture_three_pin.h"
+#include "texture_four_pin.h"
+#include "texture_five_pin.h"
+#include "texture_five_pin_red.h"
+#include "texture_six_pin.h"
+#include "texture_seven_pin.h"
+#include "texture_eight_pin.h"
+#include "texture_nine_pin.h"
+#include "texture_one_sou.h"
 #include "texture_two_sou.h"
+#include "texture_three_sou.h"
+#include "texture_four_sou.h"
+#include "texture_five_sou.h"
+#include "texture_five_sou_red.h"
+#include "texture_six_sou.h"
+#include "texture_seven_sou.h"
+#include "texture_eight_sou.h"
+#include "texture_nine_sou.h"
+#include "texture_north.h"
+#include "texture_east.h"
+#include "texture_south.h"
+#include "texture_west.h"
+#include "texture_green_dragon.h"
+#include "texture_red_dragon.h"
+#include "texture_white_dragon.h"
 #include "texture_background.h"
 #include "texture_board.h"
 
@@ -1597,8 +1609,20 @@ typedef enum {
     FOUR_MAN,
     FIVE_MAN,
     FIVE_MAN_RED,
+    SIX_MAN,
     SEVEN_MAN,
+    EIGHT_MAN,
+    NINE_MAN,
+    ONE_SOU,
     TWO_SOU,
+    THREE_SOU,
+    FOUR_SOU,
+    FIVE_SOU,
+    FIVE_SOU_RED,
+    SIX_SOU,
+    SEVEN_SOU,
+    EIGHT_SOU,
+    NINE_SOU,
     NORTH,
     EAST,
     SOUTH,
@@ -1611,90 +1635,124 @@ typedef enum {
 } tile_type;
 
 
-u8 texture_buffer[34][512*512] __attribute__((aligned(64)));
-u8 texture_mip_buffer[34][256*256] __attribute__((aligned(64)));
-u8 texture_mip_2_buffer[34][128*128] __attribute__((aligned(64)));
-u8 texture_mip_3_buffer[34][64*64] __attribute__((aligned(64)));
+u8 texture_buffer[NUM_TILES][256*256] __attribute__((aligned(64)));
+u8 texture_mip_buffer[NUM_TILES][128*128] __attribute__((aligned(64)));
+u8 texture_mip_2_buffer[NUM_TILES][64*64] __attribute__((aligned(64)));
+u8 texture_mip_3_buffer[NUM_TILES][32*32] __attribute__((aligned(64)));
 #define NULL 0
 
 texture textures[NUM_TILES+2] = {
     {
-        &comp_tex_one_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_one_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_two_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_two_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_three_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_three_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_four_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_four_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_five_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 1
+        &comp_tex_five_pin_red, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_six_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_six_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_seven_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_seven_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_eight_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_eight_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_nine_pin, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_nine_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_one_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_one_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_two_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_two_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_three_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_three_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_four_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_four_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_five_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 1
+        &comp_tex_five_man_red, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_seven_man, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_six_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_two_sou, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_seven_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_north, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_eight_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_east, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_nine_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_south, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_one_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_west, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_two_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_white_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_three_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_red_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_four_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_green_dragon, {NULL, NULL, NULL, NULL}, 512, 512, COMPRESSED, 0
+        &comp_tex_five_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
     },
-
-
+    {
+        &comp_tex_five_sou_red, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_six_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_seven_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_eight_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_nine_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_north, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_east, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_south, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_west, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_white_dragon, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_red_dragon, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
+    {
+        &comp_tex_green_dragon, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+    },
     {
         &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED, 0
     },
@@ -1731,6 +1789,7 @@ void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byt
             dst[dst_idx++] = global_pal_idx;
         }
     }
+    return;
 }
 
 vert3f rgba_to_f32_rgb(u32 rgba) {
@@ -1739,6 +1798,7 @@ vert3f rgba_to_f32_rgb(u32 rgba) {
     u32 b = (rgba>>8)&0xFF;
     return (vert3f){(f32)r/255.0f, (f32)g/255.0f, (f32)b/255.0f};
 }
+
 f32 color_dist(vert3f c1, vert3f c2) {
     
     f32 r1 = c1.x;
@@ -1801,20 +1861,30 @@ u8 closest_overall_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
 
 
 void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size, i16 override_color) {
+    (void)ei;
     int dst_size = src_size>>1;
     for(int y = 0; y < src_size; y+=2) {
         for(int x = 0 ; x < src_size; x+=2) {
-            vert3f rgb = {0.0f,0.0f,0.0f};
-            f32 total_weight = 0.0f;
+            //vert3f rgb = {0.0f,0.0f,0.0f};
+            //f32 total_weight = 4.0f;
 
+            u8 idx0 = src[y*src_size + x];
+            u8 idx1 = src[y*src_size + x + 1];
+            u8 idx2 = src[(y+1)*src_size + x];
+            u8 idx3 = src[(y+1)*src_size + x + 1];
+            
+            u8 idx01 = mix_table[(idx0<<8)|idx1];
+            u8 idx23 = mix_table[(idx2<<8)|idx3];
+            u8 best_idx = mix_table[(idx01<<8)|idx23];
+            /*
             for(int yy = 0; yy < 2; yy++) {
                 for(int xx = 0; xx < 2; xx++) {
                     u8 src_pal_idx0 = src[(y+yy)*src_size + (x+xx)];
-                    f32 weight = 1.0f;
-                    if(src_pal_idx0 == WHITE) {
-                        weight = 0.5f;
-                    }
-                    total_weight += weight;
+                    //f32 weight = 1.0f;
+                    //if(src_pal_idx0 == WHITE) {
+                    //    weight = 0.5f;
+                    //}
+                    //total_weight += weight;
 
                     rgb = add_vert3(
                         rgb, 
@@ -1839,6 +1909,8 @@ void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size, i16 over
                     break;
                 }
             }
+            */
+
             u8 pick_color = (override_color != -1) ? (u8)override_color : best_idx;
             dst[(y>>1)*dst_size + (x>>1)] = pick_color;
 
@@ -2069,7 +2141,6 @@ void output_full_light_remap_table(ExotiqueInterface *ei) {
 }
 
 void game_load(ExotiqueInterface* ei) {
-    
 
     int i;
     int last_used_pal_idx = 0;
@@ -2137,17 +2208,6 @@ void game_load(ExotiqueInterface* ei) {
     }
     //output_full_light_remap_table(ei);
     //output_palette(ei);
-    
-    decompress_textures(ei);
-
-    texture_board[0] = light_remap_table[NUM_SHADES-1][GREEN];
-    
-
-    init_tiles();
-
-    tile_bbox = get_mesh_bbox(&tile_mesh);
-    board_bbox = get_mesh_bbox(&board_mesh);
-
     for(i = 0; i < 256; i++) {
         vert3f c1 = rgba_to_f32_rgb(ei->palette[i]);
         for(int j = 0; j < 256; j++) {
@@ -2162,6 +2222,18 @@ void game_load(ExotiqueInterface* ei) {
             }
         }
     }
+
+    
+    decompress_textures(ei);
+
+    texture_board[0] = light_remap_table[NUM_SHADES-1][GREEN];
+    
+
+    init_tiles();
+
+    tile_bbox = get_mesh_bbox(&tile_mesh);
+    board_bbox = get_mesh_bbox(&board_mesh);
+
 
     //const u8 color_remap[4] = {GREEN, BLUE, GREEN, RED};
 
@@ -2344,7 +2416,7 @@ void game_update(ExotiqueInterface* ei) {
     }
     last_start_pushed = cur_start_pushed;
 
-    f32 abs_cam_rot_y = wall_rots_y[cur_player];
+    f32 abs_cam_rot_y = wall_rots_y[0]; //cur_player];
 
 
     if(ei->input->up) {
@@ -2877,7 +2949,7 @@ void bin_triangle(
             //f32 pix_dy = (maxy-miny);//>>4;
             //f32 dpix = MAX(1.0f, MIN(pix_dx, pix_dy));
 
-            u8 mip_level = 0;
+            u8 mip_level = 1;
             int tex_width = textures[texture_id].width;
             if(!no_tmap && tex_width > 1) {
                 mip_level = 1;
@@ -3002,14 +3074,14 @@ int vcache_rem() {
     return VCACHE_SIZE - vcache_idx;
 }
 
-int vertex_shader(obj_vertex* ov0,  matrix *model_to_view, matrix *model_to_world, shader cur_shader, shaded_vert *output) {
+void vertex_shader(obj_vertex* ov0,  matrix *model_to_view, matrix *model_to_world, shader cur_shader, shaded_vert *output) {
     // Move in front of the camera.
     vert3f r0 = mat_mul_vert3(model_to_view, &ov0->pos);
 
     // reject triangles behind the camera.
-    if (r0.z <= NEAR_Z || r0.z >= FAR_Z) {
-        return 0;
-    }
+    //if (r0.z <= NEAR_Z || r0.z >= FAR_Z) {
+    //    return 0;
+    //}
 
     vert3f s0 = project_coord(r0);
     
@@ -3039,7 +3111,6 @@ int vertex_shader(obj_vertex* ov0,  matrix *model_to_view, matrix *model_to_worl
     output->brightness = quantized_brightness;
     output->rotv = s0;
     output->uv = ov0->uv;
-    return 1;
 }
 
 
@@ -3455,7 +3526,7 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, matrix* hand_to_view_matrix, mat
     u32 discard_frames = get_frames_for_duration(DISCARD_DURATION);
     for(int i = 0; i < h->num_discards; i++) {
         int discard_row = i/6;
-        f32 pos_z = -7.5f + (f32)discard_row * 2.5f;
+        f32 pos_z = -17.5f + (f32)discard_row * 2.5f;
         int pos_in_row = i - (discard_row*6);
         const f32 discard_row_size = 6*2.0f;
         const f32 half_row_size = discard_row_size/2.0f;
@@ -3584,23 +3655,24 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
     matrix north_view_matrix = mat_mul_mat(view_mat, &north_matrix);
 
 
-    f32 discard_scale[4] = {
+    f32 discard_scales[4] = {
         1.0f, 1.0f, 1.0f, 1.0f
     };
+    
     for(int i = 0; i < 4; i++) {
         // distance to current player
-        int dist = i-cur_player;
-        if(dist < 0) { dist = -dist; }
-        if(dist == 3) { dist = 1; }
-        discard_scale[i] = 1.0f + (.1f * (f32)dist);
+        //int dist = i;
+        //if(dist < 0) { dist = -dist; }
+        //if(dist == 3) { dist = 1; }
+        //discard_scales[i] = 1.0f + (.1f * (f32)dist);
     }
+    
 
 
-    draw_hand(cur_frame, &b->board_wall, &b->east_hand, &east_view_matrix, &east_matrix, discard_scale[0]);
-
-    draw_hand(cur_frame, &b->board_wall, &b->south_hand, &south_view_matrix, &south_matrix, discard_scale[1]);
-    draw_hand(cur_frame, &b->board_wall, &b->west_hand, &west_view_matrix, &west_matrix, discard_scale[2]);
-    draw_hand(cur_frame, &b->board_wall, &b->north_hand, &north_view_matrix, &north_matrix, discard_scale[3]);
+    draw_hand(cur_frame, &b->board_wall, &b->east_hand, &east_view_matrix, &east_matrix, discard_scales[0]);
+    draw_hand(cur_frame, &b->board_wall, &b->south_hand, &south_view_matrix, &south_matrix, discard_scales[1]);
+    draw_hand(cur_frame, &b->board_wall, &b->west_hand, &west_view_matrix, &west_matrix, discard_scales[2]);
+    draw_hand(cur_frame, &b->board_wall, &b->north_hand, &north_view_matrix, &north_matrix, discard_scales[3]);
 
 
     draw_wall(cur_state, cur_frame, &b->board_wall, view_mat);

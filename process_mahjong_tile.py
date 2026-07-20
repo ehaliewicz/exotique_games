@@ -34,10 +34,10 @@ FINAL_SIZE = 256
 # Character fills the whole canvas except a single reserved column on the
 # right (used for the solid-color triangle marker, and forced to white by
 # the compressor's `px == x-1` check regardless of what's stored here).
-BORDER_LEFT = 3
-BORDER_RIGHT = 3
-BORDER_TOP = 7
-BORDER_BOTTOM = 7
+BORDER_LEFT = 10
+BORDER_RIGHT = 11
+BORDER_TOP = 10
+BORDER_BOTTOM = 10
 
 TARGET_W, TARGET_H = FINAL_SIZE-(BORDER_LEFT+BORDER_RIGHT), FINAL_SIZE-(BORDER_TOP+BORDER_BOTTOM)
  

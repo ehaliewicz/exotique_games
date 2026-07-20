@@ -22,6 +22,7 @@ REM ============================================================
 REM -Waggregate-return
 SET EXTRA_CFLAGS=-DSDL_MAIN_HANDLED -Warith-conversion -Wcast-align=strict -Wcast-qual -Wconversion -Wdouble-promotion -Wduplicated-branches -Wduplicated-cond -Wfloat-equal -Wformat=2 -Wlogical-op -Wmissing-include-dirs -Wnull-dereference -Wstrict-aliasing=2 -Wstrict-overflow=2 -Wswitch-default -Wswitch-enum -Wundef -Wuninitialized -Wwrite-strings
 SET CFLAGS=-Wall -Wextra -Wpedantic -Wshadow -Werror -Wfatal-errors %EXTRA_CFLAGS%
+SET SIMPLE_CFLAGS=-Wall 
 
 REM ============================================================
 REM  Argument check
@@ -44,12 +45,19 @@ IF ERRORLEVEL 1 (
     echo [FAILED] exotique.c
     exit /b 1
 )
+REM ============================================================
+REM  Compile miniaudio.c
+REM ============================================================
+REM "%GCC%" -c miniaudio.c -o miniaudio.o
+REM IF ERRORLEVEL 1 (
+REM    echo [FAILED] exotique.c
+REM    exit /b 1
 
 REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c99 -O3 -march=westmere -ffast-math -fno-strict-aliasing -nostdlib -nostdinc -nodefaultlibs -nolibc -ffreestanding ^
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -ggdb -march=westmere -ffast-math -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
     -I ".." ^
     ^
     -D ARCH=%ARCH% ^
@@ -64,8 +72,8 @@ REM  Link
 REM  NOTE: -lasan may fail with MinGW -- remove if GCC complains
 REM        it cannot find libasan.
 REM ============================================================
-"%GCC%" exotique.o "%GAME%.o" ^
-    -L "%SDL2_LIB%" -lSDL2 ^
+gcc exotique.o miniaudio.o "%GAME%.o" ^
+    -L "%SDL2_LIB%" -lSDL2 -latomic ^
     ^
     -o "%GAME%.exe"
 IF ERRORLEVEL 1 (

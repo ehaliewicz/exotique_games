@@ -1,5 +1,7 @@
 #include "exotique.h"
 
+#include "miniaudio.h"
+
 #define OUTPUT_TILE_SIZE 32
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~31))
@@ -121,6 +123,9 @@ f32 fabsf(f32 f) {
 
 f32 lerp(f32 a, f32 b, f32 mix) {
     return a + ((b-a) * mix);
+}
+vert3f lerp_vert3f(vert3f a, vert3f b, f32 mix) {
+    return (vert3f){lerp(a.x,b.x, mix), lerp(a.y,b.y, mix), lerp(a.z,b.z, mix)};
 }
 
 
@@ -349,6 +354,7 @@ vert3f mat_mul_vert3(const matrix *m, const vert3f *v) {
     return r;
 }
 
+
 vert3f mat_mul_normal(const matrix *m, const vert3f *n) {
     vert3f r;
     r.x =
@@ -423,7 +429,7 @@ typedef struct {
 #include "mesh_board.h"
 #include "palette_mahjong.h"
 #include "palette_background.h"
-
+#include "tile_click.h"
 #define BLACK 0
 #define GREEN 1
 #define GOLD 2
@@ -1681,125 +1687,125 @@ u8 texture_buffer[NUM_TILES][256*256] __attribute__((aligned(64)));
 u8 texture_mip_buffer[NUM_TILES][128*128] __attribute__((aligned(64)));
 u8 texture_mip_2_buffer[NUM_TILES][64*64] __attribute__((aligned(64)));
 u8 texture_mip_3_buffer[NUM_TILES][32*32] __attribute__((aligned(64)));
-#define NULL 0
+#define NULL_PTR 0
 
 texture textures[NUM_TILES+2] = {
     {
-        &comp_tex_one_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_one_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_two_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_two_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_three_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_three_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_four_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_four_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_five_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_pin_red, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_five_pin_red, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_six_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_six_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_seven_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_seven_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_eight_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_eight_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_nine_pin, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_nine_pin, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_one_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_one_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_two_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_two_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_three_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_three_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_four_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_four_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_five_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_man_red, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_five_man_red, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_six_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_six_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_seven_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_seven_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_eight_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_eight_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_nine_man, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_nine_man, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_one_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_one_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_two_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_two_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_three_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_three_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_four_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_four_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_five_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_five_sou_red, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_five_sou_red, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_six_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_six_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_seven_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_seven_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_eight_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_eight_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_nine_sou, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_nine_sou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_north, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_north, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_east, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_east, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_south, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_south, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_west, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_west, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_white_dragon, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_white_dragon, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_red_dragon, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_red_dragon, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_green_dragon, {NULL, NULL, NULL, NULL}, 256, 256, COMPRESSED, 0
+        &comp_tex_green_dragon, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, 0
     },
     {
-        &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED, 0
+        &comp_tex_east, {texture_board, NULL_PTR, NULL_PTR, NULL_PTR}, 1, 1, UNCOMPRESSED, 0
     },
     {
-        &comp_tex_east, {texture_board, NULL, NULL, NULL}, 1, 1, UNCOMPRESSED, 0
+        &comp_tex_east, {texture_board, NULL_PTR, NULL_PTR, NULL_PTR}, 1, 1, UNCOMPRESSED, 0
     },
 };
 
@@ -2032,6 +2038,7 @@ void decompress_textures(ExotiqueInterface *ei) {
 #define MAX_DISCARDS 18
 
 
+
 typedef struct {
     int num_closed_tiles;
     tile_type tiles[14];
@@ -2042,16 +2049,19 @@ typedef struct {
     tile_type discards[MAX_DISCARDS];
     int num_discards;
     u32 discard_frames[MAX_DISCARDS];
+    i32 discard_click_frames[MAX_DISCARDS];
     int discard_from_hand_idx[MAX_DISCARDS];
 } hand;
 
 #define TILES_IN_DECK 136
-#define TILE_FALL_DURATION .4f
 #define TILE_SPAWN_POS_Y 20.0f
+
+#define TILE_FALL_DURATION .4f
 #define TILE_DEAL_DURATION .4f
 #define DISCARD_DURATION .4f
 
 static u64 bench_frame_ms;
+
 u32 get_frames_for_duration(f32 duration) {
     // 
     // this_many_milliseconds 
@@ -2061,7 +2071,8 @@ u32 get_frames_for_duration(f32 duration) {
 
 typedef struct {
     int rem;
-    u32 tile_fall_frame[TILES_IN_DECK];
+    u32 tile_fall_frames[TILES_IN_DECK];
+    i32 tile_click_frames[TILES_IN_DECK];
     tile_type tiles[TILES_IN_DECK];
     int split_distance;
 } wall;
@@ -2107,6 +2118,7 @@ hand init_empty_hand() {
 
     h.selected_tile_idx = -1;
     h.num_discards = 0;
+
     return h;
 }
 
@@ -2183,6 +2195,8 @@ void shuffle_deck() {
 
 }
 
+int switch_player_timer = -1;
+u32 draw_end_frame = 0;
 void reset_game(ExotiqueInterface *ei) {
     _rand_state = (u16)ei->ticks;
     s[0] = (ei->ticks>>16);
@@ -2190,7 +2204,8 @@ void reset_game(ExotiqueInterface *ei) {
     frame = 0;
     deal_steps = 0;
     cur_player = 0;
-
+    switch_player_timer = -1;
+    draw_end_frame = 0;
     
     game_board.board_wall.rem = 0;
     game_board.north_hand.num_closed_tiles = 0;
@@ -2238,9 +2253,171 @@ void output_full_light_remap_table(ExotiqueInterface *ei) {
     }
 }
 
-u8 tex_background_half_res[BACKGROUND_TEX_HEIGHT/2 * BACKGROUND_TEX_WIDTH/2];
 
+int num_active_sounds = 0;
+#define MAX_SOUNDS 64
+u32 active_sounds[MAX_SOUNDS]; // contains the playback index of the sound?
+vert3f active_sound_locations[MAX_SOUNDS];
+/*
+void add_click() {
+
+}
+
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
+    (void)pInput;
+
+    i16* out = (i16*)pOutput;
+    i16* in = (i16*)pDevice->pUserData;
+
+    //u32 samples = MIN(frameCount*2, 1024);
+
+    for(u32 i = 0; i < frameCount; i++) {
+        buffer[i*2] = 0.0f;
+        buffer[i*2+1] = 0.0f;
+    }
+    // mix into buffer
+    // we write two samples per "frame", since it's stereo
+    for(u32 i = 0; i < frameCount; i++) {
+        u32 bufferIdx = i*2;
+
+        for(int sound = 0; sound < num_active_sounds; sound++) {
+        continue_without_increment:;
+            u32 playback_idx = active_sounds[sound];
+
+            if(playback_idx >= TILE_CLICK_NUM_SAMPLES) {
+                // swap with last
+                active_sounds[sound] = -1;
+            } else {
+                buffer[bufferIdx] = (f32)(buffer[bufferIdx] + (f32)in[playback_idx]*.25f);
+                buffer[bufferIdx+1] = (f32)(buffer[bufferIdx+1] + (f32)in[playback_idx++]*.25f);
+                active_sounds[sound] = playback_idx;
+            }
+        }
+    }
+
+    for(u32 i = 0; i < frameCount; i++) {
+        *out++ = (i16)CLAMP(buffer[i*2], -32768.0f, 32767.0f);
+        *out++ = (i16)CLAMP(buffer[i*2+1], -32768.0f, 32767.0f);
+    }
+}
+*/
+f32 buffer[4096];
+static volatile u8 pending_clicks[MAX_SOUNDS];
+vert3f pending_sound_locations[MAX_SOUNDS];
+static volatile u32 write_pos = 0;  // written only by game thread
+static volatile u32 read_pos  = 0;  // written only by audio thread
+
+void add_click(vert3f location) {
+    u32 next = (write_pos + 1) & (MAX_SOUNDS - 1);
+    if(next == read_pos) {
+        return; // queue full, drop
+    }
+    pending_clicks[write_pos] = 1;
+    pending_sound_locations[write_pos] = location;
+    write_pos = next;
+}
+
+static void drain_pending_clicks(void) {
+    while(read_pos != write_pos) {
+        if(num_active_sounds < MAX_SOUNDS) {
+            active_sounds[num_active_sounds] = 0;
+            active_sound_locations[num_active_sounds++] = pending_sound_locations[read_pos];
+        }
+        read_pos = (read_pos + 1) & (MAX_SOUNDS - 1);
+    }
+}
+
+matrix view_matrix;
+
+f32 copy_sign_f(f32 mag, f32 sign) {
+    if(sign < 0) {
+        return -fabsf(mag);
+    } else {
+        return fabsf(mag);
+    }
+}
+
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
+    (void)pInput;
+
+    drain_pending_clicks();   // <-- only new line: pull in any clicks queued since last callback
+    i16* out = (i16*)pOutput;
+    i16* in = (i16*)pDevice->pUserData;
+
+    for(u32 i = 0; i < frameCount; i++) {
+        buffer[i*2] = 0.0f;
+        buffer[i*2+1] = 0.0f;
+    }
+
+    // mix into buffer — unchanged
+    for(u32 i = 0; i < frameCount; i++) {
+        u32 bufferIdx = i*2;
+
+        for(int sound = 0; sound < num_active_sounds; sound++) {
+        continue_without_increment:;
+            vert3f view = mat_mul_vert3(&view_matrix, &active_sound_locations[sound]);
+            f32 pan = CLAMP(view.x/fabsf(view.z), -1.0f, 1.0f);
+            pan = CLAMP(pan*10.0f, -1.0f, 1.0f);
+            
+            //float left = my_sqrt(0.5f * (1.0f - pan));
+            //float right = my_sqrt(0.5f *  (1.0f + pan));
+            f32 left  = 0.5f - pan * 0.5f;
+            f32 right = 0.5f + pan * 0.5f;
+            u32 playback_idx = active_sounds[sound];
+            buffer[bufferIdx]   += (f32)in[playback_idx]   * .25f * left;
+            buffer[bufferIdx+1] += (f32)in[playback_idx++] * .25f * right;
+
+            if(playback_idx >= TILE_CLICK_NUM_SAMPLES) {
+                num_active_sounds--;
+                if(sound == num_active_sounds) {
+                    // this WAS the last element — nothing to swap in, don't reprocess
+                    continue;
+                }
+                active_sounds[sound] = active_sounds[num_active_sounds];
+                goto continue_without_increment;
+            } else {
+                active_sounds[sound] = playback_idx;
+            }
+        }
+    }
+
+    for(u32 i = 0; i < frameCount; i++) {
+        *out++ = (i16)CLAMP(buffer[i*2],   -32768.0f, 32767.0f);
+        *out++ = (i16)CLAMP(buffer[i*2+1], -32768.0f, 32767.0f);
+    }
+}
+void stop_device_callback(ma_device* pDevice) {
+    (void)pDevice;
+}
+ma_device_config ma_config;
+ma_device sound_device;
 void game_load(ExotiqueInterface* ei) {
+    num_active_sounds = 0;
+
+    ma_config = ma_device_config_init(ma_device_type_playback);
+
+    ma_config.playback.format   = ma_format_s16;   // Set to ma_format_unknown to use the device's native format.
+    ma_config.playback.channels = 2;               // Set to 0 to use the device's native channel count.
+    ma_config.sampleRate        = 22050;           // Set to 0 to use the device's native sample rate.
+    ma_config.dataCallback      = &data_callback;   // This function will be called when miniaudio needs more data.
+    ma_config.stopCallback      = &stop_device_callback;
+    ma_config.pUserData         = tile_click_raw_data;   // Can be accessed from the device object (device.pUserData).
+    ma_config.performanceProfile = ma_performance_profile_low_latency;
+    ma_config.noClip = MA_TRUE;
+    ma_config.noPreSilencedOutputBuffer = MA_TRUE;
+    //ma_device
+    ma_config.periodSizeInFrames = 32;
+    
+    if (ma_device_init(NULL_PTR, &ma_config, &sound_device) != MA_SUCCESS) {
+        return;  // Failed to initialize the device.
+    }
+    
+    ma_result res = ma_device_start(&sound_device);     // The device is sleeping by default so you'll need to start it manually.
+    if(res != MA_SUCCESS) {
+        exotique_printf("wtf %i\n", res);
+        return;
+    }
+
 
     int i;
     int last_used_pal_idx = 0;
@@ -2356,18 +2533,33 @@ void game_load(ExotiqueInterface* ei) {
     reset_game(ei);
 }
 
+vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx);
+
 //#define NUM_SHUFFLE_FRAMES 136*2
-void step_shuffle_and_setup(u32 cur_frame) {
+void step_shuffle_and_setup(u32 cur_frame, wall* w) {
     if((cur_frame&3) != 3) {
         return;
     }
-    if(game_board.board_wall.rem == TILES_IN_DECK) {
-        if(game_board.board_wall.tile_fall_frame[game_board.board_wall.rem-1]+get_frames_for_duration(TILE_FALL_DURATION) <= cur_frame) {
+    if(w->rem == TILES_IN_DECK) {
+        if(w->tile_fall_frames[w->rem-1]+get_frames_for_duration(TILE_FALL_DURATION) <= cur_frame) {
             cur_game_state = DEALING;
         }
     } else {
-        game_board.board_wall.tile_fall_frame[game_board.board_wall.rem] = cur_frame;
-        game_board.board_wall.tiles[game_board.board_wall.rem++] = shuffled_deck[next_deal_pos++];// nextrand()%NUM_TILES;
+        w->tile_fall_frames[w->rem] = cur_frame;
+        w->tile_click_frames[w->rem] = (i32)cur_frame + (i32)get_frames_for_duration(TILE_FALL_DURATION) - (i32)get_frames_for_duration(0.6f);
+        w->tiles[w->rem++] = shuffled_deck[next_deal_pos++];// nextrand()%NUM_TILES;
+    }
+    for(int i = 0; i < w->rem; i++) {
+        if((i32)cur_frame >= w->tile_click_frames[i] && w->tile_click_frames[i] != -1) {
+            
+            add_click(
+                calc_wall_tile_global_position(
+                    cur_frame, w, i
+                )
+            );
+
+            w->tile_click_frames[i] = -1;
+        }
     }
 }
 
@@ -2386,7 +2578,6 @@ void sort_hand(hand* h) {
     }
 }
 
-int switch_player_timer = -1;
 
 void step_deal(u32 cur_frame) {
     // start with east
@@ -2456,13 +2647,14 @@ void discard_current_tile(int player, u32 cur_frame) {
     cur_player_hand->discards[cur_player_hand->num_discards] = cur_player_hand->tiles[selected_tile_idx];
 
     cur_player_hand->discard_frames[cur_player_hand->num_discards] = cur_frame;
+    cur_player_hand->discard_click_frames[cur_player_hand->num_discards] = (i32)cur_frame + (i32)get_frames_for_duration(DISCARD_DURATION) - (i32)get_frames_for_duration(0.06f);
     cur_player_hand->discard_from_hand_idx[cur_player_hand->num_discards++] = selected_tile_idx;
 
     for(int i = cur_player_hand->selected_tile_idx; i < cur_player_hand->num_closed_tiles-1; i++) {
         cur_player_hand->tiles[i] = cur_player_hand->tiles[i+1];
     }
-    cur_player_hand->num_closed_tiles--;
-    cur_player_hand->selected_tile_idx = -1;
+     cur_player_hand->num_closed_tiles--;
+    //cur_player_hand->selected_tile_idx = -1;
     //sort_hand(cur_player_hand);
     //exotique_printf("player %i discarding down to %i\n", player, cur_player_hand->num_closed_tiles);
 }
@@ -2583,7 +2775,7 @@ void reset_ai_player_state(u32 cur_frame) {
     ai_player_next_move_frame = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
     ai_player_state = UNMOVED;
 }
-u32 draw_end_frame = 0;
+
 void run_ai_player(int player, hand* h, u32 cur_frame, int can_move) {
     // we now the hand is sorted
     // just drop the last tile before the one we just drew lol
@@ -2598,9 +2790,17 @@ void run_ai_player(int player, hand* h, u32 cur_frame, int can_move) {
                     ai_player_state = MOVED;
                 } else {
                     //exotique_printf("ai player %i moving to tile idx %i\n", player, best_discard);
-                    h->selected_tile_idx--;
+                    int right = (best_discard + h->num_closed_tiles - h->selected_tile_idx) % h->num_closed_tiles;
+                    int left = (h->selected_tile_idx + h->num_closed_tiles - best_discard) % h->num_closed_tiles;
+                    if(left < right) {
+                        h->selected_tile_idx--;
+                    } else {
+                        h->selected_tile_idx++;
+                    }
                     if(h->selected_tile_idx < 0) {
                         h->selected_tile_idx = h->num_closed_tiles-1;
+                    } else if (h->selected_tile_idx >= h->num_closed_tiles) {
+                        h->selected_tile_idx = 0;
                     }
                 }
                 break;
@@ -2617,12 +2817,66 @@ void run_ai_player(int player, hand* h, u32 cur_frame, int can_move) {
     }
 }
 
-f32 wall_offsets_x[4] = {16.0f, 0.0f, -16.0f, 0.0f};
-f32 wall_offsets_z[4] = {0.0f, 16.0f, 0.0, -16.0f};
+f32 wall_offsets_x[4] = {17.0f, 0.0f, -17.0f, 0.0f};
+f32 wall_offsets_z[4] = {0.0f, 17.0f, 0.0, -17.0f};
 f32 wall_rots_y[4] = {(f32)M_PI * 0.5f, 0.0f, -(f32)M_PI * 0.5f, (f32)M_PI};
 
 static u64 ms_per_frame;
 static u64 last_frame_ticks = 0;  
+
+vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix);
+
+void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
+    hand* hands_in_order[4] = {
+        &game_board.east_hand, 
+        &game_board.south_hand, 
+        &game_board.west_hand, 
+        &game_board.north_hand
+    };
+
+
+    int switching = (switch_player_timer != -1);
+    int can_discard = !switching && cur_frame >= draw_end_frame;
+    if(switching) {
+        switch_player_timer--;
+        if(switch_player_timer == 0) {
+            cur_player += 1;
+            cur_player &= 3;
+            draw_end_frame = draw_next_tile(cur_frame, cur_player);
+            //printf("setting draw end frame %i\n", )
+            camera_rot_y = DEFAULT_CAM_ROT_Y;
+            //camera_rot_x = DEFAULT_CAM_ROT_X;
+            switch_player_timer = -1;
+        }
+    }
+    
+    if(cur_player == 0) {
+        if(ei->input->left && !last_left_pushed) {
+        //    camera_rot_y += 0.006f;
+            hands_in_order[cur_player]->selected_tile_idx--;
+        } else if (ei->input->right && !last_right_pushed) {
+        //    camera_rot_y -= 0.006f;
+            hands_in_order[cur_player]->selected_tile_idx++;
+        }
+        if(hands_in_order[cur_player]->selected_tile_idx < 0) {
+            hands_in_order[cur_player]->selected_tile_idx = hands_in_order[cur_player]->num_closed_tiles-1;
+        } else if (hands_in_order[cur_player]->selected_tile_idx >= hands_in_order[cur_player]->num_closed_tiles) {
+            hands_in_order[cur_player]->selected_tile_idx = 0;
+        } else {
+                if(ei->input->a && !last_a_pushed && can_discard) {
+                    discard_current_tile(cur_player, cur_frame);
+                    switch_player_timer = (int)get_frames_for_duration(DISCARD_DURATION+0.2f);
+                    reset_ai_player_state(cur_frame);
+                }
+        }
+    } else {
+        run_ai_player(cur_player, hands_in_order[cur_player], cur_frame, can_discard);
+    }
+
+
+        
+    
+}
 
 void game_update(ExotiqueInterface* ei) {
 
@@ -2676,80 +2930,26 @@ void game_update(ExotiqueInterface* ei) {
     
 
 
-    hand* hands_in_order[4] = {
-        &game_board.east_hand, 
-        &game_board.south_hand, 
-        &game_board.west_hand, 
-        &game_board.north_hand
-    };
-
-    if(cur_game_state >= IN_GAME) {
-
-        int switching = (switch_player_timer != -1);
-        int can_discard = !switching && frame >= draw_end_frame;
-        if(switching) {
-            switch_player_timer--;
-            if(switch_player_timer == 0) {
-                cur_player += 1;
-                cur_player &= 3;
-                draw_end_frame = draw_next_tile(frame, cur_player);
-                //printf("setting draw end frame %i\n", )
-                camera_rot_y = DEFAULT_CAM_ROT_Y;
-                //camera_rot_x = DEFAULT_CAM_ROT_X;
-                switch_player_timer = -1;
-            }
-        }
-        
-        if(cur_player == 0) {
-            if(ei->input->left && !last_left_pushed) {
-            //    camera_rot_y += 0.006f;
-                hands_in_order[cur_player]->selected_tile_idx--;
-            } else if (ei->input->right && !last_right_pushed) {
-            //    camera_rot_y -= 0.006f;
-                hands_in_order[cur_player]->selected_tile_idx++;
-            }
-            if(hands_in_order[cur_player]->selected_tile_idx < 0) {
-                hands_in_order[cur_player]->selected_tile_idx = hands_in_order[cur_player]->num_closed_tiles-1;
-            } else if (hands_in_order[cur_player]->selected_tile_idx >= hands_in_order[cur_player]->num_closed_tiles) {
-                hands_in_order[cur_player]->selected_tile_idx = 0;
-            } else {
-                    if(ei->input->a && !last_a_pushed && can_discard) {
-                        discard_current_tile(cur_player, frame);
-                        switch_player_timer = (int)get_frames_for_duration(DISCARD_DURATION+0.2f);
-                        reset_ai_player_state(frame);
-                    }
-            }
-        } else {
-            run_ai_player(cur_player, hands_in_order[cur_player], frame, can_discard);
-        }
-
-
-        
-        last_a_pushed = ei->input->a;
-        last_y_pushed = ei->input->y;
-    }
-    last_left_pushed = ei->input->left;
-    last_right_pushed = ei->input->right;
 
     //if(ei->input->a) {
     //    camera_radius -= 0.02f;
     //} else 
-    if (ei->input->b) {
-        camera_radius += 0.004f*(f32)ms_per_frame;
-    }
+    //if (ei->input->b) {
+    //    camera_radius += 0.004f*(f32)ms_per_frame;
+    //}
 
     //zoom = ei->input->y;
 
 
-    if(!last_x_pushed) {
-        if(ei->input->x) { 
-            draw_mode++;
-            if(draw_mode >= NUM_DRAW_MODES) {
-                draw_mode = 0;
-                hi_z_enabled = !hi_z_enabled;
-            } 
-        }
-    }
+    //if(!last_x_pushed) {
+    //    if(ei->input->x) { 
+    //        draw_mode++;
+    //        if(draw_mode >= NUM_DRAW_MODES) {
+    //            draw_mode = 0;
+    //            hi_z_enabled = !hi_z_enabled;
+    //        } 
+    //    }
+    //}
     
     if(paused) {
         return;
@@ -2761,17 +2961,24 @@ void game_update(ExotiqueInterface* ei) {
     last_select_pushed = cur_select_pushed;
     switch(cur_game_state) {
         case INITIAL_SHUFFLE_AND_SETUP:
-            step_shuffle_and_setup(frame);
+            step_shuffle_and_setup(frame, &game_board.board_wall);
             break;
         case DEALING:
             step_deal(frame);
             break;
         case IN_GAME:
+            run_game(ei, frame);
             break;
         default:
         case NUM_GAME_STATES:
             break;
     }
+    
+    last_a_pushed = ei->input->a;
+    last_y_pushed = ei->input->y;
+
+    last_left_pushed = ei->input->left;
+    last_right_pushed = ei->input->right;
     frame++;
     last_x_pushed = ei->input->x;
     last_y_pushed = ei->input->y;
@@ -3635,7 +3842,7 @@ f32 calc_wall_tile_x_position(int row_on_wall) {
 
 f32 calc_wall_tile_y_position(u32 cur_frame, wall *d, int tot_tile_idx) {
     f32 tile_fall_pos = CLAMP(
-        (f32)(cur_frame - d->tile_fall_frame[tot_tile_idx]) / (f32)get_frames_for_duration(TILE_FALL_DURATION), //TILE_FALL_FRAMES, 
+        (f32)(cur_frame - d->tile_fall_frames[tot_tile_idx]) / (f32)get_frames_for_duration(TILE_FALL_DURATION), //tile_fall_framesS, 
         0.0f, 1.0f);
     int top = (tot_tile_idx&1);
 
@@ -3689,6 +3896,7 @@ f32 calc_hand_x_position(int idx, f32 scale) {
 }
 
 #define SELECTED_TILE_Y_POS 1.47f
+#define DISCARDING_TILE_Y_POS 2.0f
 #define UNSELECTED_TILE_Y_POS 0.455f
 f32 calc_hand_y_position(hand* h, int idx, int is_cur_player, f32 scale) {
     f32 cur_player_height = (h->selected_tile_idx == idx ? SELECTED_TILE_Y_POS : UNSELECTED_TILE_Y_POS);
@@ -3696,13 +3904,17 @@ f32 calc_hand_y_position(hand* h, int idx, int is_cur_player, f32 scale) {
     return is_cur_player ? cur_player_height*scale : non_cur_player_height*scale;
 }
 
-vert3f calc_global_hand_position(hand* h, int idx, int is_cur_player, f32 scale, matrix* hand_to_world_matrix) {
-    (void)h;
-    vert3f local;
-    local.x = calc_hand_x_position(idx, scale);
+vert3f calc_local_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player, f32 scale) {
+    return (vert3f) {
+        calc_hand_x_position(tile_in_hand_idx, scale),
+        calc_hand_y_position(h, tile_in_hand_idx, is_cur_player, scale),
+        0.0f
+    };
+}
 
-    local.y = calc_hand_y_position(h, idx, is_cur_player, scale);
-    local.z = 0.0f;
+vert3f calc_global_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player, f32 scale, matrix* hand_to_world_matrix) {
+    (void)h;
+    vert3f local = calc_local_hand_position(h, tile_in_hand_idx, is_cur_player, scale);
     return mat_mul_vert3(hand_to_world_matrix, &local);
 }
 
@@ -3717,9 +3929,7 @@ vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, f32 sca
     f32 anim_progress = CLAMP(((f32)(cur_frame - h->deal_frame_for_tiles[tile_in_hand_idx]) / (f32)get_frames_for_duration(TILE_DEAL_DURATION)), 0.0f, 1.0f);
     vert3f local;
     if(anim_progress >= 1.0f) {
-        local.x = calc_hand_x_position(tile_in_hand_idx, scale);
-        local.y = calc_hand_y_position(h, tile_in_hand_idx, is_cur_player, scale);
-        local.z = 0.0f;
+        local = calc_local_hand_position(h, tile_in_hand_idx, is_cur_player, scale);
     } else {
         vert3f global_wall_position = calc_wall_tile_global_position(cur_frame, w, h->wall_index_for_tiles[tile_in_hand_idx]);
         vert3f global_hand_position = calc_global_hand_position(h, tile_in_hand_idx, is_cur_player, scale, hand_to_world);
@@ -3733,6 +3943,46 @@ vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, f32 sca
     }
 
     return local;
+}
+
+
+const f32 discard_x_offsets[18] = {
+    -0.02f, -0.04f, 0.0f, 0.03f, 0.0f, 0.0f,
+    0.0f, -0.05f, -0.04f, 0.0f, 0.0f, 0.03f,
+    -0.03f, 0.0f, 0.03f, 0.0f, 0.05f, 0.0f,
+};
+const f32 discard_z_offsets[18] = {
+    -0.02f, -0.04f, 0.0f, 0.03f, 0.0f, 0.0f,
+    0.0f, -0.05f, -0.04f, 0.0f, 0.0f, 0.03f,
+    -0.03f, 0.0f, 0.03f, 0.0f, 0.05f, 0.0f,
+};
+const f32 discard_y_rots[18] = {
+    -0.02f, -0.02f, 0.0f, 0.02f, 0.0f, 0.0f,
+    0.0f, -0.01f, -0.02f, 0.0f, 0.0f, 0.03f,
+    -0.01f, 0.0f, 0.03f, 0.0f, 0.02f, 0.0f,
+};
+
+const f32 wall_z_tile_offsets[17] = {
+    -0.02f, -0.04f, 0.0f, 0.03f, 0.0f, 0.0f,
+    0.0f, -0.05f, -0.04f, 0.0f, 0.0f, 0.03f,
+    -0.03f, 0.0f, 0.03f, 0.0f, 0.05f,
+};
+
+vert3f calc_local_discard_position(int discard_i) {
+    int discard_row = discard_i/6;
+    int pos_in_row = discard_i - (discard_row*6);
+    const f32 discard_row_size = -1.8f + 6*1.8f;
+    const f32 half_row_size = discard_row_size/2.0f;
+    f32 pos_x = half_row_size + (f32)pos_in_row * -1.8f;
+    f32 pos_y = 0.0f;
+    f32 pos_z = -19.5f + (f32)discard_row * 2.5f;
+    return (vert3f){pos_x + discard_x_offsets[discard_i], pos_y, pos_z + discard_z_offsets[discard_i]};
+}
+
+vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix) {
+    vert3f local = calc_local_discard_position(discard_i);
+    return mat_mul_vert3(hand_to_world_matrix, &local);
+
 }
 
 void draw_hand(u32 cur_frame, wall* w, hand* h, int is_cur_player, matrix* hand_to_view_matrix, matrix* hand_to_world_matrix, f32 discard_scale) {
@@ -3811,26 +4061,25 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, int is_cur_player, matrix* hand_
 
     u32 discard_frames = get_frames_for_duration(DISCARD_DURATION);
     for(int i = 0; i < h->num_discards; i++) {
-        int discard_row = i/6;
-        f32 pos_z = -19.5f + (f32)discard_row * 2.5f;
-        int pos_in_row = i - (discard_row*6);
-        const f32 discard_row_size = -1.8f + 6*1.8f;
-        const f32 half_row_size = discard_row_size/2.0f;
-        f32 pos_x = half_row_size + (f32)pos_in_row * -1.8f;
+
+
+        vert3f discard_pos = calc_local_discard_position(i);
 
 
         f32 discard_progress = (f32)(cur_frame - h->discard_frames[i])/ (f32)discard_frames;
         discard_progress = CLAMP(discard_progress, 0.0f, 1.0f);
         int hand_slot_idx = h->discard_from_hand_idx[i];
         
-        f32 old_x_pos = calc_hand_x_position(hand_slot_idx, scale_hand);
-        f32 old_y_pos = SELECTED_TILE_Y_POS;// calc_hand_y_position(h, hand_slot_idx);
-        f32 old_z_pos = 0.0f;
+
+        vert3f old_pos = (vert3f){
+            calc_hand_x_position(hand_slot_idx, scale_hand),
+            DISCARDING_TILE_Y_POS,
+            0.0f
+        };
         f32 old_rot = 1.57f;
 
-        f32 cur_x_pos = lerp(old_x_pos, pos_x, discard_progress);
-        f32 cur_y_pos = lerp(old_y_pos, 0.0f, discard_progress);
-        f32 cur_z_pos = lerp(old_z_pos, pos_z, discard_progress);
+        vert3f cur_pos = lerp_vert3f(old_pos, discard_pos, discard_progress);
+
         f32 cur_rot_x = lerp(old_rot, 0.0f, discard_progress);
 
 
@@ -3838,10 +4087,9 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, int is_cur_player, matrix* hand_
         // rotate up
         // position downwards
         transform discard_transform = identity_transform();
-        discard_transform.position.x = cur_x_pos;
-        discard_transform.position.y = cur_y_pos *= discard_scale;
-        discard_transform.position.z = cur_z_pos;
+        discard_transform.position = cur_pos;
         discard_transform.rotation.x = cur_rot_x;
+        discard_transform.rotation.y = discard_y_rots[i];
         discard_transform.scale.x = discard_scale;
         discard_transform.scale.y = discard_scale;
         discard_transform.scale.z = discard_scale;
@@ -3863,11 +4111,7 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, int is_cur_player, matrix* hand_
     submit_draw_calls(draw_calls, draw_idx, FRUSTUM_CULL);
 }
 
-const f32 wall_z_tile_offsets[17] = {
-    -0.02f, -0.04f, 0.0f, 0.03f, 0.0f, 0.0f,
-    0.0f, -0.05f, -0.04f, 0.0f, 0.0f, 0.03f,
-    -0.03f, 0.0f, 0.03f, 0.0f, 0.05f,
-};
+
 
 void draw_wall(game_state cur_state, u32 cur_frame, wall *w, matrix *view_mat) {
 
@@ -3909,7 +4153,7 @@ void draw_wall(game_state cur_state, u32 cur_frame, wall *w, matrix *view_mat) {
         tile_trans.rotation.x = (cur_state >= IN_GAME && j == 3) ? (f32)0 : (f32)M_PI;
 
         tile_trans.position.y = calc_wall_tile_y_position(cur_frame, w, j);
-        tile_trans.position.z = (wall_side != 0 ? 0.0f : wall_z_tile_offsets[position_in_wall]);
+        tile_trans.position.z = ((wall_side & 1) ? 0.0f : wall_z_tile_offsets[position_in_wall]);
 
 
         matrix tile_mat = transform_to_matrix(&tile_trans);
@@ -3959,11 +4203,27 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
     }
     
 
+    hand* hands_in_order[4] = {
+        &b->east_hand, &b->south_hand, &b->west_hand, &b->north_hand,
+    };
+    matrix *hand_matrixes[4][2] = {
+        {&east_view_matrix, &east_matrix},
+        {&south_view_matrix, &south_matrix},
+        {&west_view_matrix, &west_matrix},
+        {&north_view_matrix, &north_matrix}
+    };
 
-    draw_hand(cur_frame, &b->board_wall, &b->east_hand, cur_player == 0, &east_view_matrix, &east_matrix, discard_scales[0]);
-    draw_hand(cur_frame, &b->board_wall, &b->south_hand, cur_player == 1,  &south_view_matrix, &south_matrix, discard_scales[1]);
-    draw_hand(cur_frame, &b->board_wall, &b->west_hand, cur_player == 2,  &west_view_matrix, &west_matrix, discard_scales[2]);
-    draw_hand(cur_frame, &b->board_wall, &b->north_hand, cur_player == 3,  &north_view_matrix, &north_matrix, discard_scales[3]);
+    for(int i = 0; i < 4; i++) {
+        draw_hand(cur_frame, &b->board_wall, hands_in_order[i], cur_player == i, hand_matrixes[i][0], hand_matrixes[i][1], discard_scales[i]);
+        for(int j = 0; j < hands_in_order[i]->num_discards; j++) {
+            if((i32)cur_frame >= hands_in_order[i]->discard_click_frames[j] && hands_in_order[i]->discard_click_frames[j] != -1 ) {
+                add_click(
+                    calc_global_discard_position(j, hand_matrixes[i][1])
+                );
+                hands_in_order[i]->discard_click_frames[j] = -1;
+            }
+        }
+    }
 
 
     draw_wall(cur_state, cur_frame, &b->board_wall, view_mat);
@@ -4070,13 +4330,13 @@ void game_draw(ExotiqueInterface* ei) {
 
 
 
-    matrix view_mat = transform_to_view_matrix(&cam_view_trans);
+    view_matrix = transform_to_view_matrix(&cam_view_trans);
 
 
     total_triangles = 0;
     clear_tile_bins();
     
-    draw_board(ei, cur_game_state, frame, &game_board, &view_mat);
+    draw_board(ei, cur_game_state, frame, &game_board, &view_matrix);
 
 
     /*

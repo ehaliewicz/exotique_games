@@ -429,7 +429,10 @@ typedef struct {
 #include "mesh_board.h"
 #include "palette_mahjong.h"
 #include "palette_background.h"
+
 #include "tile_click.h"
+#include "tsumo.h"
+
 #define BLACK 0
 #define GREEN 1
 #define GOLD 2
@@ -2254,65 +2257,44 @@ void output_full_light_remap_table(ExotiqueInterface *ei) {
 }
 
 
+typedef enum {
+    TILE_CLICK,
+    TSUMO,
+    NUM_SOUNDS
+} sound;
+
+u32 sound_num_samples[NUM_SOUNDS] = {
+    TILE_CLICK_NUM_SAMPLES,
+    TSUMO_NUM_SAMPLES
+};
+
+u8* sound_data[NUM_SOUNDS] = {
+    tile_click_raw_data,
+    tsumo_raw_data
+};
+
 int num_active_sounds = 0;
 #define MAX_SOUNDS 64
-u32 active_sounds[MAX_SOUNDS]; // contains the playback index of the sound?
-vert3f active_sound_locations[MAX_SOUNDS];
-/*
-void add_click() {
+typedef struct {
+    sound voice;
+    u32 playback_offset;
+    vert3f location;
+} active_sound;
 
-}
+active_sound active_sounds[MAX_SOUNDS]; // contains the playback index of the sound?
 
-void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
-    (void)pInput;
-
-    i16* out = (i16*)pOutput;
-    i16* in = (i16*)pDevice->pUserData;
-
-    //u32 samples = MIN(frameCount*2, 1024);
-
-    for(u32 i = 0; i < frameCount; i++) {
-        buffer[i*2] = 0.0f;
-        buffer[i*2+1] = 0.0f;
-    }
-    // mix into buffer
-    // we write two samples per "frame", since it's stereo
-    for(u32 i = 0; i < frameCount; i++) {
-        u32 bufferIdx = i*2;
-
-        for(int sound = 0; sound < num_active_sounds; sound++) {
-        continue_without_increment:;
-            u32 playback_idx = active_sounds[sound];
-
-            if(playback_idx >= TILE_CLICK_NUM_SAMPLES) {
-                // swap with last
-                active_sounds[sound] = -1;
-            } else {
-                buffer[bufferIdx] = (f32)(buffer[bufferIdx] + (f32)in[playback_idx]*.25f);
-                buffer[bufferIdx+1] = (f32)(buffer[bufferIdx+1] + (f32)in[playback_idx++]*.25f);
-                active_sounds[sound] = playback_idx;
-            }
-        }
-    }
-
-    for(u32 i = 0; i < frameCount; i++) {
-        *out++ = (i16)CLAMP(buffer[i*2], -32768.0f, 32767.0f);
-        *out++ = (i16)CLAMP(buffer[i*2+1], -32768.0f, 32767.0f);
-    }
-}
-*/
 f32 buffer[4096];
-static volatile u8 pending_clicks[MAX_SOUNDS];
+static volatile sound pending_sounds[MAX_SOUNDS];
 vert3f pending_sound_locations[MAX_SOUNDS];
 static volatile u32 write_pos = 0;  // written only by game thread
 static volatile u32 read_pos  = 0;  // written only by audio thread
 
-void add_click(vert3f location) {
+void add_sound(sound voice, vert3f location) {
     u32 next = (write_pos + 1) & (MAX_SOUNDS - 1);
     if(next == read_pos) {
         return; // queue full, drop
     }
-    pending_clicks[write_pos] = 1;
+    pending_sounds[write_pos] = voice;
     pending_sound_locations[write_pos] = location;
     write_pos = next;
 }
@@ -2320,8 +2302,9 @@ void add_click(vert3f location) {
 static void drain_pending_clicks(void) {
     while(read_pos != write_pos) {
         if(num_active_sounds < MAX_SOUNDS) {
-            active_sounds[num_active_sounds] = 0;
-            active_sound_locations[num_active_sounds++] = pending_sound_locations[read_pos];
+            active_sounds[num_active_sounds].voice = pending_sounds[read_pos];
+            active_sounds[num_active_sounds].playback_offset = 0;
+            active_sounds[num_active_sounds++].location = pending_sound_locations[read_pos];
         }
         read_pos = (read_pos + 1) & (MAX_SOUNDS - 1);
     }
@@ -2329,54 +2312,56 @@ static void drain_pending_clicks(void) {
 
 matrix view_matrix;
 
-f32 copy_sign_f(f32 mag, f32 sign) {
-    if(sign < 0) {
-        return -fabsf(mag);
-    } else {
-        return fabsf(mag);
-    }
-}
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     (void)pInput;
 
     drain_pending_clicks();   // <-- only new line: pull in any clicks queued since last callback
     i16* out = (i16*)pOutput;
-    i16* in = (i16*)pDevice->pUserData;
 
     for(u32 i = 0; i < frameCount; i++) {
         buffer[i*2] = 0.0f;
         buffer[i*2+1] = 0.0f;
     }
 
+    //u16** sound_table = pDevice->pUserData;
+
     // mix into buffer — unchanged
     for(u32 i = 0; i < frameCount; i++) {
         u32 bufferIdx = i*2;
 
-        for(int sound = 0; sound < num_active_sounds; sound++) {
+        for(int sound_idx = 0; sound_idx < num_active_sounds; sound_idx++) {
         continue_without_increment:;
-            vert3f view = mat_mul_vert3(&view_matrix, &active_sound_locations[sound]);
+            active_sound snd = active_sounds[sound_idx];
+            u16 *data = pDevice->pUserData; //__builtin_assume_aligned(sound_table[snd.voice], 2);
+
+            vert3f view = mat_mul_vert3(&view_matrix, &snd.location);
             f32 pan = CLAMP(view.x/fabsf(view.z), -1.0f, 1.0f);
-            pan = CLAMP(pan*10.0f, -1.0f, 1.0f);
             
-            //float left = my_sqrt(0.5f * (1.0f - pan));
-            //float right = my_sqrt(0.5f *  (1.0f + pan));
+            if(pan < 0.0f) { 
+                pan = -1.0f; 
+            } else if (pan > 0.0f) { 
+                pan = 1.0f; 
+            } else {
+                pan = 0.0f;
+            }
             f32 left  = 0.5f - pan * 0.5f;
             f32 right = 0.5f + pan * 0.5f;
-            u32 playback_idx = active_sounds[sound];
-            buffer[bufferIdx]   += (f32)in[playback_idx]   * .25f * left;
-            buffer[bufferIdx+1] += (f32)in[playback_idx++] * .25f * right;
+            u32 playback_offset = snd.playback_offset;
+            u32 num_smples = sound_num_samples[snd.voice];
+            buffer[bufferIdx]   += (f32)data[playback_offset]   * .25f * left;
+            buffer[bufferIdx+1] += (f32)data[playback_offset++] * .25f * right;
 
-            if(playback_idx >= TILE_CLICK_NUM_SAMPLES) {
+            if(playback_offset >= num_smples) {
                 num_active_sounds--;
-                if(sound == num_active_sounds) {
+                if(sound_idx == num_active_sounds) {
                     // this WAS the last element — nothing to swap in, don't reprocess
                     continue;
                 }
-                active_sounds[sound] = active_sounds[num_active_sounds];
+                active_sounds[sound_idx] = active_sounds[num_active_sounds];
                 goto continue_without_increment;
             } else {
-                active_sounds[sound] = playback_idx;
+                active_sounds[sound_idx].playback_offset = playback_offset;
             }
         }
     }
@@ -2394,6 +2379,7 @@ ma_device sound_device;
 void game_load(ExotiqueInterface* ei) {
     num_active_sounds = 0;
 
+
     ma_config = ma_device_config_init(ma_device_type_playback);
 
     ma_config.playback.format   = ma_format_s16;   // Set to ma_format_unknown to use the device's native format.
@@ -2401,11 +2387,10 @@ void game_load(ExotiqueInterface* ei) {
     ma_config.sampleRate        = 22050;           // Set to 0 to use the device's native sample rate.
     ma_config.dataCallback      = &data_callback;   // This function will be called when miniaudio needs more data.
     ma_config.stopCallback      = &stop_device_callback;
-    ma_config.pUserData         = tile_click_raw_data;   // Can be accessed from the device object (device.pUserData).
     ma_config.performanceProfile = ma_performance_profile_low_latency;
     ma_config.noClip = MA_TRUE;
     ma_config.noPreSilencedOutputBuffer = MA_TRUE;
-    //ma_device
+    ma_config.pUserData = sound_data[TILE_CLICK];
     ma_config.periodSizeInFrames = 32;
     
     if (ma_device_init(NULL_PTR, &ma_config, &sound_device) != MA_SUCCESS) {
@@ -2552,7 +2537,8 @@ void step_shuffle_and_setup(u32 cur_frame, wall* w) {
     for(int i = 0; i < w->rem; i++) {
         if((i32)cur_frame >= w->tile_click_frames[i] && w->tile_click_frames[i] != -1) {
             
-            add_click(
+            add_sound(
+                TILE_CLICK,
                 calc_wall_tile_global_position(
                     cur_frame, w, i
                 )
@@ -2654,9 +2640,7 @@ void discard_current_tile(int player, u32 cur_frame) {
         cur_player_hand->tiles[i] = cur_player_hand->tiles[i+1];
     }
      cur_player_hand->num_closed_tiles--;
-    //cur_player_hand->selected_tile_idx = -1;
-    //sort_hand(cur_player_hand);
-    //exotique_printf("player %i discarding down to %i\n", player, cur_player_hand->num_closed_tiles);
+    sort_hand(cur_player_hand);
 }
 
 
@@ -2826,7 +2810,7 @@ static u64 last_frame_ticks = 0;
 
 vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix);
 
-void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
+void run_game(ExotiqueInterface *ei, vert3f cam_pos, const u32 cur_frame) {
     hand* hands_in_order[4] = {
         &game_board.east_hand, 
         &game_board.south_hand, 
@@ -2851,6 +2835,13 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
     }
     
     if(cur_player == 0) {
+        if(ei->input->x && !last_x_pushed) {
+
+            add_sound(
+                TSUMO,
+                cam_pos
+            );
+        }
         if(ei->input->left && !last_left_pushed) {
         //    camera_rot_y += 0.006f;
             hands_in_order[cur_player]->selected_tile_idx--;
@@ -2967,7 +2958,7 @@ void game_update(ExotiqueInterface* ei) {
             step_deal(frame);
             break;
         case IN_GAME:
-            run_game(ei, frame);
+            run_game(ei, cam_pos, frame);
             break;
         default:
         case NUM_GAME_STATES:
@@ -4217,7 +4208,8 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
         draw_hand(cur_frame, &b->board_wall, hands_in_order[i], cur_player == i, hand_matrixes[i][0], hand_matrixes[i][1], discard_scales[i]);
         for(int j = 0; j < hands_in_order[i]->num_discards; j++) {
             if((i32)cur_frame >= hands_in_order[i]->discard_click_frames[j] && hands_in_order[i]->discard_click_frames[j] != -1 ) {
-                add_click(
+                add_sound(
+                    TILE_CLICK,
                     calc_global_discard_position(j, hand_matrixes[i][1])
                 );
                 hands_in_order[i]->discard_click_frames[j] = -1;

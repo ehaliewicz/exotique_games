@@ -5,8 +5,8 @@
 #define OUTPUT_TILE_SIZE 32
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~31))
-#define OUTPUT_WIDTH TILE_ROUND(1920)
-#define OUTPUT_HEIGHT TILE_ROUND(1080)
+#define OUTPUT_WIDTH TILE_ROUND(640)
+#define OUTPUT_HEIGHT TILE_ROUND(360)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -398,7 +398,9 @@ typedef struct {
     //vert2f uv0, uv1, uv2;
     vert2f uv0_over_z, uv1_over_z, uv2_over_z;
     //vert3f nv0, nv1, nv2;
-    u8 tex; u8 mip_level; u8 no_tmap; u8 color;
+    u8 tex; u8 mip_level; 
+    //u8 no_tmap; 
+    u8 color;
     f32 inv_z0, inv_z1, inv_z2;
     //edge_prep edges;
 } transformed_tri;
@@ -632,14 +634,20 @@ static inline f32_vec init_f32_vec(f32 a, f32 b, f32 c, f32 d) {
     return res;
 }
 
-static inline u8 i32_vec_extract_low_bits(i32_vec a) {
+static inline u8 i32_vec_extract_low_bits(const i32_vec a) {
     u8 res = 0;
     for(int i = 0; i < 4; i++) {
         res |= (u8)((a[i]&1)<<i);
     }
     return res;
 }
-static inline u32 i32_vec_extract_bytes(i32_vec a) {
+
+static inline int i32_vec_any(const i32_vec a) {
+  for(int i=0; i<4; i++) { if(a[i]) return 1; }
+  return 0;
+}
+
+static inline u32 i32_vec_extract_bytes(const i32_vec a) {
     u32 res = 0;
     for(int i = 0; i < 4; i++) {
         res |= ((u32)(a[i] ? 0xFF : 0x00)<<(i*8));
@@ -669,7 +677,7 @@ f32 absf(f32 a) {
 
 u8 mix_table[256*256] __attribute__((aligned(64)));
 
-i32_vec parallel_pixel_shader(
+u32 parallel_pixel_shader(
     f32_vec z,
     f32_vec w1, f32_vec w2, 
     f32 v0u_over_z, f32 v0v_over_z, 
@@ -691,28 +699,21 @@ i32_vec parallel_pixel_shader(
 
     int_u &= (tex_height-1);
     int_v &= (tex_height-1);
-    
 
-    // 9 or less bits each
-    // yyyyyyyyy xxxxxxxxx
-    // yyyyyyyxxxxxxxyyxx
     i32_vec scaled_v = tex_height * int_v;
     i32_vec uv = scaled_v + int_u;
 
-    i32_vec tex_pal_idx;
+    u8 pal_idx0 = texels[uv[0]];
+    u8 pal_idx1 = texels[uv[1]];
+    u8 pal_idx2 = texels[uv[2]];
+    u8 pal_idx3 = texels[uv[3]];
 
 
-    tex_pal_idx[0] = texels[uv[0]];
-    tex_pal_idx[1] = texels[uv[1]];
-    tex_pal_idx[2] = texels[uv[2]];
-    tex_pal_idx[3] = texels[uv[3]];
-
-
-    i32_vec res;
-    res[0] = lit_pal_ptr[tex_pal_idx[0]];
-    res[1] = lit_pal_ptr[tex_pal_idx[1]];
-    res[2] = lit_pal_ptr[tex_pal_idx[2]];
-    res[3] = lit_pal_ptr[tex_pal_idx[3]];
+    u32 res = 0;
+    res |= (u32)lit_pal_ptr[pal_idx0]<<24;
+    res |= (u32)lit_pal_ptr[pal_idx1]<<16;
+    res |= (u32)lit_pal_ptr[pal_idx2]<<8;
+    res |= (u32)lit_pal_ptr[pal_idx3]<<0;
     return res;
 }
 
@@ -884,24 +885,24 @@ int rasterize_triangle_2x2_quad(
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
     );
-    i32_vec ey01_vec = init_i32_vec(
-        e01 + dx01 * startY - dy01 * startX,
-        e01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
-        e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
-        e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec ey12_vec = init_i32_vec(
-        e12 + dx12 * startY - dy12 * startX,
-        e12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
-        e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
-        e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec ey20_vec = init_i32_vec(
-        e20 + dx20 * startY - dy20 * startX,
-        e20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
-        e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
-        e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    );
+    //i32_vec ey01_vec = init_i32_vec(
+    //    e01 + dx01 * startY - dy01 * startX,
+    //    e01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
+    //    e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
+    //    e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
+    //);
+    //i32_vec ey12_vec = init_i32_vec(
+    //    e12 + dx12 * startY - dy12 * startX,
+    //    e12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
+    //    e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
+    //    e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
+    //);
+    //i32_vec ey20_vec = init_i32_vec(
+    //    e20 + dx20 * startY - dy20 * startX,
+    //    e20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
+    //    e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
+    //    e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
+    //);
 
 
 
@@ -911,9 +912,9 @@ int rasterize_triangle_2x2_quad(
         i32_vec cx01_vec = cy01_vec;
         i32_vec cx12_vec = cy12_vec;
         i32_vec cx20_vec = cy20_vec;
-        i32_vec ex01_vec = ey01_vec;
-        i32_vec ex12_vec = ey12_vec;
-        i32_vec ex20_vec = ey20_vec;
+        //i32_vec ex01_vec = ey01_vec;
+        //i32_vec ex12_vec = ey12_vec;
+        //i32_vec ex20_vec = ey20_vec;
 
         int in_tile_y = y-start_y;
         int in_tile_x = minx-start_x;
@@ -925,15 +926,16 @@ int rasterize_triangle_2x2_quad(
             i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
 
 
-            u8 coverage_mask = i32_vec_extract_low_bits(covered_vec);
+            int coverage_mask = i32_vec_any(covered_vec);
             //if(coverage_mask != 0xF) {
             //} else 
             if(coverage_mask != 0x0) {
                 // skip completely uncovered quads
                 f32_vec zbuf_val_vec = *zbuf_ptr;
+                u32 cbuf_val = *col_val_ptr;
 
-                f32_vec w1_vec = i32_vec_convert_f32(ex20_vec);
-                f32_vec w2_vec = i32_vec_convert_f32(ex01_vec);
+                f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
+                f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
                 f32_vec inv_z_vec = (
                                     iz0_vec +
                                     (w1_vec * iz1_vec) +
@@ -944,22 +946,14 @@ int rasterize_triangle_2x2_quad(
                 i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
                 i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
 
-                u8 mask = i32_vec_extract_low_bits(in_tri_and_unoccluded);
-                if(mask != 0) {
+                u32 mask_bytes = i32_vec_extract_bytes(in_tri_and_unoccluded);
+                if(mask_bytes != 0) {
                     drew_pixel = 1;
-                    u32 cbuf_val = *col_val_ptr;
-                    i32_vec cbuf_val_vec = init_i32_vec(
-                        (i32)cbuf_val&0xFF,
-                        (i32)(cbuf_val>>8)&0xFF,
-                        (i32)(cbuf_val>>16)&0xFF,
-                        (i32)(cbuf_val>>24)
-                    );
+
 
                     f32_vec z_vec = 1.0f / inv_z_vec;
-                    
-                    i32_vec this_tri_color_vec;
-                                            
-                    this_tri_color_vec = parallel_pixel_shader(
+                                                                
+                    u32 lit_color_qw = parallel_pixel_shader(
                         z_vec,
                         w1_vec, w2_vec, 
                         v0u_over_z, v0v_over_z, 
@@ -968,15 +962,9 @@ int rasterize_triangle_2x2_quad(
                         texels, tex_width, tex_height, 
                         lit_pal_ptr
                     );
+                    u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
+                    *col_val_ptr = masked_color;
 
-
-                    i32_vec new_color_vec = i32_vec_select(in_tri_and_unoccluded, this_tri_color_vec, cbuf_val_vec);
-                    *col_val_ptr = (u32)(
-                        (new_color_vec[0]) |
-                        ((new_color_vec[1])<<8) |
-                        ((new_color_vec[2])<<16) |
-                        ((new_color_vec[3])<<24)
-                    );
 
                     f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
 
@@ -992,9 +980,9 @@ int rasterize_triangle_2x2_quad(
             cx01_vec -= dy01_shifted_vec;
             cx12_vec -= dy12_shifted_vec;
             cx20_vec -= dy20_shifted_vec;
-            ex01_vec -= dy01_shifted_vec;
-            ex12_vec -= dy12_shifted_vec;
-            ex20_vec -= dy20_shifted_vec;
+            //ex01_vec -= dy01_shifted_vec;
+            //ex12_vec -= dy12_shifted_vec;
+            //ex20_vec -= dy20_shifted_vec;
             col_val_ptr++;
             zbuf_ptr++;
 
@@ -1004,9 +992,9 @@ int rasterize_triangle_2x2_quad(
         cy01_vec += dx01_shifted_vec;
         cy12_vec += dx12_shifted_vec;
         cy20_vec += dx20_shifted_vec;
-        ey01_vec += dx01_shifted_vec;
-        ey12_vec += dx12_shifted_vec;
-        ey20_vec += dx20_shifted_vec;
+        //ey01_vec += dx01_shifted_vec;
+        //ey12_vec += dx12_shifted_vec;
+        //ey20_vec += dx20_shifted_vec;
     }
     return drew_pixel;
 }
@@ -1132,36 +1120,35 @@ int rasterize_triangle_2x2_quad_no_tmap(
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
     );
-    i32_vec ey01_vec = init_i32_vec(
-        e01 + dx01 * startY - dy01 * startX,
-        e01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
-        e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
-        e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec ey12_vec = init_i32_vec(
-        e12 + dx12 * startY - dy12 * startX,
-        e12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
-        e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
-        e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec ey20_vec = init_i32_vec(
-        e20 + dx20 * startY - dy20 * startX,
-        e20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
-        e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
-        e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    );
+    //i32_vec ey01_vec = init_i32_vec(
+    //    e01 + dx01 * startY - dy01 * startX,
+    //    e01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
+    //    e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
+    //    e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
+    //);
+    //i32_vec ey12_vec = init_i32_vec(
+    //    e12 + dx12 * startY - dy12 * startX,
+    //    e12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
+    //    e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
+    //    e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
+    //);
+    //i32_vec ey20_vec = init_i32_vec(
+    //    e20 + dx20 * startY - dy20 * startX,
+    //    e20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
+    //    e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
+    //    e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
+    //);
 
-
+    u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
 
     //const i32_vec i32_zero_vec = broadcast_i32_vec(0);
-    for (i32 y = miny; y < maxy; y += 2)
-    {
+    for (i32 y = miny; y < maxy; y += 2) {
         i32_vec cx01_vec = cy01_vec;
         i32_vec cx12_vec = cy12_vec;
         i32_vec cx20_vec = cy20_vec;
-        i32_vec ex01_vec = ey01_vec;
-        i32_vec ex12_vec = ey12_vec;
-        i32_vec ex20_vec = ey20_vec;
+        //i32_vec ex01_vec = ey01_vec;
+        //i32_vec ex12_vec = ey12_vec;
+        //i32_vec ex20_vec = ey20_vec;
 
         int in_tile_y = y-start_y;
         int in_tile_x = minx-start_x;
@@ -1173,49 +1160,33 @@ int rasterize_triangle_2x2_quad_no_tmap(
             i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
 
 
-            u8 coverage_mask = i32_vec_extract_low_bits(covered_vec);
+            int coverage_mask = i32_vec_any(covered_vec);
+            //u32 coverage_mask = i32_vec_extract_bytes(covered_vec);
             //if(coverage_mask != 0xF) {
             //} else 
-            if(coverage_mask != 0x0) {
+            if(coverage_mask != 0x00) {
+                u32 cbuf_val = *col_val_ptr;
                 // skip completely uncovered quads
                 f32_vec zbuf_val_vec = *zbuf_ptr;
 
                 //f32_vec w0_vec = i32_vec_convert_f32(ex12_vec);
-                f32_vec w1_vec = i32_vec_convert_f32(ex20_vec);
-                f32_vec w2_vec = i32_vec_convert_f32(ex01_vec);
+                f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
+                f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
                 f32_vec inv_z_vec = (iz0_vec + 
                                     (w1_vec * iz1_vec) +
                                     (w2_vec * iz2_vec));
-                //inv_z_vec = (inv_z_vec * recip_area_vec);
 
                 i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
                 i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
 
-                u8 mask = i32_vec_extract_low_bits(in_tri_and_unoccluded);
-                if(mask != 0) {
+                u32 mask_bytes = i32_vec_extract_bytes(in_tri_and_unoccluded);
+
+                if(mask_bytes != 0) {
                     drew_pixel = 1;
-                    u32 cbuf_val = *col_val_ptr;
-                    i32_vec cbuf_val_vec = init_i32_vec(
-                        (i32)cbuf_val&0xFF,
-                        (i32)(cbuf_val>>8)&0xFF,
-                        (i32)(cbuf_val>>16)&0xFF,
-                        (i32)(cbuf_val>>24)
-                    );
-                    
-                    i32_vec this_tri_color_vec;
-                    this_tri_color_vec[0] = lit_color;
-                    this_tri_color_vec[1] = lit_color;
-                    this_tri_color_vec[2] = lit_color;
-                    this_tri_color_vec[3] = lit_color;
-                    
-                    
-                    i32_vec new_color_vec = i32_vec_select(in_tri_and_unoccluded, this_tri_color_vec, cbuf_val_vec);
-                    *col_val_ptr = (u32)(
-                        (new_color_vec[0]) |
-                        ((new_color_vec[1])<<8) |
-                        ((new_color_vec[2])<<16) |
-                        ((new_color_vec[3])<<24)
-                    );
+
+                    u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
+                    *col_val_ptr = masked_color;
+
 
                     f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
 
@@ -1229,9 +1200,9 @@ int rasterize_triangle_2x2_quad_no_tmap(
             cx01_vec -= dy01_shifted_vec;
             cx12_vec -= dy12_shifted_vec;
             cx20_vec -= dy20_shifted_vec;
-            ex01_vec -= dy01_shifted_vec;
-            ex12_vec -= dy12_shifted_vec;
-            ex20_vec -= dy20_shifted_vec;
+            //ex01_vec -= dy01_shifted_vec;
+            //ex12_vec -= dy12_shifted_vec;
+            //ex20_vec -= dy20_shifted_vec;
             col_val_ptr++;
             zbuf_ptr++;
 
@@ -1241,9 +1212,9 @@ int rasterize_triangle_2x2_quad_no_tmap(
         cy01_vec += dx01_shifted_vec;
         cy12_vec += dx12_shifted_vec;
         cy20_vec += dx20_shifted_vec;
-        ey01_vec += dx01_shifted_vec;
-        ey12_vec += dx12_shifted_vec;
-        ey20_vec += dx20_shifted_vec;
+        //ey01_vec += dx01_shifted_vec;
+        //ey12_vec += dx12_shifted_vec;
+        //ey20_vec += dx20_shifted_vec;
     }
     return drew_pixel;
 }
@@ -3167,6 +3138,8 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
     f32_vec inv_far_vec = broadcast_f32_vec(1.0f/FAR_Z);
 
     u32 board_col_idx = light_remap_table[9][GREEN];
+    board_col_idx |= (board_col_idx<<8);
+    board_col_idx |= (board_col_idx<<16);
 
     for(int y = 0; y < RENDER_TILE_SIZE; y += 2) {
         int global_y = (base_y + y);
@@ -3190,8 +3163,9 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
                 } else {
                     bkgd_idx = 126 + 4; 
                     bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
+                    bkgd_idx = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
                 }
-                *col_val_ptr++ = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
+                *col_val_ptr++ = bkgd_idx;
             
             }
         } else {
@@ -3616,7 +3590,7 @@ void bin_triangle(
                 global_tri_buffer[total_triangles].uv2_over_z = uv2_over_z;
             }
 
-            global_tri_buffer[total_triangles].no_tmap = no_tmap;
+            //global_tri_buffer[total_triangles].no_tmap = no_tmap;
 
             
             global_tri_buffer[total_triangles].inv_z0 = inv_z0;

@@ -1011,7 +1011,7 @@ int rasterize_triangle_2x2_quad(
     return drew_pixel;
 }
 
-int no_tmap_triangle_block(
+int rasterize_triangle_2x2_quad_no_tmap(
     f32 *zbuffer,
     transformed_tri* tri_attributes,
     u8 color,

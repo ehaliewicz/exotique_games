@@ -10,10 +10,10 @@
 
    /* C:\Users\Erik\code\exotique_games\tile_click.wav (7/19/2026 7:17:55 PM)
    StartOffset(h): 0000002A, EndOffset(h): 00003B7D, Length(h): 00003B54 */
-
-#define TILE_CLICK_NUM_SAMPLES (15188/TILE_CLICK_SAMPLE_SIZE)
+#define TILE_CLICK_NUM_BYTES 15188
+#define TILE_CLICK_NUM_SAMPLES (TILE_CLICK_NUM_BYTES/TILE_CLICK_SAMPLE_SIZE)
 #define TILE_CLICK_DURATION ((f32)TILE_CLICK_SAMPLE_RATE/(f32)TILE_CLICK_NUM_SAMPLES)
-unsigned char tile_click_raw_data[15188] = {
+unsigned char tile_click_raw_data[TILE_CLICK_NUM_BYTES] = {
 	0x00, 0x00, 0x40, 0x00, 0x64, 0x00, 0x57, 0x00, 0x5F, 0x00, 0x59, 0x00,
 	0x5C, 0x00, 0x5C, 0x00, 0x5A, 0x00, 0x5D, 0x00, 0x5A, 0x00, 0x5E, 0x00,
 	0x5B, 0x00, 0x5F, 0x00, 0x5F, 0x00, 0x5E, 0x00, 0x61, 0x00, 0x5E, 0x00,

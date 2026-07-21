@@ -1,6 +1,4 @@
-#define MA_NO_DSOUND
-#define MA_NO_WINMM
-#define MA_NO_JACK
-#define MA_NO_OSS
+#define MA_ENABLE_ONLY_SPECIFIC_BACKENDS
+#define MA_ENABLE_WASAPI
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"

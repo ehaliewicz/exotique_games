@@ -405,12 +405,12 @@ typedef struct {
 
 #define MAX_TILE_TRIS 8192
 typedef struct {
-    i32 start_x; i32 start_y;
+    i16 start_x; i16 start_y;
     u32 num_triangles, num_trivial_triangles;
     u32 tri_indexes[MAX_TILE_TRIS]; // up to 2048 triangles per tile
     u32 trivial_tri_indexes[MAX_TILE_TRIS];
-    f32 max_z, min_z;
-    u8 z_dirty;
+    //f32 max_z, min_z;
+    //u8 z_dirty;
 } tile;
 
 tile tiles[TILES_WIDE*TILES_HIGH];
@@ -430,8 +430,7 @@ typedef struct {
 #include "palette_mahjong.h"
 #include "palette_background.h"
 
-#include "tile_click.h"
-#include "tsumo.h"
+
 
 #define BLACK 0
 #define GREEN 1
@@ -640,6 +639,13 @@ static inline u8 i32_vec_extract_low_bits(i32_vec a) {
     }
     return res;
 }
+static inline u32 i32_vec_extract_bytes(i32_vec a) {
+    u32 res = 0;
+    for(int i = 0; i < 4; i++) {
+        res |= ((u32)(a[i] ? 0xFF : 0x00)<<(i*8));
+    }
+    return res;
+}
 
 static inline i32_vec f32_vec_floor(f32_vec a) {
     i32_vec res;
@@ -736,7 +742,7 @@ u8 pixel_shader(
 #define MIP_SHIFT 1
 
 
-int triangle_block(
+int rasterize_triangle_2x2_quad(
     f32 *zbuffer,
     transformed_tri* tri_attributes,
     texture* tex,
@@ -763,8 +769,6 @@ int triangle_block(
 
     u16 quantized_brightness = tri_attributes->c0;
     u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
-
-    // okay color blending for lighting isn't working so well :)
 
 
     int drew_pixel = 0;
@@ -928,7 +932,6 @@ int triangle_block(
                 // skip completely uncovered quads
                 f32_vec zbuf_val_vec = *zbuf_ptr;
 
-                //f32_vec w0_vec = i32_vec_convert_f32(ex12_vec);
                 f32_vec w1_vec = i32_vec_convert_f32(ex20_vec);
                 f32_vec w2_vec = i32_vec_convert_f32(ex01_vec);
                 f32_vec inv_z_vec = (
@@ -955,9 +958,7 @@ int triangle_block(
                     f32_vec z_vec = 1.0f / inv_z_vec;
                     
                     i32_vec this_tri_color_vec;
-                    
-                    //if(ei->input->y) { 
-                        
+                                            
                     this_tri_color_vec = parallel_pixel_shader(
                         z_vec,
                         w1_vec, w2_vec, 
@@ -968,23 +969,8 @@ int triangle_block(
                         lit_pal_ptr
                     );
 
-                    //} else {
-                        //i32 color = pixel_shader(
-                        //    //z_vec[0], w1_vec[0], w2_vec[0],                
-                        //   z_vec[0], w1_vec[0], w2_vec[0], 
-                        //    v0u_over_z, v0v_over_z, v1u_over_z, v1v_over_z, v2u_over_z, v2v_over_z, 
-                        //    texels,  tex_width, tex_height, 
-                        //    lit_pal_ptr
-                        //);
-                    //this_tri_color_vec[0] = (u8)color;
-                    //this_tri_color_vec[1] = (u8)color;
-                    //this_tri_color_vec[2] = (u8)color;
-                    //this_tri_color_vec[3] = (u8)color;
 
-
-                    
                     i32_vec new_color_vec = i32_vec_select(in_tri_and_unoccluded, this_tri_color_vec, cbuf_val_vec);
-                    //*(u8*)col_val_ptr = (u8)new_color_vec[0];
                     *col_val_ptr = (u32)(
                         (new_color_vec[0]) |
                         ((new_color_vec[1])<<8) |
@@ -997,7 +983,6 @@ int triangle_block(
                     
                     *zbuf_ptr = new_zbuf_vec;
 
-                    //zbuf_ptr[0] = new_zbuf_vec[0];
 
                 }
 
@@ -1308,29 +1293,17 @@ void look_at_yx(transform *cam, vert3f position, vert3f target)
     cam->position = position;
 }
 
-u16 lfsr16(u16 *state)
-{
-    u16 bit = ((*state >> 14) ^ (*state >> 11) ^ (*state >> 7) ^ (*state >> 3)) & 1;
-    *state = (u16)(*state << 1) | bit;
-    return *state;
-}
-
-static u16 _rand_state = 0xA519;
-u16 rand_word() {
-    return lfsr16(&_rand_state);
-}
-
 
 void init_tiles() {
-    for(int y = 0; y < TILES_HIGH; y++) {
-        for(int x = 0; x < TILES_WIDE; x++) {
+    for(i16 y = 0; y < TILES_HIGH; y++) {
+        for(i16 x = 0; x < TILES_WIDE; x++) {
             tiles[y*TILES_WIDE+x].num_triangles = 0;
             tiles[y*TILES_WIDE+x].num_trivial_triangles = 0;
-            tiles[y*TILES_WIDE+x].start_y = y * RENDER_TILE_SIZE;
-            tiles[y*TILES_WIDE+x].start_x = x * RENDER_TILE_SIZE;
-            tiles[y*TILES_WIDE+x].max_z = 1.0f/FAR_Z;
-            tiles[y*TILES_WIDE+x].min_z = 1.0f/FAR_Z;
-            tiles[y*TILES_WIDE+x].z_dirty = 0;
+            tiles[y*TILES_WIDE+x].start_y = (i16)(y * RENDER_TILE_SIZE);
+            tiles[y*TILES_WIDE+x].start_x = (i16)(x * RENDER_TILE_SIZE);
+            //tiles[y*TILES_WIDE+x].max_z = 1.0f/FAR_Z;
+            //tiles[y*TILES_WIDE+x].min_z = 1.0f/FAR_Z;
+            //tiles[y*TILES_WIDE+x].z_dirty = 0;
         }
     }
 }
@@ -1344,48 +1317,6 @@ void clear_tile_bins() {
         }
     }
 }
-
-void reset_tile_hi_z() {
-    for(int y = 0; y < TILES_HIGH; y++) {
-        for(int x = 0; x < TILES_WIDE; x++) {
-
-            tiles[y*TILES_WIDE+x].max_z = 1.0f/FAR_Z;
-            tiles[y*TILES_WIDE+x].min_z = 1.0f/FAR_Z;
-            tiles[y*TILES_WIDE+x].z_dirty = 0;
-        }
-    }
-}
-
-/*
-void rebuild_hi_z() {
-    for(int y = 0; y < TILES_HIGH; y++) {
-        for(int x = 0; x < TILES_WIDE; x++) {
-            int start_x = tiles[y*TILES_WIDE+x].start_x;
-            int start_y = tiles[y*TILES_WIDE+x].start_y;
-            if(tiles[y*TILES_WIDE+x].z_dirty == 0) {
-                continue;
-            }
-
-            f32 furthest_inv_z = 1.0f;
-            f32 closest_inv_z = 0.0f;
-            for(int py = start_y; py < start_y+TILE_SIZE; py++) {
-                for(int px = start_x; px < start_x+TILE_SIZE; px++) {
-                    f32 pix_inv_z = zbuf[py*kScreenWidth+px];
-                    if(pix_inv_z < furthest_inv_z) {
-                        furthest_inv_z = pix_inv_z;
-                    }
-                    if(pix_inv_z > closest_inv_z) {
-                        closest_inv_z = pix_inv_z;
-                    }
-                }
-            }
-            tiles[y*TILES_WIDE+x].max_z = furthest_inv_z;
-            tiles[y*TILES_WIDE+x].min_z = closest_inv_z;
-            tiles[y*TILES_WIDE+x].z_dirty = 0;
-        }
-    }
-}
-*/
 
 typedef struct {
     f32 min_x, max_x;
@@ -1642,49 +1573,78 @@ u32 roll_die() {
 #include "texture_background_quarter.h"
 #include "texture_board.h"
 
+#define PIN_VAL 100
+#define SOU_VAL 200
+#define MAN_VAL 300
+#define HONOR_BASE_VAL 400
+#define HONOR 1
+#define NOT_HONOR 0
+#define TERMINAL 1
+#define NOT_TERMINAL 0
+#define TILE_LIST \
+    X(ONE_PIN, PIN_VAL+1, TERMINAL, NOT_HONOR)  \
+    X(TWO_PIN, PIN_VAL+2, NOT_TERMINAL, NOT_HONOR)  \
+    X(THREE_PIN, PIN_VAL+3, NOT_TERMINAL, NOT_HONOR)  \
+    X(FOUR_PIN, PIN_VAL+4, NOT_TERMINAL, NOT_HONOR)  \
+    X(FIVE_PIN, PIN_VAL+5, NOT_TERMINAL, NOT_HONOR)  \
+    X(FIVE_PIN_RED, PIN_VAL+5, NOT_TERMINAL, NOT_HONOR)  \
+    X(SIX_PIN, PIN_VAL+6, NOT_TERMINAL, NOT_HONOR)  \
+    X(SEVEN_PIN, PIN_VAL+7, NOT_TERMINAL, NOT_HONOR)  \
+    X(EIGHT_PIN, PIN_VAL+8, NOT_TERMINAL, NOT_HONOR)  \
+    X(NINE_PIN, PIN_VAL+9, TERMINAL, NOT_HONOR)  \
+    X(ONE_MAN, MAN_VAL+1, NOT_TERMINAL, NOT_HONOR)  \
+    X(TWO_MAN, MAN_VAL+2, NOT_TERMINAL, NOT_HONOR)  \
+    X(THREE_MAN, MAN_VAL+3, NOT_TERMINAL, NOT_HONOR)  \
+    X(FOUR_MAN, MAN_VAL+4, NOT_TERMINAL, NOT_HONOR)  \
+    X(FIVE_MAN, MAN_VAL+5, NOT_TERMINAL, NOT_HONOR)  \
+    X(FIVE_MAN_RED, MAN_VAL+5, NOT_TERMINAL, NOT_HONOR)  \
+    X(SIX_MAN, MAN_VAL+6, NOT_TERMINAL, NOT_HONOR)  \
+    X(SEVEN_MAN, MAN_VAL+7, NOT_TERMINAL, NOT_HONOR)  \
+    X(EIGHT_MAN, MAN_VAL+8, NOT_TERMINAL, NOT_HONOR)  \
+    X(NINE_MAN, MAN_VAL+9, TERMINAL, NOT_HONOR)  \
+    X(ONE_SOU, SOU_VAL+1, TERMINAL, NOT_HONOR)  \
+    X(TWO_SOU, SOU_VAL+2, NOT_TERMINAL, NOT_HONOR)  \
+    X(THREE_SOU, SOU_VAL+3, NOT_TERMINAL, NOT_HONOR)  \
+    X(FOUR_SOU, SOU_VAL+4, NOT_TERMINAL, NOT_HONOR)  \
+    X(FIVE_SOU, SOU_VAL+5, NOT_TERMINAL, NOT_HONOR)  \
+    X(FIVE_SOU_RED, SOU_VAL+5, NOT_TERMINAL, NOT_HONOR)  \
+    X(SIX_SOU, SOU_VAL+6, NOT_TERMINAL, NOT_HONOR)  \
+    X(SEVEN_SOU, SOU_VAL+7, NOT_TERMINAL, NOT_HONOR)  \
+    X(EIGHT_SOU, SOU_VAL+8, NOT_TERMINAL, NOT_HONOR)  \
+    X(NINE_SOU, SOU_VAL+9, TERMINAL, NOT_HONOR)  \
+    X(NORTH, HONOR_BASE_VAL, NOT_TERMINAL, HONOR)  \
+    X(EAST, HONOR_BASE_VAL+100, NOT_TERMINAL, HONOR)  \
+    X(SOUTH, HONOR_BASE_VAL+200, NOT_TERMINAL, HONOR)  \
+    X(WEST, HONOR_BASE_VAL+300, NOT_TERMINAL, HONOR)  \
+    X(WHITE_DRAGON, HONOR_BASE_VAL+400, NOT_TERMINAL, HONOR)  \
+    X(RED_DRAGON, HONOR_BASE_VAL+500, NOT_TERMINAL, HONOR)  \
+    X(GREEN_DRAGON, HONOR_BASE_VAL+600, NOT_TERMINAL, HONOR)
 
 typedef enum {
-    ONE_PIN,
-    TWO_PIN,
-    THREE_PIN,
-    FOUR_PIN,
-    FIVE_PIN,
-    FIVE_PIN_RED,
-    SIX_PIN,
-    SEVEN_PIN,
-    EIGHT_PIN,
-    NINE_PIN,
-    ONE_MAN,
-    TWO_MAN,
-    THREE_MAN,
-    FOUR_MAN,
-    FIVE_MAN,
-    FIVE_MAN_RED,
-    SIX_MAN,
-    SEVEN_MAN,
-    EIGHT_MAN,
-    NINE_MAN,
-    ONE_SOU,
-    TWO_SOU,
-    THREE_SOU,
-    FOUR_SOU,
-    FIVE_SOU,
-    FIVE_SOU_RED,
-    SIX_SOU,
-    SEVEN_SOU,
-    EIGHT_SOU,
-    NINE_SOU,
-    NORTH,
-    EAST,
-    SOUTH,
-    WEST,
-    WHITE_DRAGON,
-    RED_DRAGON,
-    GREEN_DRAGON,
+#define X(tile_name, sort_val, is_terminal, is_honor) tile_name,
+    TILE_LIST
+#undef X
     NUM_TILES,
     BOARD
 } tile_type;
 
+int is_honor_tile[NUM_TILES] = {
+#define X(tile_name, sort_val, is_terminal, is_honor) is_honor,
+    TILE_LIST
+#undef X
+};
+
+int is_terminal_tile[NUM_TILES] = {
+#define X(tile_name, sort_val, is_terminal, is_honor) is_terminal,
+    TILE_LIST
+#undef X
+};
+
+int tile_sort_val[NUM_TILES] = {
+#define X(tile_name, sort_val, is_terminal, is_honor) sort_val,
+    TILE_LIST
+#undef X
+};
 
 u8 texture_buffer[NUM_TILES][256*256] __attribute__((aligned(64)));
 u8 texture_mip_buffer[NUM_TILES][128*128] __attribute__((aligned(64)));
@@ -2038,8 +1998,11 @@ void decompress_textures(ExotiqueInterface *ei) {
 }
 
 
-#define MAX_DISCARDS 18
+#define MAX_DISCARDS 17
+#define MAX_OPEN_TILES 16
 
+//typedef struct {
+//} call;
 
 
 typedef struct {
@@ -2047,6 +2010,8 @@ typedef struct {
     tile_type tiles[14];
     u32 deal_frame_for_tiles[14];
     int wall_index_for_tiles[14];
+    tile_type open_tiles[MAX_OPEN_TILES];
+    int open_tile_rotated[MAX_OPEN_TILES];
     int num_open_tiles;
     int selected_tile_idx;
     tile_type discards[MAX_DISCARDS];
@@ -2062,6 +2027,7 @@ typedef struct {
 #define TILE_FALL_DURATION .4f
 #define TILE_DEAL_DURATION .4f
 #define DISCARD_DURATION .4f
+#define SWITCH_PLAYER_DURATION 1.0f
 
 static u64 bench_frame_ms;
 
@@ -2128,6 +2094,7 @@ hand init_empty_hand() {
 
 
 typedef enum {
+    STARTUP,
     INITIAL_SHUFFLE_AND_SETUP,
     DEALING,
     IN_GAME,
@@ -2199,10 +2166,11 @@ void shuffle_deck() {
 }
 
 int switch_player_timer = -1;
-u32 draw_end_frame = 0;
+i32 draw_end_frame = 0;
 void reset_game(ExotiqueInterface *ei) {
-    _rand_state = (u16)ei->ticks;
-    s[0] = (ei->ticks>>16);
+    s[3] = s[2];
+    s[1] = s[0];
+    s[0] = ei->ticks;
     cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     frame = 0;
     deal_steps = 0;
@@ -2256,20 +2224,38 @@ void output_full_light_remap_table(ExotiqueInterface *ei) {
     }
 }
 
+#include "tile_click.h"
+#include "pon.h"
+#include "chii.h"
+#include "riichi.h"
+#include "tsumo.h"
+#include "ron.h"
 
 typedef enum {
     TILE_CLICK,
+    PON,
+    CHII,
+    RIICHI,
     TSUMO,
+    RON,
     NUM_SOUNDS
 } sound;
 
 u32 sound_num_samples[NUM_SOUNDS] = {
     TILE_CLICK_NUM_SAMPLES,
+    PON_NUM_SAMPLES,
+    CHII_NUM_SAMPLES,
+    RIICHI_NUM_SAMPLES,
+    RON_NUM_SAMPLES,
     TSUMO_NUM_SAMPLES
 };
 
 u8* sound_data[NUM_SOUNDS] = {
     tile_click_raw_data,
+    pon_raw_data,
+    chii_raw_data,
+    riichi_raw_data,
+    ron_raw_data,
     tsumo_raw_data
 };
 
@@ -2277,6 +2263,7 @@ int num_active_sounds = 0;
 #define MAX_SOUNDS 64
 typedef struct {
     sound voice;
+    f32 volume;
     u32 playback_offset;
     vert3f location;
 } active_sound;
@@ -2284,27 +2271,27 @@ typedef struct {
 active_sound active_sounds[MAX_SOUNDS]; // contains the playback index of the sound?
 
 f32 buffer[4096];
-static volatile sound pending_sounds[MAX_SOUNDS];
+static volatile active_sound pending_sounds[MAX_SOUNDS];
 vert3f pending_sound_locations[MAX_SOUNDS];
 static volatile u32 write_pos = 0;  // written only by game thread
 static volatile u32 read_pos  = 0;  // written only by audio thread
 
-void add_sound(sound voice, vert3f location) {
+void add_sound(sound voice, f32 volume) { //}, vert3f location) {
     u32 next = (write_pos + 1) & (MAX_SOUNDS - 1);
     if(next == read_pos) {
         return; // queue full, drop
     }
-    pending_sounds[write_pos] = voice;
-    pending_sound_locations[write_pos] = location;
+    pending_sounds[write_pos].voice = voice;
+    //pending_sounds[write_pos].location = location;
+    pending_sounds[write_pos].volume = volume;
+    pending_sounds[write_pos].playback_offset = 0;
     write_pos = next;
 }
 
 static void drain_pending_clicks(void) {
     while(read_pos != write_pos) {
         if(num_active_sounds < MAX_SOUNDS) {
-            active_sounds[num_active_sounds].voice = pending_sounds[read_pos];
-            active_sounds[num_active_sounds].playback_offset = 0;
-            active_sounds[num_active_sounds++].location = pending_sound_locations[read_pos];
+            active_sounds[num_active_sounds++] = pending_sounds[read_pos];
         }
         read_pos = (read_pos + 1) & (MAX_SOUNDS - 1);
     }
@@ -2315,6 +2302,7 @@ matrix view_matrix;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
     (void)pInput;
+    (void)pDevice;
 
     drain_pending_clicks();   // <-- only new line: pull in any clicks queued since last callback
     i16* out = (i16*)pOutput;
@@ -2324,8 +2312,6 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
         buffer[i*2+1] = 0.0f;
     }
 
-    //u16** sound_table = pDevice->pUserData;
-
     // mix into buffer — unchanged
     for(u32 i = 0; i < frameCount; i++) {
         u32 bufferIdx = i*2;
@@ -2333,10 +2319,10 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
         for(int sound_idx = 0; sound_idx < num_active_sounds; sound_idx++) {
         continue_without_increment:;
             active_sound snd = active_sounds[sound_idx];
-            u16 *data = pDevice->pUserData; //__builtin_assume_aligned(sound_table[snd.voice], 2);
-
-            vert3f view = mat_mul_vert3(&view_matrix, &snd.location);
-            f32 pan = CLAMP(view.x/fabsf(view.z), -1.0f, 1.0f);
+            i16 *data = __builtin_assume_aligned(sound_data[snd.voice], 2);
+            f32 sound_vol = snd.volume;
+            //vert3f view = mat_mul_vert3(&view_matrix, &snd.location);
+            f32 pan = 0.0f; //CLAMP(view.x/fabsf(view.z), -1.0f, 1.0f);
             
             if(pan < 0.0f) { 
                 pan = -1.0f; 
@@ -2349,8 +2335,8 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
             f32 right = 0.5f + pan * 0.5f;
             u32 playback_offset = snd.playback_offset;
             u32 num_smples = sound_num_samples[snd.voice];
-            buffer[bufferIdx]   += (f32)data[playback_offset]   * .25f * left;
-            buffer[bufferIdx+1] += (f32)data[playback_offset++] * .25f * right;
+            buffer[bufferIdx]   += (f32)data[playback_offset]   * sound_vol * left;
+            buffer[bufferIdx+1] += (f32)data[playback_offset++] * sound_vol * right;
 
             if(playback_offset >= num_smples) {
                 num_active_sounds--;
@@ -2377,6 +2363,7 @@ void stop_device_callback(ma_device* pDevice) {
 ma_device_config ma_config;
 ma_device sound_device;
 void game_load(ExotiqueInterface* ei) {
+    cur_game_state = STARTUP;
     num_active_sounds = 0;
 
 
@@ -2390,16 +2377,18 @@ void game_load(ExotiqueInterface* ei) {
     ma_config.performanceProfile = ma_performance_profile_low_latency;
     ma_config.noClip = MA_TRUE;
     ma_config.noPreSilencedOutputBuffer = MA_TRUE;
-    ma_config.pUserData = sound_data[TILE_CLICK];
+    ma_config.pUserData = tile_click_raw_data; //sound_data[TILE_CLICK];
     ma_config.periodSizeInFrames = 32;
     
-    if (ma_device_init(NULL_PTR, &ma_config, &sound_device) != MA_SUCCESS) {
+    ma_result dev_init_res = ma_device_init(NULL_PTR, &ma_config, &sound_device);
+    if (dev_init_res != MA_SUCCESS) {
+        exotique_printf("wtf %i\n", dev_init_res);
         return;  // Failed to initialize the device.
     }
     
-    ma_result res = ma_device_start(&sound_device);     // The device is sleeping by default so you'll need to start it manually.
-    if(res != MA_SUCCESS) {
-        exotique_printf("wtf %i\n", res);
+    ma_result dev_start_res = ma_device_start(&sound_device);     // The device is sleeping by default so you'll need to start it manually.
+    if(dev_start_res != MA_SUCCESS) {
+        exotique_printf("wtf %i\n", dev_start_res);
         return;
     }
 
@@ -2515,14 +2504,14 @@ void game_load(ExotiqueInterface* ei) {
     board_bbox = get_mesh_bbox(&board_mesh);
 
    
-    reset_game(ei);
+    //reset_game(ei);
 }
 
 vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx);
 
 //#define NUM_SHUFFLE_FRAMES 136*2
 void step_shuffle_and_setup(u32 cur_frame, wall* w) {
-    if((cur_frame&3) != 3) {
+    if((cur_frame&7) != 7) {
         return;
     }
     if(w->rem == TILES_IN_DECK) {
@@ -2531,7 +2520,7 @@ void step_shuffle_and_setup(u32 cur_frame, wall* w) {
         }
     } else {
         w->tile_fall_frames[w->rem] = cur_frame;
-        w->tile_click_frames[w->rem] = (i32)cur_frame + (i32)get_frames_for_duration(TILE_FALL_DURATION) - (i32)get_frames_for_duration(0.6f);
+        w->tile_click_frames[w->rem] = (i32)cur_frame + (i32)get_frames_for_duration(TILE_FALL_DURATION) - (i32)get_frames_for_duration(0.2f);
         w->tiles[w->rem++] = shuffled_deck[next_deal_pos++];// nextrand()%NUM_TILES;
     }
     for(int i = 0; i < w->rem; i++) {
@@ -2539,9 +2528,10 @@ void step_shuffle_and_setup(u32 cur_frame, wall* w) {
             
             add_sound(
                 TILE_CLICK,
-                calc_wall_tile_global_position(
-                    cur_frame, w, i
-                )
+                0.085f
+                //calc_wall_tile_global_position(
+                //    cur_frame, w, i
+                //)
             );
 
             w->tile_click_frames[i] = -1;
@@ -2555,7 +2545,7 @@ void sort_hand(hand* h) {
 
         for(int j = i+1; j < h->num_closed_tiles; j++) {
             int cur_tile = h->tiles[j];
-            if(cur_tile < biggest_tile) {
+            if(tile_sort_val[cur_tile] < tile_sort_val[biggest_tile]) {
                 h->tiles[i] = cur_tile;
                 h->tiles[j] = biggest_tile;
                 biggest_tile = cur_tile;
@@ -2600,7 +2590,7 @@ void step_deal(u32 cur_frame) {
         hands_in_order[hand_index]->selected_tile_idx = cur_num_tiles-1;
     }
     deal_steps++;
-    sort_hand(hands_in_order[hand_index]);
+    //sort_hand(hands_in_order[hand_index]);
     if(deal_steps == 17) {
         cur_game_state = IN_GAME;
         switch_player_timer = -1;
@@ -2619,7 +2609,8 @@ int last_x_pushed = 0, last_y_pushed = 0;
 f32 prev_cam_radius;
 int zoom;
 
-
+tile_type last_discard;
+int last_discard_player;
 void discard_current_tile(int player, u32 cur_frame) {
     hand* hands_in_order[4] = {
         &game_board.east_hand, 
@@ -2631,6 +2622,8 @@ void discard_current_tile(int player, u32 cur_frame) {
 
     int selected_tile_idx = cur_player_hand->selected_tile_idx;
     cur_player_hand->discards[cur_player_hand->num_discards] = cur_player_hand->tiles[selected_tile_idx];
+    last_discard = cur_player_hand->tiles[selected_tile_idx];
+    last_discard_player = player;
 
     cur_player_hand->discard_frames[cur_player_hand->num_discards] = cur_frame;
     cur_player_hand->discard_click_frames[cur_player_hand->num_discards] = (i32)cur_frame + (i32)get_frames_for_duration(DISCARD_DURATION) - (i32)get_frames_for_duration(0.06f);
@@ -2639,7 +2632,7 @@ void discard_current_tile(int player, u32 cur_frame) {
     for(int i = cur_player_hand->selected_tile_idx; i < cur_player_hand->num_closed_tiles-1; i++) {
         cur_player_hand->tiles[i] = cur_player_hand->tiles[i+1];
     }
-     cur_player_hand->num_closed_tiles--;
+    cur_player_hand->num_closed_tiles--;
     sort_hand(cur_player_hand);
 }
 
@@ -2697,6 +2690,7 @@ int find_index_of_first_tile_in_hand(hand* h, tile_type search_tile) {
     }
     return -1;
 }
+
 
 int get_best_discard(int player, hand* h) {
     // first discard winds
@@ -2781,6 +2775,9 @@ void run_ai_player(int player, hand* h, u32 cur_frame, int can_move) {
                     } else {
                         h->selected_tile_idx++;
                     }
+                    add_sound(
+                        TILE_CLICK, 0.125f
+                    );
                     if(h->selected_tile_idx < 0) {
                         h->selected_tile_idx = h->num_closed_tiles-1;
                     } else if (h->selected_tile_idx >= h->num_closed_tiles) {
@@ -2791,7 +2788,7 @@ void run_ai_player(int player, hand* h, u32 cur_frame, int can_move) {
             case MOVED:                
                 //exotique_printf("ai player %i discarding %i of %i\n", player, h->selected_tile_idx, h->num_closed_tiles);
                 discard_current_tile(player, cur_frame);
-                switch_player_timer = (int)get_frames_for_duration(DISCARD_DURATION+0.2f);
+                switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
                 reset_ai_player_state(cur_frame);
                 break;
             default:
@@ -2810,7 +2807,144 @@ static u64 last_frame_ticks = 0;
 
 vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix);
 
-void run_game(ExotiqueInterface *ei, vert3f cam_pos, const u32 cur_frame) {
+sound call_sounds[5] = {
+    PON, CHII, RON
+};
+#define NUM_CALL_SOUNDS (sizeof(call_sounds)/sizeof(call_sounds[0]))
+
+typedef enum {
+    PON_CALL = 0,
+    CHII_CALL = 1,
+    RON_CALL = 2,
+    NO_CALL
+} call_type;
+
+void copy_tile_index_to_open(hand* h, int idx) {
+    tile_type copy_tile = h->tiles[idx];
+    h->open_tiles[h->num_open_tiles] = copy_tile;
+    h->open_tile_rotated[h->num_open_tiles++] = 0;
+    for(int i = idx; i < h->num_closed_tiles-1; i++) {
+        h->tiles[i] = h->tiles[i+1];
+    }
+    h->num_closed_tiles--;
+    exotique_printf("copied tile idx %i to open tiles, now %i closed_tiles and %i open tiles\n", idx, h->num_closed_tiles, h->num_open_tiles);
+}
+
+call_type attempt_call(board *b, int player) {
+    hand* hands_in_order[4] = {
+        &b->east_hand, 
+        &b->south_hand, 
+        &b->west_hand, 
+        &b->north_hand
+    };
+    hand* prev_hand = hands_in_order[last_discard_player];
+    hand* cur_hand = hands_in_order[player];
+    tile_type prev_discard = prev_hand->discards[prev_hand->num_discards-1];
+
+    // check for sequence
+    int got_ll = 0;
+    int ll_index = -1;
+    int got_l = 0;
+    int l_index = -1;
+    int got_r = 0;
+    int r_index = -1;
+    int got_rr = 0;
+    int rr_index = -1;
+    (void)rr_index;
+    (void)r_index;
+    (void)l_index;
+    (void)ll_index;
+    int pon_cnt = 1;
+    int pon_index1 = -1;
+    int pon_index2 = -1;
+    for(int i = 0; i < cur_hand->num_closed_tiles; i++) {
+        tile_type til = cur_hand->tiles[i];
+        if(tile_sort_val[til] == tile_sort_val[prev_discard]-1) {
+            got_l = 1;
+            l_index = i;
+        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]-2) {
+            got_ll = 1;
+            ll_index = i;
+        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]+1) {
+            got_r = 1;
+            r_index = i;
+        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]+2) {
+            got_rr = 1;
+            rr_index = i;
+        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]) {
+            if(pon_cnt == 1) {
+                pon_index1 = i;
+            } else {
+                pon_index2 = i;
+            }
+            pon_cnt++;
+        }
+    }
+
+    if(pon_cnt >= 3) {
+        copy_tile_index_to_open(cur_hand, pon_index1);
+        if(pon_index1 < pon_index2) { pon_index2--; }
+        copy_tile_index_to_open(cur_hand, pon_index2);
+        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
+        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
+        prev_hand->num_discards--;
+        return PON_CALL;
+    }
+
+    if(got_ll && got_l) {
+        copy_tile_index_to_open(cur_hand, ll_index);
+        if(ll_index < l_index) { l_index--; }
+        copy_tile_index_to_open(cur_hand, l_index);
+        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
+        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
+        prev_hand->num_discards--;
+        return CHII_CALL;
+    }
+    if(got_l && got_r) {
+        copy_tile_index_to_open(cur_hand, l_index);
+        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
+        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
+        prev_hand->num_discards--;
+        if(ll_index < r_index) { r_index--; }
+        copy_tile_index_to_open(cur_hand, r_index);
+        return CHII_CALL;
+    }
+    if(got_r && got_rr) {
+        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
+        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
+        prev_hand->num_discards--;
+        if(r_index < rr_index) { rr_index--; }
+        copy_tile_index_to_open(cur_hand, r_index);
+        copy_tile_index_to_open(cur_hand, rr_index);
+        return CHII_CALL;
+    }
+
+
+    return NO_CALL;
+}
+
+void rotate_last_three_open_tiles(hand *h) {
+    tile_type tmp_tile = h->open_tiles[h->num_open_tiles-3];
+    int tmp_rot = h->open_tile_rotated[h->num_open_tiles-3];
+    h->open_tiles[h->num_open_tiles-3] = h->open_tiles[h->num_open_tiles-2];
+    h->open_tile_rotated[h->num_open_tiles-3] = h->open_tile_rotated[h->num_open_tiles-2];
+    h->open_tiles[h->num_open_tiles-2] = h->open_tiles[h->num_open_tiles-1];
+    h->open_tile_rotated[h->num_open_tiles-2] = h->open_tile_rotated[h->num_open_tiles-1];
+    h->open_tiles[h->num_open_tiles-1] = tmp_tile;
+    h->open_tile_rotated[h->num_open_tiles-1] = tmp_rot;
+
+}
+
+void sort_last_three_open_tiles_based_on_player_order(hand* h, int player) {
+    int dist = last_discard_player - player;
+    while(!h->open_tile_rotated[h->num_open_tiles-dist]) {
+        rotate_last_three_open_tiles(h);
+    }
+
+}
+
+
+void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
     hand* hands_in_order[4] = {
         &game_board.east_hand, 
         &game_board.south_hand, 
@@ -2820,45 +2954,75 @@ void run_game(ExotiqueInterface *ei, vert3f cam_pos, const u32 cur_frame) {
 
 
     int switching = (switch_player_timer != -1);
-    int can_discard = !switching && cur_frame >= draw_end_frame;
+    int can_discard = !switching && cur_frame >= (u32)draw_end_frame && draw_end_frame != -1;
     if(switching) {
         switch_player_timer--;
         if(switch_player_timer == 0) {
             cur_player += 1;
             cur_player &= 3;
-            draw_end_frame = draw_next_tile(cur_frame, cur_player);
+            if(cur_player != 0) {
+                // TODO: note AUTO DRAW FOR CPU PLAYERS, NO CALLING TIME
+                draw_end_frame = (i32)draw_next_tile(cur_frame, cur_player);
+            } else {
+                draw_end_frame = -1;
+            }
             //printf("setting draw end frame %i\n", )
             camera_rot_y = DEFAULT_CAM_ROT_Y;
             //camera_rot_x = DEFAULT_CAM_ROT_X;
             switch_player_timer = -1;
         }
     }
-    
-    if(cur_player == 0) {
-        if(ei->input->x && !last_x_pushed) {
-
+    if(ei->input->y && !last_y_pushed) {
+        sort_hand(hands_in_order[0]);
+    }
+    if(ei->input->x && !last_x_pushed && last_discard_player != 0 && (cur_player != 0 || (draw_end_frame == -1))) {
+        call_type can_call = attempt_call(&game_board, 0);
+        if(can_call != NO_CALL) {
             add_sound(
-                TSUMO,
-                cam_pos
+                call_sounds[can_call],
+                0.125f
+                //location
             );
+            sort_last_three_open_tiles_based_on_player_order(hands_in_order[0], 0);
+            cur_player = 0;
+            switch_player_timer = -1;
+            return;
         }
+    }
+    if(cur_player == 0) {
+
+
         if(ei->input->left && !last_left_pushed) {
         //    camera_rot_y += 0.006f;
             hands_in_order[cur_player]->selected_tile_idx--;
+            add_sound(
+                TILE_CLICK,
+                0.085f
+                //cam_pos
+            );
         } else if (ei->input->right && !last_right_pushed) {
         //    camera_rot_y -= 0.006f;
             hands_in_order[cur_player]->selected_tile_idx++;
-        }
+            add_sound(
+                TILE_CLICK,
+                0.085f
+                //cam_pos
+            );
+        } 
         if(hands_in_order[cur_player]->selected_tile_idx < 0) {
             hands_in_order[cur_player]->selected_tile_idx = hands_in_order[cur_player]->num_closed_tiles-1;
         } else if (hands_in_order[cur_player]->selected_tile_idx >= hands_in_order[cur_player]->num_closed_tiles) {
             hands_in_order[cur_player]->selected_tile_idx = 0;
         } else {
-                if(ei->input->a && !last_a_pushed && can_discard) {
+            if(ei->input->a && !last_a_pushed) {
+                if(can_discard) {
                     discard_current_tile(cur_player, cur_frame);
-                    switch_player_timer = (int)get_frames_for_duration(DISCARD_DURATION+0.2f);
+                    switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
                     reset_ai_player_state(cur_frame);
+                } else if (draw_end_frame == -1) {
+                    draw_end_frame = (i32)draw_next_tile(cur_frame, cur_player);
                 }
+            }
         }
     } else {
         run_ai_player(cur_player, hands_in_order[cur_player], cur_frame, can_discard);
@@ -2951,6 +3115,8 @@ void game_update(ExotiqueInterface* ei) {
     }
     last_select_pushed = cur_select_pushed;
     switch(cur_game_state) {
+        case STARTUP:
+            break;
         case INITIAL_SHUFFLE_AND_SETUP:
             step_shuffle_and_setup(frame, &game_board.board_wall);
             break;
@@ -2958,7 +3124,7 @@ void game_update(ExotiqueInterface* ei) {
             step_deal(frame);
             break;
         case IN_GAME:
-            run_game(ei, cam_pos, frame);
+            run_game(ei, frame);
             break;
         default:
         case NUM_GAME_STATES:
@@ -2985,6 +3151,7 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
     (void)ei; (void)zbuffer;
     u32 i;
     u32 num_tris = t->num_triangles;
+    u32 num_trivial_tris = t->num_trivial_triangles;
     //u32 num_trivial_tris = t->num_trivial_triangles;
 
     int base_x = t->start_x;
@@ -3012,6 +3179,7 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
                 *zbuf_ptr++ = inv_far_vec;
                 u32 bkgd_idx;
+                (void)bkgd_idx;
                 int global_x = (base_x + x);
 
                 f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
@@ -3022,12 +3190,6 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
                 } else {
                     bkgd_idx = 126 + 4; 
                     bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                    //int next_row = (tex_y_coord+1) >= BACKGROUND_TEX_HEIGHT ? 0 : tex_y_coord+1;
-                    //u32 bkgd_idx1 = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                    //u32 bkgd_idx2 = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord+1];
-                    //u32 bkgd_idx3 = texture_background[next_row*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                    //u32 bkgd_idx4 = texture_background[next_row*BACKGROUND_TEX_WIDTH+tex_x_coord+1];
-                    //bkgd_idx = mix_table[(mix_table[(bkgd_idx1<<8)|bkgd_idx2] << 8) | mix_table[(bkgd_idx3<<8)|bkgd_idx4]];
                 }
                 *col_val_ptr++ = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
             
@@ -3043,13 +3205,7 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
                 
                 u32 bkgd_idx = 126 + 4;
                 bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                //int next_row = (tex_y_coord+1) >= BACKGROUND_TEX_HEIGHT ? 0 : tex_y_coord+1;
-
-                //u32 bkgd_idx1 = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                //u32 bkgd_idx2 = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord+1];
-                //u32 bkgd_idx3 = texture_background[next_row*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                //u32 bkgd_idx4 = texture_background[next_row*BACKGROUND_TEX_WIDTH+tex_x_coord+1];
-                //bkgd_idx = mix_table[(mix_table[(bkgd_idx1<<8)|bkgd_idx2] << 8) | mix_table[(bkgd_idx3<<8)|bkgd_idx4]];
+                (void)bkgd_idx;
 
                 *col_val_ptr++ = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
             }
@@ -3070,41 +3226,32 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
     }
     */
    
-    int drew_pix = 0;
-    //for(i = 0; i < num_trivial_tris; i++) {
-    //    u32 global_tri_idx = t->trivial_tri_indexes[i];
-    //    drew_pix = trivial_triangle(
-    //        ei,
-    //        zbuffer,
-    //        &global_tri_buffer[global_tri_idx],
-    //        &textures[global_tri_buffer[global_tri_idx].tex],
-    //        t->start_x, t->start_x+RENDER_TILE_SIZE,
-    //        t->start_y, t->start_y+RENDER_TILE_SIZE
-    //    );
-    //}
+    //int drew_pix = 0;
 
-    // NOTE: SEPARATE LISTS!
+
+    for(i = 0; i < num_trivial_tris; i++) {
+        u32 global_tri_idx = t->trivial_tri_indexes[i];
+        //drew_pix = 
+        rasterize_triangle_2x2_quad_no_tmap(
+            zbuffer,
+            &global_tri_buffer[global_tri_idx],
+            global_tri_buffer[global_tri_idx].color,
+            t->start_x, t->start_x+RENDER_TILE_SIZE,
+            t->start_y, t->start_y+RENDER_TILE_SIZE
+        );
+    }
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tri_indexes[i];
-        if(global_tri_buffer[global_tri_idx].no_tmap) {
-            drew_pix = no_tmap_triangle_block(
-                zbuffer,
-                &global_tri_buffer[global_tri_idx],
-                global_tri_buffer[global_tri_idx].color,
-                t->start_x, t->start_x+RENDER_TILE_SIZE,
-                t->start_y, t->start_y+RENDER_TILE_SIZE
-            );
-        } else {
-            drew_pix = triangle_block(
-                zbuffer,
-                &global_tri_buffer[global_tri_idx],
-                &textures[global_tri_buffer[global_tri_idx].tex],
-                t->start_x, t->start_x+RENDER_TILE_SIZE,
-                t->start_y, t->start_y+RENDER_TILE_SIZE
-            );
-        }
+        //drew_pix = 
+        rasterize_triangle_2x2_quad(
+            zbuffer,
+            &global_tri_buffer[global_tri_idx],
+            &textures[global_tri_buffer[global_tri_idx].tex],
+            t->start_x, t->start_x+RENDER_TILE_SIZE,
+            t->start_y, t->start_y+RENDER_TILE_SIZE
+        );
     }   
-    t->z_dirty = t->z_dirty || drew_pix;
+    //t->z_dirty = t->z_dirty || drew_pix;
 
 
     /* flush tile to output */
@@ -3309,18 +3456,11 @@ void bin_triangle(
         int tile_end_x = endX / RENDER_TILE_SIZE;
         int tile_end_y = endY / RENDER_TILE_SIZE;
 
-        //edge_prep tri_edges = calc_edges(v0, v1, v2);
-        //u8 no_tmap = (
-        //    f32s_equal(v0_uv->x, v1_uv->x) && 
-        //    f32s_equal(v0_uv->x, v2_uv->x) && 
-        //    f32s_equal(v0_uv->y, v1_uv->y) && 
-        //    f32s_equal(v0_uv->y, v2_uv->y)
-        //);
-        // if there are two different
+
         // HACK
-        // only texturemap if there is a difference in U and V
+        // only texturemap if there is a difference in U and V over the triangle
         // we only have two models, and the only textured face is mapped over a 2d area (so it changes in both U and V)
-        // TODO: implement this with materials lol
+        // TODO: implement this with materials instead of this hack
         u8 no_tmap = ((f32s_equal(v0_uv->x, v1_uv->x) &&
          f32s_equal(v0_uv->x, v2_uv->x)) ||
         (f32s_equal(v0_uv->y, v1_uv->y) &&
@@ -3332,14 +3472,19 @@ void bin_triangle(
         for(int y = tile_start_y; y <= tile_end_y; y++) {
             for(int x = tile_start_x; x <= tile_end_x; x++) {
                 u32 num_tris_in_tile = tiles[y*TILES_WIDE+x].num_triangles;
+                
+                
+                
                 u32 num_trivial_tris_in_tile = tiles[y*TILES_WIDE+x].num_trivial_triangles;
+
+                // disable trivial reject, not useful anymore since we no longer have large triangles
 
                 //trivial_res triv = check_trivial_reject_accept(x, y, tri_edges);
                 //if(triv == TRIVIAL_REJECT) {
                 //    continue;
                 //}
 
-                if(0) { // triv == TRIVIAL_ACCEPT) {
+                if(no_tmap) { // triv == TRIVIAL_ACCEPT) {
                     //continue;
                     if(num_trivial_tris_in_tile == MAX_TILE_TRIS) {
                         continue;
@@ -3357,11 +3502,13 @@ void bin_triangle(
                 }
                
                 
-                //exotique_printf("N");
 
                 // if our closest inv_z is further than this, it's HI-Z culled baby
                 //f32 this_tiles_furthest_inv_z = tiles[y*TILES_WIDE+x].max_z;
                 // but since it's inv_z, the value gets smaller as it gets further away
+
+                // disable hi-z, fun experiment but not useful
+
                 //if(hi_z_enabled && closest_inv_z < this_tiles_furthest_inv_z) {
                 //    triangles_hi_z_culled++;
                 //    continue;
@@ -3873,13 +4020,13 @@ vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx) 
 
 const f32 hand_tile_spacing = 2.0f;
 
-f32 calc_hand_x_position(int idx, f32 scale) {
+f32 calc_hand_x_position(hand* h, int idx, f32 scale) {
     f32 this_spacing = hand_tile_spacing*scale;
     f32 whole_hand_width = (f32)(13 * 2);
     f32 half = whole_hand_width / this_spacing;
     f32 base_position_x = half*1.5f;
     f32 normal = base_position_x - this_spacing*(f32)idx;
-    if(idx == 13) {
+    if(idx == h->num_closed_tiles) {
         return normal - 1.0f;
     } else {
         return normal;
@@ -3897,7 +4044,7 @@ f32 calc_hand_y_position(hand* h, int idx, int is_cur_player, f32 scale) {
 
 vert3f calc_local_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player, f32 scale) {
     return (vert3f) {
-        calc_hand_x_position(tile_in_hand_idx, scale),
+        calc_hand_x_position(h, tile_in_hand_idx, scale),
         calc_hand_y_position(h, tile_in_hand_idx, is_cur_player, scale),
         0.0f
     };
@@ -3978,7 +4125,7 @@ vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix)
 
 void draw_hand(u32 cur_frame, wall* w, hand* h, int is_cur_player, matrix* hand_to_view_matrix, matrix* hand_to_world_matrix, f32 discard_scale) {
     (void)cur_frame; (void)w;
-    mesh_draw_call draw_calls[14 + MAX_DISCARDS];
+    mesh_draw_call draw_calls[14 + MAX_DISCARDS + MAX_OPEN_TILES];
 
 
 
@@ -4013,7 +4160,6 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, int is_cur_player, matrix* hand_
         draw_calls[draw_idx].texture = h->tiles[i];
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
         draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
-        //draw_calls[draw_idx].model_to_view = hand_to_view_matrix;
         draw_idx++;
     }
 
@@ -4022,28 +4168,48 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, int is_cur_player, matrix* hand_
         draw open tiles
 
     */
-   /*
-    for(int i = h->num_closed_tiles; i < h->num_closed_tiles+h->num_open_tiles; i++) {
+
+    f32 row_poses[3][3] = {   
+        {-20.0f, -22.6f, -24.6f}, // first is rotated
+        {-20.0f, -22.3f, -24.6f}, // second is rotated
+        {-20.0f, -22.0f, -24.3f}, // third is rotated
+    };
+
+    for(int i = 0; i < h->num_open_tiles; i++) {
        //int is_open = 1;//(i >= h->num_closed_tiles);
 
-
+        int pos_in_row = i%3;
+        int open_tile_row = i/3;
+        f32 *row;// = row_poses[0];
+        if(pos_in_row == 0) {
+            row = (h->open_tile_rotated[i] ? row_poses[0] : h->open_tile_rotated[i+1] ? row_poses[1] : row_poses[2]);
+        } else if (pos_in_row == 1) {
+            row = (h->open_tile_rotated[i-1] ? row_poses[0] : h->open_tile_rotated[i] ? row_poses[1] : row_poses[2]);
+        } else {
+            row = (h->open_tile_rotated[i-2] ? row_poses[0] : h->open_tile_rotated[i-1] ? row_poses[1] : row_poses[2]);
+        }
         transform tile_trans = identity_transform();
-        tile_trans.position.x = calc_hand_x_position(h->num_open_tiles + () ? 1 : 0);
+        tile_trans.position.x = row[pos_in_row]; //(-20.0f - (f32)pos_in_row * 2.2f) - rot_space_offset;
+        tile_trans.position.z = 2.0f + (f32)open_tile_row * -2.6f;
         tile_trans.rotation.x = 0.0f; // rotate back towards player
-        tile_trans.position.y = 0.0f;
+        tile_trans.rotation.y = h->open_tile_rotated[i] ? (f32)M_PI/2.0f : 0.0f;
+        tile_trans.scale.x = scale_hand;
+        tile_trans.scale.y = scale_hand;
+        tile_trans.scale.z = scale_hand;
         matrix tile_mat = transform_to_matrix(&tile_trans);
 
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tile_mat);
         matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
 
-        draw_calls[draw_idx].shdr = VERTEX_LIGHTING; 
+        draw_calls[draw_idx].shdr = LIT_TEXTURED; 
         draw_calls[draw_idx].mesh = &tile_mesh;
-        draw_calls[draw_idx].texture = h->tiles[i];
+        draw_calls[draw_idx].bounds = &tile_bbox;
+        draw_calls[draw_idx].texture = h->open_tiles[i];
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
         draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
         draw_idx++;
     }
-    */
+    
     
     /*
         draw discards
@@ -4063,7 +4229,7 @@ void draw_hand(u32 cur_frame, wall* w, hand* h, int is_cur_player, matrix* hand_
         
 
         vert3f old_pos = (vert3f){
-            calc_hand_x_position(hand_slot_idx, scale_hand),
+            calc_hand_x_position(h, hand_slot_idx, scale_hand),
             DISCARDING_TILE_Y_POS,
             0.0f
         };
@@ -4210,7 +4376,8 @@ void draw_board(ExotiqueInterface *ei, game_state cur_state, u32 cur_frame, boar
             if((i32)cur_frame >= hands_in_order[i]->discard_click_frames[j] && hands_in_order[i]->discard_click_frames[j] != -1 ) {
                 add_sound(
                     TILE_CLICK,
-                    calc_global_discard_position(j, hand_matrixes[i][1])
+                    0.125f
+                    //calc_global_discard_position(j, hand_matrixes[i][1])
                 );
                 hands_in_order[i]->discard_click_frames[j] = -1;
             }
@@ -4315,9 +4482,7 @@ void game_draw(ExotiqueInterface* ei) {
         }
     }
     */
-    if(hi_z_enabled) {
-        reset_tile_hi_z();
-    }
+
 
 
 

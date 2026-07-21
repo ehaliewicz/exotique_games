@@ -5,8 +5,8 @@
 #define OUTPUT_TILE_SIZE 32
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~31))
-#define OUTPUT_WIDTH TILE_ROUND(640)
-#define OUTPUT_HEIGHT TILE_ROUND(360)
+#define OUTPUT_WIDTH TILE_ROUND(1920)
+#define OUTPUT_HEIGHT TILE_ROUND(1080)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -33,6 +33,7 @@ typedef struct {
 typedef struct {
     f32 x,y,z;
 } vert3f;
+
 typedef struct {
     i32 x,y,z;
 } vert3i;

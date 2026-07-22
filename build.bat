@@ -57,7 +57,7 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c99 -O3 -fverbose-asm -march=znver4 -ffast-math -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -ggdb -fverbose-asm -march=westmere -ffast-math -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
     -I ".." ^
     ^
     -D ARCH=%ARCH% ^

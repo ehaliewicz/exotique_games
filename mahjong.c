@@ -5,8 +5,8 @@
 #define OUTPUT_TILE_SIZE 32
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~31))
-#define OUTPUT_WIDTH TILE_ROUND(1920)
-#define OUTPUT_HEIGHT TILE_ROUND(1080)
+#define OUTPUT_WIDTH TILE_ROUND(1280)
+#define OUTPUT_HEIGHT TILE_ROUND(720)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -2321,13 +2321,13 @@ void output_mixing_table(ExotiqueInterface *ei) {
     }
 }
 
-//#include "tile_click.h"
-//#include "pon.h"
-//#include "chii.h"
-//#include "riichi.h"
-//#include "tsumo.h"
+#include "pon_4b.h"
+#include "chii_4b.h"
+#include "tsumo.h"
 #include "riichi_4b.h"
 #include "tile_click_4b.h"
+#include "tsumo_4b.h"
+#include "ron_4b.h"
 
 typedef enum {
     TILE_CLICK,
@@ -2335,7 +2335,7 @@ typedef enum {
     CHII,
     RIICHI,
     TSUMO,
-    RON,
+    //RON,
     NUM_SOUNDS
 } sound;
 
@@ -2352,27 +2352,29 @@ sound_data sounds[NUM_SOUNDS] = {
     {
         tile_click_4b_raw_data, decompressed_sound_buffer[0],
         TILE_CLICK_NUM_BYTES, 0
+        //ron_4b_raw_data, decompressed_sound_buffer[0],
+        //RON_NUM_BYTES, 0
     },
     {
-        riichi_4b_raw_data, decompressed_sound_buffer[1],
+        pon_4b_raw_data, decompressed_sound_buffer[1],
+        PON_NUM_BYTES, 0
+    },
+    {
+        chii_4b_raw_data, decompressed_sound_buffer[2],
+        CHII_NUM_BYTES, 0
+    },
+    {
+        riichi_4b_raw_data, decompressed_sound_buffer[3],
         RIICHI_NUM_BYTES, 0
     },
     {
-        riichi_4b_raw_data, decompressed_sound_buffer[1],
-        RIICHI_NUM_BYTES, 0
+        tsumo_4b_raw_data, decompressed_sound_buffer[4],
+        TSUMO_NUM_BYTES, 0
     },
-    {
-        riichi_4b_raw_data, decompressed_sound_buffer[1],
-        RIICHI_NUM_BYTES, 0
-    },
-    {
-        riichi_4b_raw_data, decompressed_sound_buffer[1],
-        RIICHI_NUM_BYTES, 0
-    },
-    {
-        riichi_4b_raw_data, decompressed_sound_buffer[1],
-        RIICHI_NUM_BYTES, 0
-    }
+    //{
+    //    ron_4b_raw_data, decompressed_sound_buffer[5],
+    //    RON_NUM_BYTES, 0
+    //}
 };
 
 u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
@@ -2994,7 +2996,9 @@ static u64 last_frame_ticks = 0;
 vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix);
 
 sound call_sounds[5] = {
-    PON, CHII, RON
+    PON, 
+    CHII, 
+    //RON
 };
 #define NUM_CALL_SOUNDS (sizeof(call_sounds)/sizeof(call_sounds[0]))
 

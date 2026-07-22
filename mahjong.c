@@ -5,8 +5,8 @@
 #define OUTPUT_TILE_SIZE 32
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~31))
-#define OUTPUT_WIDTH TILE_ROUND(1280)
-#define OUTPUT_HEIGHT TILE_ROUND(720)
+#define OUTPUT_WIDTH TILE_ROUND(1920)
+#define OUTPUT_HEIGHT TILE_ROUND(1080)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -2339,7 +2339,7 @@ typedef enum {
     NUM_SOUNDS
 } sound;
 
-i16 decompressed_sound_buffer[NUM_SOUNDS][16384];
+i16 decompressed_sound_buffer[NUM_SOUNDS][32768];
 typedef struct {
     void *compressed_raw_data;
     i16* decompressed_data;

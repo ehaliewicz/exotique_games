@@ -594,20 +594,30 @@ static inline i32_vec i32_vec_select(i32_vec mask, i32_vec a, i32_vec b) {
     return res;
 }
 
-static inline f32_vec f32_vec_select(i32_vec mask, f32_vec a, f32_vec b) {
+/*
+f32_vec f32_vec_select(i32_vec mask, f32_vec a, f32_vec b) {
     // if mask[i] ? b[i] : a[i];
     //f32_vec res = mask ? a : b;
     //return res;
+    f32_vec fmask = (f32_vec)mask;
+    return (fmask & a) | (~fmask & b);
     f32_vec res;
-    for(int i = 0; i < 4; i++) {
-        res[i] = mask[i] ? a[i] : b[i];
-    }
+    res[0] = mask[0] ? a[0] : b[0];
+    res[1] = mask[1] ? a[2] : b[1];
+    res[2] = mask[2] ? a[2] : b[2];
+    res[3] = mask[3] ? a[3] : b[3];
+    //for(int i = 0; i < 4; i++) {
+    //}
     return res;
 }
+*/
 
 static inline f32_vec broadcast_f32_vec(f32 a) {
     f32_vec res;
-    for(int i = 0; i < 4; i++) { res[i] = a; }
+    res[0] = a;
+    res[1] = a;
+    res[2] = a;
+    res[3] = a;
     return res;
 }
 
@@ -616,6 +626,12 @@ static inline f32_vec i32_vec_convert_f32(i32_vec a) {
     for(int i = 0; i < 4; i++) { res[i] = (f32)a[i]; }
     return res;
 }
+static inline i32_vec f32_vec_convert_i32(f32_vec a) {
+    i32_vec res;
+    for(int i = 0; i < 4; i++) { res[i] = (i32)a[i]; }
+    return res;
+}
+
 
 static inline i32_vec init_i32_vec(i32 a, i32 b, i32 c, i32 d) {
     i32_vec res;
@@ -648,7 +664,7 @@ static inline int i32_vec_any(const i32_vec a) {
   return 0;
 }
 
-static inline u32 i32_vec_extract_bytes(const i32_vec a) {
+u32 i32_vec_extract_bytes(const i32_vec a) {
     u32 res = 0;
     for(int i = 0; i < 4; i++) {
         res |= ((u32)(a[i] ? 0xFF : 0x00)<<(i*8));
@@ -656,13 +672,20 @@ static inline u32 i32_vec_extract_bytes(const i32_vec a) {
     return res;
 }
 
-static inline i32_vec f32_vec_floor(f32_vec a) {
+i32_vec f32_vec_floor(f32_vec a) {
     i32_vec res;
     
-    res[0] = fast_floor(a[0]);
-    res[1] = fast_floor(a[1]);
-    res[2] = fast_floor(a[2]);
-    res[3] = fast_floor(a[3]);
+    i32_vec i = init_i32_vec((i32)a[0], (i32)a[1], (i32)a[2], (i32)a[3]);
+    f32_vec ii = init_f32_vec((f32)i[0], (f32)i[1], (f32)i[2], (f32)i[3]);
+
+    return i - (ii > a);
+    //int i = (int)a;
+    //return i - (i > a);
+
+    //res[0] = fast_floor(a[0]);
+    //res[1] = fast_floor(a[1]);
+    //res[2] = fast_floor(a[2]);
+    //res[3] = fast_floor(a[3]);
     return res;
 }
 
@@ -678,7 +701,7 @@ f32 absf(f32 a) {
 
 u8 mix_table[256*256] __attribute__((aligned(64)));
 
-u32 parallel_pixel_shader(
+static inline u32 parallel_pixel_shader(
     f32_vec z,
     f32_vec w1, f32_vec w2, 
     f32 v0u_over_z, f32 v0v_over_z, 
@@ -694,9 +717,12 @@ u32 parallel_pixel_shader(
     f32_vec u = (u_over_z * z);
     f32_vec v = (v_over_z * z);
 
-    
-    i32_vec int_u = f32_vec_floor(u * (f32)tex_height); // (i32)fast_floor(u * (f32)tex_width);// & 1023;
-    i32_vec int_v = f32_vec_floor(v * (f32)tex_height);// & 1023;
+    // it's impossible to wrap around or go out of bounds in a way that is visible or harmful
+    // so flooring is not necessary
+    i32_vec int_u = f32_vec_convert_i32(u * (f32)tex_height);//f32_vec_floor(u * (f32)tex_height); 
+    // (i32)fast_floor(u * (f32)tex_width);// & 1023;
+    i32_vec int_v = f32_vec_convert_i32(v * (f32)tex_height);//f32_vec_floor(v * (f32)tex_height);
+    // & 1023;
 
     int_u &= (tex_height-1);
     int_v &= (tex_height-1);
@@ -718,6 +744,7 @@ u32 parallel_pixel_shader(
     return res;
 }
 
+/*
 u8 pixel_shader(
     f32 z,
     f32 w1, f32 w2, f32 v0u_over_z, f32 v0v_over_z, f32 v1u_over_z, f32 v1v_over_z, f32 v2u_over_z, f32 v2v_over_z, u8* texels, int tex_width, int tex_height, 
@@ -738,10 +765,9 @@ u8 pixel_shader(
     return lit_pal_ptr[tex_pal_idx];
 
 }
+*/
 
 
-#define MIP_FACTOR 2
-#define MIP_SHIFT 1
 
 
 int rasterize_triangle_2x2_quad(
@@ -886,43 +912,19 @@ int rasterize_triangle_2x2_quad(
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
     );
-    //i32_vec ey01_vec = init_i32_vec(
-    //    e01 + dx01 * startY - dy01 * startX,
-    //    e01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
-    //    e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
-    //    e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    //);
-    //i32_vec ey12_vec = init_i32_vec(
-    //    e12 + dx12 * startY - dy12 * startX,
-    //    e12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
-    //    e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
-    //    e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
-    //);
-    //i32_vec ey20_vec = init_i32_vec(
-    //    e20 + dx20 * startY - dy20 * startX,
-    //    e20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
-    //    e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
-    //    e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    //);
 
 
-
-    //const i32_vec i32_zero_vec = broadcast_i32_vec(0);
-    for (i32 y = miny; y < maxy; y += 2)
-    {
+    for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
         i32_vec cx01_vec = cy01_vec;
         i32_vec cx12_vec = cy12_vec;
         i32_vec cx20_vec = cy20_vec;
-        //i32_vec ex01_vec = ey01_vec;
-        //i32_vec ex12_vec = ey12_vec;
-        //i32_vec ex20_vec = ey20_vec;
 
         int in_tile_y = y-start_y;
         int in_tile_x = minx-start_x;
         int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
-        u32 *col_val_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
+        u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
         f32_vec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 16);
-        for (i32 x = 0; x < (maxx-minx); x += 2) {
+        for (i32 x = 0; x < (maxx-minx); x += 2, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
 
             i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
 
@@ -933,7 +935,7 @@ int rasterize_triangle_2x2_quad(
             if(coverage_mask != 0x0) {
                 // skip completely uncovered quads
                 f32_vec zbuf_val_vec = *zbuf_ptr;
-                u32 cbuf_val = *col_val_ptr;
+                u32 cbuf_val = *col_buf_ptr;
 
                 f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
                 f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
@@ -964,41 +966,230 @@ int rasterize_triangle_2x2_quad(
                         lit_pal_ptr
                     );
                     u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
-                    *col_val_ptr = masked_color;
+                    *col_buf_ptr = masked_color;
 
-
-                    f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
+                    f32_vec new_zbuf_vec = (f32_vec)((in_tri_and_unoccluded & (i32_vec)inv_z_vec) | ((~in_tri_and_unoccluded) & (i32_vec)zbuf_val_vec));
 
                     
                     *zbuf_ptr = new_zbuf_vec;
-
-
                 }
-
             }
-
-            // step horizontal edge coverage
-            cx01_vec -= dy01_shifted_vec;
-            cx12_vec -= dy12_shifted_vec;
-            cx20_vec -= dy20_shifted_vec;
-            //ex01_vec -= dy01_shifted_vec;
-            //ex12_vec -= dy12_shifted_vec;
-            //ex20_vec -= dy20_shifted_vec;
-            col_val_ptr++;
-            zbuf_ptr++;
-
         }
-        // step vertical edge coverage
-        
-        cy01_vec += dx01_shifted_vec;
-        cy12_vec += dx12_shifted_vec;
-        cy20_vec += dx20_shifted_vec;
-        //ey01_vec += dx01_shifted_vec;
-        //ey12_vec += dx12_shifted_vec;
-        //ey20_vec += dx20_shifted_vec;
     }
     return drew_pixel;
 }
+
+/*
+#include "immintrin.h"
+
+int rasterize_triangle_2x2_quad_no_tmap_vector(
+    f32 *zbuffer,
+    transformed_tri* tri_attributes,
+    u8 color,
+    i32 start_x, i32 end_x,
+    i32 start_y, i32 end_y
+) {
+    (void)zbuffer;
+    (void)tri_attributes;
+    (void)color;
+    (void)start_x;
+    (void)end_x;
+    (void)start_y;
+    (void)end_y;
+    return 0;
+
+    // swap everything for first two vertexes (actual vertex positions and attributes)
+    f32 iz0 = tri_attributes->inv_z1;
+    f32 iz1 = tri_attributes->inv_z0;
+    f32 iz2 = tri_attributes->inv_z2;
+    __m512 iz0_vec = _mm512_set1_ps(iz0);
+    __m512 iz1_vec = _mm512_set1_ps(iz1);
+    __m512 iz2_vec = _mm512_set1_ps(iz2);
+    
+
+    vert2i v0 = tri_attributes->proj_v1;
+    vert2i v1 = tri_attributes->proj_v0;
+    vert2i v2 = tri_attributes->proj_v2;
+
+
+    u16 quantized_brightness = tri_attributes->c0;
+    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
+    u8 lit_color = lit_pal_ptr[color];
+
+
+    int drew_pixel = 0;
+
+
+    // 28.4 fixed point
+    const i32 x0 = v0.x;
+    const i32 y0 = v0.y;
+    const i32 x1 = v1.x;
+    const i32 y1 = v1.y;
+    const i32 x2 = v2.x;
+    const i32 y2 = v2.y;
+    //
+    // Edge deltas
+    //
+    const i32 dx01 = x0 - x1;
+    const i32 dy01 = y0 - y1;
+    const i32 dx12 = x1 - x2;
+    const i32 dy12 = y1 - y2;
+    const i32 dx20 = x2 - x0;
+    const i32 dy20 = y2 - y0;
+
+
+    // shift by 4 for subpixel, but double again because we're using 4x4 quad-quad blocks now 
+    const __m512i dy01_shifted_vec = _mm512_set1_epi32(dy01<<6);
+    const __m512i dy12_shifted_vec = _mm512_set1_epi32(dy12<<6);
+    const __m512i dy20_shifted_vec = _mm512_set1_epi32(dy20<<6);
+    const __m512i dx01_shifted_vec = _mm512_set1_epi32(dx01<<6);
+    const __m512i dx12_shifted_vec = _mm512_set1_epi32(dx12<<6);
+    const __m512i dx20_shifted_vec = _mm512_set1_epi32(dx20<<6); 
+
+    //const i32_vec dy01_shifted_vec = broadcast_i32_vec(dy01<<5);
+    //const i32_vec dy12_shifted_vec = broadcast_i32_vec(dy12<<5);
+    //const i32_vec dy20_shifted_vec = broadcast_i32_vec(dy20<<5);
+    //const i32_vec dx01_shifted_vec = broadcast_i32_vec(dx01<<5);
+    //const i32_vec dx12_shifted_vec = broadcast_i32_vec(dx12<<5);
+    //const i32_vec dx20_shifted_vec = broadcast_i32_vec(dx20<<5); 
+
+    i32 area = (dx01 * dy20 - dy01 * dx20);
+    // barycentric weights weights (scaled by area)
+    f32 recip_area = 1.0f / (f32)area;
+    iz1_vec = (iz1_vec-iz0_vec)*recip_area;
+    iz2_vec = (iz2_vec-iz0_vec)*recip_area;
+
+
+    
+    // bounding box of triangle (not so good for larger triangles)
+    i32 minx = MIN(x0, MIN(x1, x2));
+    i32 maxx = MAX(x0, MAX(x1, x2));
+    i32 miny = MIN(y0, MIN(y1, y2)); 
+    i32 maxy = MAX(y0, MAX(y1, y2));
+
+    minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~1; // mask off low bit to align to 2 pixels
+    maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
+    miny = CLAMP((miny + 15) >> 4, start_y, end_y) & ~1; // mask off low bit to align to 2 pixels
+    maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
+
+
+
+    // edge constants, used for incremental edge coverage calculation
+    i32 e01 = dy01 * x0 - dx01 * y0;
+    i32 e12 = dy12 * x1 - dx12 * y1;
+    i32 e20 = dy20 * x2 - dx20 * y2;
+
+    // copy the edge constants into separate variables, so that the fill rule nudge below doesn't affect attribute interpolation (although it would be minor)
+    i32 c01 = e01;
+    i32 c12 = e12;
+    i32 c20 = e20;
+
+    // top left fill rule
+    // ensure that sample positions on a left or top edge are nudged over (to be covered).
+    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
+        c01++;
+    }
+    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
+        c12++;
+    }
+    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
+        c20++;
+    }
+
+    i32 startX = minx << 4;
+    i32 startY = miny << 4;
+    #define FIXED_ONE_PX 16
+
+    i32 startX0 = startX;
+    i32 startX1 = startX + FIXED_ONE_PX;
+    i32 startX2 = startX + FIXED_ONE_PX*2;
+    i32 startX3 = startX + FIXED_ONE_PX*3;
+    i32 startY0 = startY;
+    i32 startY1 = startY + FIXED_ONE_PX;
+    i32 startY2 = startY + FIXED_ONE_PX*2;
+    i32 startY3 = startY + FIXED_ONE_PX*3;
+
+    __m512i cy01_vec = _mm512_set_epi32(
+        c01 + dx01 * startY0 - dy01 * startX0,  c01 + dx01 * startY0 - dy01 * startX1,  c01 + dx01 * startY0- dy01 * startX2, c01 + dx01 * startY0 - dy01 * startX3,
+        c01 + dx01 * startY1 - dy01 * startX0,  c01 + dx01 * startY1 - dy01 * startX1,  c01 + dx01 * startY1 - dy01 * startX2, c01 + dx01 * startY1 - dy01 * startX3,
+        c01 + dx01 * startY2 - dy01 * startX0,  c01 + dx01 * startY2 - dy01 * startX1,  c01 + dx01 * startY2 - dy01 * startX2, c01 + dx01 * startY2 - dy01 * startX3,
+        c01 + dx01 * startY3 - dy01 * startX0,  c01 + dx01 * startY3 - dy01 * startX1,  c01 + dx01 * startY3 - dy01 * startX2, c01 + dx01 * startY3 - dy01 * startX3
+    );
+    __m512i cy12_vec = _mm512_set_epi32(
+        //c12 + dx12 * startY - dy12 * startX, c12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
+        //c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
+        //c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
+
+        c12 + dx12 * startY0 - dy12 * startX0,  c12 + dx12 * startY0 - dy12 * startX1,  c12 + dx12 * startY0 - dy12 * startX2, c12 + dx12 * startY0 - dy12 * startX3,
+        c12 + dx12 * startY1 - dy12 * startX0,  c12 + dx12 * startY1 - dy12 * startX1,  c12 + dx12 * startY1 - dy12 * startX2, c12 + dx12 * startY1 - dy12 * startX3,
+        c12 + dx12 * startY2 - dy12 * startX0,  c12 + dx12 * startY2 - dy12 * startX1,  c12 + dx12 * startY2 - dy12 * startX2, c12 + dx12 * startY2 - dy12 * startX3,
+        c12 + dx12 * startY3 - dy12 * startX0,  c12 + dx12 * startY3 - dy12 * startX1,  c12 + dx12 * startY3 - dy12 * startX2, c12 + dx12 * startY3 - dy12 * startX3
+
+    );
+    __m512i cy20_vec = _mm512_set_epi32(
+        //c20 + dx20 * startY - dy20 * startX, c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
+        //c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX, c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
+        c20 + dx20 * startY0 - dy20 * startX0,  c20 + dx20 * startY0 - dy20 * startX1,  c20 + dx20 * startY0 - dy20 * startX2, c20 + dx20 * startY0 - dy20 * startX3,
+        c20 + dx20 * startY1 - dy20 * startX0,  c20 + dx20 * startY1 - dy20 * startX1,  c20 + dx20 * startY1 - dy20 * startX2, c20 + dx20 * startY1 - dy20 * startX3,
+        c20 + dx20 * startY2 - dy20 * startX0,  c20 + dx20 * startY2 - dy20 * startX1,  c20 + dx20 * startY2 - dy20 * startX2, c20 + dx20 * startY2 - dy20 * startX3,
+        c20 + dx20 * startY3 - dy20 * startX0,  c20 + dx20 * startY3 - dy20 * startX1,  c20 + dx20 * startY3 - dy20 * startX2, c20 + dx20 * startY3 - dy20 * startX3
+    );
+
+    __m512i fxptZero = _mm512_set1_epi32(0);
+
+
+    u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
+    __m128i lit_color_128bit = _mm_set1_epi32((int)lit_color_qw);
+    (void)lit_color_128bit;
+
+    for (i32 y = miny; y < maxy; y += 4, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
+        __m512i cx01_vec = cy01_vec;
+        __m512i cx12_vec = cy12_vec;
+        __m512i cx20_vec = cy20_vec;
+
+        int in_tile_y = y-start_y;
+        int in_tile_x = minx-start_x;
+        int tile_idx = (in_tile_y&~3)*RENDER_TILE_SIZE + ((in_tile_x&~3)<<2);
+
+        __m128i *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 16);
+        __m512 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 64);
+
+        for (i32 x = 0; x < (maxx-minx); x += 4, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
+
+            __mmask16 coverage = _mm512_cmplt_epi32_mask(fxptZero, _mm512_or_si512(cx01_vec, _mm512_or_si512(cx12_vec, cx20_vec)));
+
+
+            // skip completely uncovered quads
+            if(coverage == 0) {
+                continue;
+            }
+
+            __m512 old_invz = _mm512_load_ps(zbuf_ptr);
+
+            __m512 w1_vec = _mm512_cvtepi32_ps(cx20_vec);
+            __m512 w2_vec = _mm512_cvtepi32_ps(cx01_vec);
+            __m512 new_invz = (iz0_vec + 
+                                (w1_vec * iz1_vec) +
+                                (w2_vec * iz2_vec));
+
+
+
+            __mmask16 visible = _mm512_cmplt_ps_mask(old_invz, new_invz) & coverage;
+
+            if (visible == 0) {
+                continue;
+            }
+            drew_pixel = 1;
+
+
+            _mm512_mask_storeu_ps(zbuf_ptr, visible, new_invz);
+            _mm_mask_storeu_epi8(col_buf_ptr, visible, lit_color_128bit);
+
+        }
+    }
+    return drew_pixel;
+}
+*/
 
 int rasterize_triangle_2x2_quad_no_tmap(
     f32 *zbuffer,
@@ -1058,7 +1249,6 @@ int rasterize_triangle_2x2_quad_no_tmap(
     i32 area = (dx01 * dy20 - dy01 * dx20);
     // barycentric weights weights (scaled by area)
     f32 recip_area = 1.0f / (f32)area;
-    //f32_vec recip_area_vec = broadcast_f32_vec(recip_area);
     iz1_vec = (iz1_vec-iz0_vec)*recip_area;
     iz2_vec = (iz2_vec-iz0_vec)*recip_area;
 
@@ -1121,56 +1311,33 @@ int rasterize_triangle_2x2_quad_no_tmap(
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
     );
-    //i32_vec ey01_vec = init_i32_vec(
-    //    e01 + dx01 * startY - dy01 * startX,
-    //    e01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
-    //    e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
-    //    e01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    //);
-    //i32_vec ey12_vec = init_i32_vec(
-    //    e12 + dx12 * startY - dy12 * startX,
-    //    e12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
-    //    e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
-    //    e12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
-    //);
-    //i32_vec ey20_vec = init_i32_vec(
-    //    e20 + dx20 * startY - dy20 * startX,
-    //    e20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
-    //    e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
-    //    e20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    //);
+
 
     u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
 
-    //const i32_vec i32_zero_vec = broadcast_i32_vec(0);
-    for (i32 y = miny; y < maxy; y += 2) {
+    for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
         i32_vec cx01_vec = cy01_vec;
         i32_vec cx12_vec = cy12_vec;
         i32_vec cx20_vec = cy20_vec;
-        //i32_vec ex01_vec = ey01_vec;
-        //i32_vec ex12_vec = ey12_vec;
-        //i32_vec ex20_vec = ey20_vec;
 
         int in_tile_y = y-start_y;
         int in_tile_x = minx-start_x;
         int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
-        u32 *col_val_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
+
+        u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
         f32_vec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 16);
-        for (i32 x = 0; x < (maxx-minx); x += 2) {
+
+        for (i32 x = 0; x < (maxx-minx); x += 2, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
 
             i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
 
-
             int coverage_mask = i32_vec_any(covered_vec);
-            //u32 coverage_mask = i32_vec_extract_bytes(covered_vec);
-            //if(coverage_mask != 0xF) {
-            //} else 
-            if(coverage_mask != 0x00) {
-                u32 cbuf_val = *col_val_ptr;
+
                 // skip completely uncovered quads
+            if(coverage_mask != 0x00) {
+                u32 cbuf_val = *col_buf_ptr;
                 f32_vec zbuf_val_vec = *zbuf_ptr;
 
-                //f32_vec w0_vec = i32_vec_convert_f32(ex12_vec);
                 f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
                 f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
                 f32_vec inv_z_vec = (iz0_vec + 
@@ -1186,36 +1353,17 @@ int rasterize_triangle_2x2_quad_no_tmap(
                     drew_pixel = 1;
 
                     u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
-                    *col_val_ptr = masked_color;
+                    *col_buf_ptr = masked_color;
 
 
-                    f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
+                    f32_vec new_zbuf_vec = (f32_vec)((in_tri_and_unoccluded & (i32_vec)inv_z_vec) | ((~in_tri_and_unoccluded) & (i32_vec)zbuf_val_vec));
+                    //f32_vec new_zbuf_vec = f32_vec_select(in_tri_and_unoccluded, inv_z_vec, zbuf_val_vec);
 
                     
                     *zbuf_ptr = new_zbuf_vec;
                 }
-
             }
-
-            // step horizontal edge coverage
-            cx01_vec -= dy01_shifted_vec;
-            cx12_vec -= dy12_shifted_vec;
-            cx20_vec -= dy20_shifted_vec;
-            //ex01_vec -= dy01_shifted_vec;
-            //ex12_vec -= dy12_shifted_vec;
-            //ex20_vec -= dy20_shifted_vec;
-            col_val_ptr++;
-            zbuf_ptr++;
-
         }
-        // step vertical edge coverage
-        
-        cy01_vec += dx01_shifted_vec;
-        cy12_vec += dx12_shifted_vec;
-        cy20_vec += dx20_shifted_vec;
-        //ey01_vec += dx01_shifted_vec;
-        //ey12_vec += dx12_shifted_vec;
-        //ey20_vec += dx20_shifted_vec;
     }
     return drew_pixel;
 }
@@ -1542,7 +1690,7 @@ u32 roll_die() {
 #include "texture_green_dragon.h"
 #include "texture_red_dragon.h"
 #include "texture_white_dragon.h"
-#include "texture_background_quarter.h"
+//#include "texture_background_quarter.h"
 #include "texture_board.h"
 
 #define PIN_VAL 100
@@ -1859,41 +2007,7 @@ void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size, i16 over
             u8 idx01 = mix_table[(idx0<<8)|idx1];
             u8 idx23 = mix_table[(idx2<<8)|idx3];
             u8 best_idx = mix_table[(idx01<<8)|idx23];
-            /*
-            for(int yy = 0; yy < 2; yy++) {
-                for(int xx = 0; xx < 2; xx++) {
-                    u8 src_pal_idx0 = src[(y+yy)*src_size + (x+xx)];
-                    //f32 weight = 1.0f;
-                    //if(src_pal_idx0 == WHITE) {
-                    //    weight = 0.5f;
-                    //}
-                    //total_weight += weight;
-
-                    rgb = add_vert3(
-                        rgb, 
-                        //scale_vert3( 
-                            rgba_to_f32_rgb(ei->palette[full_light_remap_table[NUM_SHADES-1][src_pal_idx0]])
-                        //weight)
-                    );
-                    
-                }   
-            }
-
-            u8 best_idx = 0;
-            vert3f avg_rgb = scale_vert3(rgb,  1.0f/total_weight); //(f32)(MIP_FACTOR*MIP_FACTOR));
-            //best_idx = closest_base_color_idx(ei, avg_rgb);
-            //best_idx = light_remap_table[NUM_SHADES-1][best_idx];
-            best_idx = closest_overall_color_idx(ei, avg_rgb);
-            //best_idx = light_remap_table[NUM_SHADES-1][best_idx];
-
-            for(int j = 0; j < 256; j++) {
-                if(full_light_remap_table[NUM_SHADES-1][j] == best_idx) {
-                    best_idx = (u8)j;
-                    break;
-                }
-            }
-            */
-
+            
             u8 pick_color = (override_color != -1) ? (u8)override_color : best_idx;
             dst[(y>>1)*dst_size + (x>>1)] = pick_color;
 
@@ -2196,12 +2310,24 @@ void output_full_light_remap_table(ExotiqueInterface *ei) {
     }
 }
 
-#include "tile_click.h"
-#include "pon.h"
-#include "chii.h"
-#include "riichi.h"
-#include "tsumo.h"
-#include "ron.h"
+void output_mixing_table(ExotiqueInterface *ei) {
+    exotique_printf("P3\n256 256\n255\n");
+    for(int j = 0; j < 256; j++) {
+        for(int i = 0; i < 256; i++) {
+            u8 idx = mix_table[(j<<8)|i];
+            u32 rgba = ei->palette[idx];
+            exotique_printf("%i %i %i\n", (rgba>>24)&0xFF, (rgba>>16)&0xFF, (rgba>>8)&0xFF);
+        }
+    }
+}
+
+//#include "tile_click.h"
+//#include "pon.h"
+//#include "chii.h"
+//#include "riichi.h"
+//#include "tsumo.h"
+#include "riichi_4b.h"
+#include "tile_click_4b.h"
 
 typedef enum {
     TILE_CLICK,
@@ -2213,23 +2339,109 @@ typedef enum {
     NUM_SOUNDS
 } sound;
 
-u32 sound_num_samples[NUM_SOUNDS] = {
-    TILE_CLICK_NUM_SAMPLES,
-    PON_NUM_SAMPLES,
-    CHII_NUM_SAMPLES,
-    RIICHI_NUM_SAMPLES,
-    RON_NUM_SAMPLES,
-    TSUMO_NUM_SAMPLES
+i16 decompressed_sound_buffer[NUM_SOUNDS][16384];
+typedef struct {
+    void *compressed_raw_data;
+    i16* decompressed_data;
+    u32 num_bytes;
+    u32 num_mono_samples;
+} sound_data;
+
+
+sound_data sounds[NUM_SOUNDS] = {
+    {
+        tile_click_4b_raw_data, decompressed_sound_buffer[0],
+        TILE_CLICK_NUM_BYTES, 0
+    },
+    {
+        riichi_4b_raw_data, decompressed_sound_buffer[1],
+        RIICHI_NUM_BYTES, 0
+    },
+    {
+        riichi_4b_raw_data, decompressed_sound_buffer[1],
+        RIICHI_NUM_BYTES, 0
+    },
+    {
+        riichi_4b_raw_data, decompressed_sound_buffer[1],
+        RIICHI_NUM_BYTES, 0
+    },
+    {
+        riichi_4b_raw_data, decompressed_sound_buffer[1],
+        RIICHI_NUM_BYTES, 0
+    },
+    {
+        riichi_4b_raw_data, decompressed_sound_buffer[1],
+        RIICHI_NUM_BYTES, 0
+    }
 };
 
-u8* sound_data[NUM_SOUNDS] = {
-    tile_click_raw_data,
-    pon_raw_data,
-    chii_raw_data,
-    riichi_raw_data,
-    ron_raw_data,
-    tsumo_raw_data
-};
+u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
+
+    static const int index_table[16] = {
+        -1,-1,-1,-1,
+        2, 4, 6, 8,
+        -1,-1,-1,-1,
+        2, 4, 6, 8
+    };
+
+    static const int step_table[89] = {
+           7,      8,     9,    10,    11,    12,    13,    14,
+          16,     17,    19,    21,    23,    25,    28,    31,
+          34,     37,    41,    45,    50,    55,    60,    66,
+          73,     80,    88,    97,   107,   118,   130,   143,
+         157,    173,   190,   209,   230,   253,   279,   307,
+         337,    371,   408,   449,   494,   544,   598,   658,
+         724,    796,   876,   963,  1060,  1166,  1282,  1411,
+        1552,   1707,  1878,  2066,  2272,  2499,  2749,  3024,
+        3327,   3660,  4026,  4428,  4871,  5358,  5894,  6484,
+        7132,   7845,  8630,  9493, 10442, 11487, 12635, 13899,
+        15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
+        32767
+    };
+
+    u32 num_blocks = num_bytes / 512;
+    i16 *out = output;
+    for(u32 blk = 0; blk < num_blocks; blk++) {
+
+
+        int predictor = (i16)(raw[0]|(raw[1]<<8));
+        raw += 2;
+        int step_index = *raw++;
+        raw++; // skip over reserved;
+        *out++ = (i16)predictor;
+        for(u32 byte_in_block = 0; byte_in_block < 508; byte_in_block++) {
+            u8 byte = *raw++;
+            // loop twice to output two samples for one byte
+            for(int i = 0; i < 2; i++) {
+                int code = (byte>>(4*i)) & 0xF;
+                int step = step_table[step_index];
+                int diff = step >> 3;
+
+                if (code & 1) diff += step >> 2;
+                if (code & 2) diff += step >> 1;
+                if (code & 4) diff += step;
+
+                if (code & 8) {
+                    predictor -= diff;
+                } else {
+                    predictor += diff;
+                }
+                predictor = CLAMP(predictor, -32768, 32767);
+                step_index += index_table[code];
+                step_index = CLAMP(step_index, 0, 88);
+                *out++ = (i16)predictor;
+            } 
+        }
+    }
+    return (u32)(out-output);
+}
+
+void decompress_sounds() {
+    for(int i = 0; i < NUM_SOUNDS; i++) {
+        sounds[i].num_mono_samples = decompress_adpcm(sounds[i].compressed_raw_data, decompressed_sound_buffer[i], sounds[i].num_bytes);
+        sounds[i].decompressed_data = decompressed_sound_buffer[i];
+    }
+}
 
 int num_active_sounds = 0;
 #define MAX_SOUNDS 64
@@ -2291,7 +2503,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
         for(int sound_idx = 0; sound_idx < num_active_sounds; sound_idx++) {
         continue_without_increment:;
             active_sound snd = active_sounds[sound_idx];
-            i16 *data = __builtin_assume_aligned(sound_data[snd.voice], 2);
+            i16 *data = sounds[snd.voice].decompressed_data;
             f32 sound_vol = snd.volume;
             //vert3f view = mat_mul_vert3(&view_matrix, &snd.location);
             f32 pan = 0.0f; //CLAMP(view.x/fabsf(view.z), -1.0f, 1.0f);
@@ -2306,9 +2518,8 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
             f32 left  = 0.5f - pan * 0.5f;
             f32 right = 0.5f + pan * 0.5f;
             u32 playback_offset = snd.playback_offset;
-            u32 num_smples = sound_num_samples[snd.voice];
-            buffer[bufferIdx]   += (f32)data[playback_offset]   * sound_vol * left;
-            buffer[bufferIdx+1] += (f32)data[playback_offset++] * sound_vol * right;
+            u32 num_smples = sounds[snd.voice].num_mono_samples;
+            
 
             if(playback_offset >= num_smples) {
                 num_active_sounds--;
@@ -2318,9 +2529,11 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
                 }
                 active_sounds[sound_idx] = active_sounds[num_active_sounds];
                 goto continue_without_increment;
-            } else {
-                active_sounds[sound_idx].playback_offset = playback_offset;
             }
+                    
+            buffer[bufferIdx]   += (f32)data[playback_offset]   * sound_vol * left;
+            buffer[bufferIdx+1] += (f32)data[playback_offset++] * sound_vol * right;
+            active_sounds[sound_idx].playback_offset = playback_offset;
         }
     }
 
@@ -2338,7 +2551,7 @@ void game_load(ExotiqueInterface* ei) {
     cur_game_state = STARTUP;
     num_active_sounds = 0;
 
-
+    
     ma_config = ma_device_config_init(ma_device_type_playback);
 
     ma_config.playback.format   = ma_format_s16;   // Set to ma_format_unknown to use the device's native format.
@@ -2349,7 +2562,7 @@ void game_load(ExotiqueInterface* ei) {
     ma_config.performanceProfile = ma_performance_profile_low_latency;
     ma_config.noClip = MA_TRUE;
     ma_config.noPreSilencedOutputBuffer = MA_TRUE;
-    ma_config.pUserData = tile_click_raw_data; //sound_data[TILE_CLICK];
+    //ma_config.pUserData = tile_click_raw_data; //sound_data[TILE_CLICK];
     ma_config.periodSizeInFrames = 32;
     
     ma_result dev_init_res = ma_device_init(NULL_PTR, &ma_config, &sound_device);
@@ -2363,7 +2576,7 @@ void game_load(ExotiqueInterface* ei) {
         exotique_printf("wtf %i\n", dev_start_res);
         return;
     }
-
+    
 
     int i;
     int last_used_pal_idx = 0;
@@ -2426,8 +2639,6 @@ void game_load(ExotiqueInterface* ei) {
             full_light_remap_table[shade][p] = closest_overall_color_idx(ei, rgba);
         }
     }
-    //output_full_light_remap_table(ei);
-    //output_palette(ei);
     for(i = 0; i < 256; i++) {
         vert3f c1 = rgba_to_f32_rgb(ei->palette[i]);
         for(int j = 0; j < 256; j++) {
@@ -2442,6 +2653,8 @@ void game_load(ExotiqueInterface* ei) {
             }
         }
     }
+    //output_mixing_table(ei);
+    //output_palette(ei);
 
     // downscale background
     /*
@@ -2465,6 +2678,7 @@ void game_load(ExotiqueInterface* ei) {
     }*/
 
     
+    decompress_sounds();
     decompress_textures(ei);
 
     texture_board[0] = light_remap_table[NUM_SHADES-1][GREEN];
@@ -3144,8 +3358,8 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
 
     for(int y = 0; y < RENDER_TILE_SIZE; y += 2) {
         int global_y = (base_y + y);
-        f32 y_portion = (f32)global_y / (f32)RENDER_HEIGHT;
-        int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
+        //f32 y_portion = (f32)global_y / (f32)RENDER_HEIGHT;
+        //int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
 
         if(global_y >= board_min_y && global_y < board_max_y-2) {
             f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
@@ -3156,14 +3370,14 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
                 (void)bkgd_idx;
                 int global_x = (base_x + x);
 
-                f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
-                int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
+                //f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
+                //int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
 
                 if(global_x >= (i32)left && global_x < (i32)right) {
                     bkgd_idx = board_col_idx;
                 } else {
                     bkgd_idx = 126 + 4; 
-                    bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
+                    //bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
                     bkgd_idx = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
                 }
                 *col_val_ptr++ = bkgd_idx;
@@ -3172,14 +3386,14 @@ void draw_tile(ExotiqueInterface *ei, f32 *zbuffer, tile* t
         } else {
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
 
-                int global_x = (base_x + x);
-                f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
-                int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
+                //int global_x = (base_x + x);
+                //f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
+                //int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
                 *zbuf_ptr++ = inv_far_vec;
 
                 
                 u32 bkgd_idx = 126 + 4;
-                bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
+                //bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
                 (void)bkgd_idx;
 
                 *col_val_ptr++ = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;

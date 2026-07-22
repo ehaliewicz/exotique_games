@@ -2563,7 +2563,7 @@ void game_load(ExotiqueInterface* ei) {
     ma_config.noClip = MA_TRUE;
     ma_config.noPreSilencedOutputBuffer = MA_TRUE;
     //ma_config.pUserData = tile_click_raw_data; //sound_data[TILE_CLICK];
-    ma_config.periodSizeInFrames = 32;
+    ma_config.periodSizeInFrames = 16;
     
     ma_result dev_init_res = ma_device_init(NULL_PTR, &ma_config, &sound_device);
     if (dev_init_res != MA_SUCCESS) {

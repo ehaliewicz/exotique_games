@@ -5,8 +5,8 @@
 #define OUTPUT_TILE_SIZE 32
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~31))
-#define OUTPUT_WIDTH TILE_ROUND(1920)
-#define OUTPUT_HEIGHT TILE_ROUND(1080)
+#define OUTPUT_WIDTH TILE_ROUND(1280)
+#define OUTPUT_HEIGHT TILE_ROUND(720)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -2335,7 +2335,7 @@ typedef enum {
     CHII,
     RIICHI,
     TSUMO,
-    //RON,
+    RON,
     NUM_SOUNDS
 } sound;
 
@@ -2352,8 +2352,6 @@ sound_data sounds[NUM_SOUNDS] = {
     {
         tile_click_4b_raw_data, decompressed_sound_buffer[0],
         TILE_CLICK_NUM_BYTES, 0
-        //ron_4b_raw_data, decompressed_sound_buffer[0],
-        //RON_NUM_BYTES, 0
     },
     {
         pon_4b_raw_data, decompressed_sound_buffer[1],
@@ -2371,10 +2369,10 @@ sound_data sounds[NUM_SOUNDS] = {
         tsumo_4b_raw_data, decompressed_sound_buffer[4],
         TSUMO_NUM_BYTES, 0
     },
-    //{
-    //    ron_4b_raw_data, decompressed_sound_buffer[5],
-    //    RON_NUM_BYTES, 0
-    //}
+    {
+        ron_4b_raw_data, decompressed_sound_buffer[5],
+        RON_NUM_BYTES, 0
+    }
 };
 
 u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {

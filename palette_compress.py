@@ -152,7 +152,7 @@ def process_quantized_image(img, tex_name):
 
 if __name__ == '__main__':
 
-    file_name = "Man4_quant.png" #sys.argv[1]
-    tex_name = "four_man" #sys.argv[2]
+    file_name = sys.argv[1]
+    tex_name = sys.argv[2]
     img = Image.open(file_name)
     process_quantized_image(img, tex_name)

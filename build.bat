@@ -38,7 +38,7 @@ SET GAME=%~n1
 REM ============================================================
 REM  Compile exotique.c
 REM ============================================================
-"%GCC%" -c %CFLAGS% -std=c2x -Os ^
+"%GCC%" -c %CFLAGS% -std=c2x -O2 -ggdb -march=native ^
     -I "%SDL2_INC%" -D_REENTRANT ^
     exotique.c
 IF ERRORLEVEL 1 (
@@ -57,7 +57,7 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c99 -O2 -march=westmere -ffast-math -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -ggdb -march=native -ffast-math -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
     -I ".." ^
     ^
     -D ARCH=%ARCH% ^
@@ -73,7 +73,7 @@ REM  NOTE: -lasan may fail with MinGW -- remove if GCC complains
 REM        it cannot find libasan.
 REM ============================================================
 gcc exotique.o miniaudio.o "%GAME%.o" ^
-    -L "%SDL2_LIB%" -lSDL2 -latomic ^
+    -L "%SDL2_LIB%" -lSDL2 -latomic -flto ^
     ^
     -o "%GAME%.exe"
 IF ERRORLEVEL 1 (

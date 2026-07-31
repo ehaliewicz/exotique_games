@@ -1,4 +1,6 @@
-obj_vertex board_vertexes[] = {
+#ifndef board_mesh_h
+#define board_mesh_h
+const obj_vertex board_vertexes[24] = {
 {.pos = {.x = 1.0f, .y = -0.005432f, .z = 1.0f}, .norm = {.x = -0.0f, .y = 1.0f, .z = -0.0f}, .uv = {.x = 0.501846f, .y = 0.499885f}},
 {.pos = {.x = 1.0f, .y = -0.005432f, .z = -1.0f}, .norm = {.x = -0.0f, .y = 1.0f, .z = -0.0f}, .uv = {.x = 0.501846f, .y = 0.499885f}},
 {.pos = {.x = -1.0f, .y = -0.005432f, .z = -1.0f}, .norm = {.x = -0.0f, .y = 1.0f, .z = -0.0f}, .uv = {.x = 0.501846f, .y = 0.499885f}},
@@ -24,7 +26,7 @@ obj_vertex board_vertexes[] = {
 {.pos = {.x = 1.0f, .y = -0.041068f, .z = 1.0f}, .norm = {.x = -0.0f, .y = -0.0f, .z = 1.0f}, .uv = {.x = 0.501846f, .y = 0.499885f}},
 {.pos = {.x = 1.0f, .y = -0.041068f, .z = -1.0f}, .norm = {.x = 1.0f, .y = -0.0f, .z = -0.0f}, .uv = {.x = 0.501846f, .y = 0.499885f}},
 };
-u16 board_indexes[] = {
+const u16 board_indexes[36] = {
 0, 1, 2,
 0, 2, 18,
 3, 4, 5,
@@ -38,3 +40,10 @@ u16 board_indexes[] = {
 15, 16, 17,
 15, 17, 23,
 };
+const obj_mesh board_mesh = {
+  .vertexStream = board_vertexes,
+  .indexStream = board_indexes,
+  .vertexCount = 24,
+  .indexCount = 36
+};
+#endif

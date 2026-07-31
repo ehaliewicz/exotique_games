@@ -156,19 +156,30 @@ if __name__ == '__main__':
     vert_cache_size = 4 #sys.argv[2]
     verts, faces = parse("./models/{}.obj".format(obj_name))
     verts, faces = sort_faces(verts, faces, vert_cache_size)
-    
-    print("obj_vertex {}_vertexes[]".format(obj_name) + " = {")
+
+    print("#ifndef {}_mesh_h".format(obj_name))
+    print("#define {}_mesh_h".format(obj_name))
+    print("const obj_vertex {}_vertexes[{}]".format(obj_name, len(verts)) + " = {")
     for (vert, uv, norm) in verts:
         print("{" + ".pos = {}, .norm = {}, .uv = {}".format(
             format_triplet(vert), format_triplet(norm), format_double(uv)
         ) + "},")
     print("};")
 
-    print("u16 {}_indexes[]".format(obj_name) + " = {")
+    print("const u16 {}_indexes[{}]".format(obj_name, len(faces*3)) + " = {")
     for face in faces:
         (v0, v1, v2) = face
         print("{}, {}, {},".format(v0, v1, v2))
     print("};")
+
+    print("const obj_mesh {}_mesh".format(obj_name) + " = {")
+    print("  .vertexStream = {}_vertexes,".format(obj_name))
+    print("  .indexStream = {}_indexes,".format(obj_name))
+    print("  .vertexCount = {},".format(len(verts)))
+    print("  .indexCount = {}".format(len(faces)*3))
+    print("};")
+
+    print("#endif")
 
     #print(verts)
     #print(faces)

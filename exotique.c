@@ -61,7 +61,6 @@ struct ScreenManager
   SDL_Window* window;
   bool fullscreen;
   uint8_t* screen;
-  uint32_t* screen_rgba;
   uint32_t palette[256];
 };
 
@@ -164,16 +163,21 @@ exotique_draw(GameManager* gm)
 {
   ScreenManager* sm = &gm->screen_manager;
 
-  for (int32_t i = 0; i < kScreenPixels; ++i)
-  {
-    sm->screen_rgba[i] = sm->palette[sm->screen[i]];
-  }
-  if (SDL_UpdateTexture(sm->texture, nullptr, sm->screen_rgba, (int)(sizeof(uint32_t) * (unsigned long)kScreenWidth)))
-  {
+  
+  void *tex_pixels;
+  int tex_pitch;
+  if(SDL_LockTexture(sm->texture, nullptr, &tex_pixels, &tex_pitch) == 0) {
+    uint32_t* pixel_ptr = (uint32_t*)tex_pixels;
+    for (int32_t i = 0; i < kScreenPixels; ++i)
+    {
+      pixel_ptr[i] = sm->palette[sm->screen[i]];
+    }
+    SDL_UnlockTexture(sm->texture);
+  }  else {
     SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't update the given texture rectangle with new pixel data: %s", SDL_GetError());
     exotique_panic(gm);
   }
-
+    
   // Rendering the final texture to screen
   if (SDL_RenderClear(sm->renderer))
   {
@@ -301,7 +305,6 @@ exotique_load(GameManager* gm, ExotiqueInterface* ei)
   gm->name = "🌴 Exotique v0.8β - SDL2 (26/05/17)";
 
   sm->screen = malloc((unsigned long)kScreenPixels * sizeof(uint8_t));
-  sm->screen_rgba = malloc((unsigned long)kScreenPixels * sizeof(uint32_t));
 
   gm->key_map[eKey_up] = SDL_SCANCODE_UP;
   gm->key_map[eKey_down] = SDL_SCANCODE_DOWN;
@@ -343,7 +346,6 @@ exotique_unload(GameManager* gm)
   }
 
   free(sm->screen);
-  free(sm->screen_rgba);
 }
 
 int exotique_printf( const char * format, ... ) {
@@ -440,7 +442,7 @@ exotique_update(GameManager* gm, ExotiqueInterface* ei)
     {
       continue;
     }
-
+    /*
     if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP))
     {
       ei->input[i].up = 1;
@@ -449,6 +451,7 @@ exotique_update(GameManager* gm, ExotiqueInterface* ei)
     {
       ei->input[i].down = 1;
     }
+    */
     if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT))
     {
       ei->input[i].left = 1;
@@ -508,6 +511,7 @@ exotique_update(GameManager* gm, ExotiqueInterface* ei)
 
     ei->input[i].joystick.x = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
     ei->input[i].joystick.y = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
+    
   }
 }
 
@@ -538,7 +542,7 @@ sdl_load(GameManager* gm)
     exotique_panic(gm);
   }
 
-  if (!(sm->texture = SDL_CreateTexture(sm->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, kScreenWidth, kScreenHeight)))
+  if (!(sm->texture = SDL_CreateTexture(sm->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, kScreenWidth, kScreenHeight)))
   {
     SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't create a texture for a rendering context: %s", SDL_GetError());
     exotique_panic(gm);
@@ -597,8 +601,14 @@ main(const int argc, const char* argv[])
   while (!g_game_manager.exit)
   {
     exotique_update(&g_game_manager, &g_exotique_interface);
+    //Uint64 frameStartTicks = SDL_GetTicks64();
     game_update(&g_exotique_interface);
+    //Uint64 frameMidTicks = SDL_GetTicks64();
     game_draw(&g_exotique_interface);
+    //Uint64 frameEndTicks = SDL_GetTicks64();
+    //char title[256];
+    //sprintf(title, "%s U: %llums D: %llums", g_game_manager.name, frameMidTicks-frameStartTicks, frameEndTicks-frameMidTicks);
+    //SDL_SetWindowTitle(g_game_manager.screen_manager.window, title);
     exotique_draw(&g_game_manager);
   }
 

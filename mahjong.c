@@ -12,13 +12,7 @@
 const int kScreenWidth = OUTPUT_WIDTH;
 const int kScreenHeight = OUTPUT_HEIGHT;
 
-//#define BACKGROUND_TEX_HEIGHT OUTPUT_HEIGHT
-//#define BACKGROUND_TEX_WIDTH OUTPUT_WIDTH
-//u8 texture_background[OUTPUT_WIDTH*OUTPUT_HEIGHT];
 
-
-//u8 render_target[RENDER_WIDTH*RENDER_HEIGHT];
-//f32 zbuf[RENDER_WIDTH*RENDER_HEIGHT];
 u8 render_target[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
 u16 zbuf[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
 
@@ -42,21 +36,17 @@ typedef struct {
     i32 x,y;
 } vert2i;
 
-typedef struct {
-    float m[4][4];
-} matrix;
-
-
-typedef struct {
-    vert3f position;
-    vert3f rotation;
-    vert3f scale;
-} transform;
 
 #define M_PI (3.141592)
 #define M_PI_2 (M_PI/2.)
 #define M_PI_M_2 (M_PI*2.0)
 
+
+/* 
+
+    SCALAR AND VERTEX/VECTOR MATH
+
+*/
 int compare_f32(double f1, double f2) {
     double precision = 0.00000000000000000001;
     if ((f1 - precision) < f2) {
@@ -121,16 +111,15 @@ f32 fabsf(f32 f) {
     return f;
 }
 
-
 f32 lerp(f32 a, f32 b, f32 mix) {
     return a + ((b-a) * mix);
 }
+
 vert3f lerp_vert3f(vert3f a, vert3f b, f32 mix) {
     return (vert3f){lerp(a.x,b.x, mix), lerp(a.y,b.y, mix), lerp(a.z,b.z, mix)};
 }
 
-
-f32 fast_atan2(f32 y, f32 x) {
+static inline f32 fast_atan2(f32 y, f32 x) {
     const f32 PI_4 = (f32)M_PI * 0.25f;
     const f32 PI_3_4 = (f32)M_PI * 0.75f;
 
@@ -171,7 +160,6 @@ static inline f32 my_sqrt(f32 i) {
     return 1.0f / fast_inv_sqrt(i);
 }
 
-
 static inline f32 dot(vert3f a, vert3f b)
 {
     return a.x*b.x + a.y*b.y + a.z*b.z;
@@ -191,6 +179,47 @@ static inline vert3f normalize(vert3f v)
     return out;
 }
 
+static inline vert3f scale_vert3(vert3f a, f32 b) {
+    return (vert3f){.x = a.x*b, .y = a.y*b, .z = a.z*b};
+}
+
+static inline vert2f scale_vert2(vert2f a, f32 b) {
+    return (vert2f){.x = a.x*b, .y = a.y*b};
+}
+
+static inline vert3f add_vert3(vert3f a, vert3f b) {
+    return (vert3f){.x = a.x+b.x, .y = a.y+b.y, .z = a.z+b.z};
+}
+
+static inline int fast_floor(f32 x)
+{
+    int i = (int)x;
+    return i - (i > x);
+}
+
+static inline int fast_ceil(f32 x)
+{
+    int i = (int)x;
+    return i + (i < x);
+}
+
+
+/*
+
+    MATRIXES AND TRANSFORMS
+
+*/
+
+typedef struct {
+    float m[4][4];
+} matrix;
+
+
+typedef struct {
+    vert3f position;
+    vert3f rotation;
+    vert3f scale;
+} transform;
 
 matrix mat_mul_mat(const matrix *a, const matrix *b) { 
     matrix r; 
@@ -253,88 +282,85 @@ matrix mat_inverse_affine(const matrix *a) {
     return r;
 }
 
-matrix transform_to_matrix(const transform *t) { 
-    float sx = sinf(t->rotation.x); 
-    float cx = cosf(t->rotation.x); 
-    float sy = sinf(t->rotation.y);
-    float cy = cosf(t->rotation.y); 
-    float tx = t->position.x;
-    float ty = t->position.y;
-    float tz = t->position.z;
-    float tsx = t->scale.x;
-    float tsy = t->scale.y;
-    float tsz = t->scale.z;
-    float sz = sinf(t->rotation.z);
-    float cz = cosf(t->rotation.z); 
-    matrix r = { {
-        { cz*cy*tsx,  (cz*sy*sx - sz*cx) * tsy,  (cz*sy*cx - sz*sx) * tsz, tx },
-        { sz*cy*tsx,  (sz*sy*sx + cz*cx) * tsy,  (sz*sy*cx - cz*sx) * tsz, ty},
-        { -sy*tsx,    (cy*sx) * tsy,             (cy*cx) * tsz, tz },
-        { 0.0f, 0.0f, 0.0f, 1.0f }
-        }
-    }; 
-    //r.m[0][0] = cy * t->scale.x; 
-    //r.m[0][1] = sy * sx * t->scale.y; 
-    //r.m[0][2] = sy * cx * t->scale.z; 
-    //r.m[0][3] = t->position.x; 
-    //r.m[1][0] = 0.0f; 
-    //r.m[1][1] = cx * t->scale.y; 
-    //r.m[1][2] = -sx * t->scale.z; 
-    //r.m[1][3] = t->position.y; 
-    //r.m[2][0] = -sy * t->scale.x; 
-    //r.m[2][1] = cy * sx * t->scale.y; 
-    //r.m[2][2] = cy * cx * t->scale.z; 
-    //r.m[2][3] = t->position.z; 
-    //r.m[3][0] = 0.0f; 
-    //r.m[3][1] = 0.0f; r.m[3][2] = 0.0f; 
-    //r.m[3][3] = 1.0f; 
+matrix scale_matrix(vert3f scale) { 
+    matrix r = {0}; 
+    r.m[0][0] = scale.x; 
+    r.m[1][1] = scale.y; 
+    r.m[2][2] = scale.z;
+    r.m[3][3] = 1.0f; 
     return r; 
-}
+} 
 
-matrix translation_matrix(f32 x, f32 y, f32 z) { 
+matrix translation_matrix(vert3f translate) { 
     matrix r = {0}; 
     r.m[0][0] = 1.0f; 
     r.m[1][1] = 1.0f; 
     r.m[2][2] = 1.0f;
     r.m[3][3] = 1.0f; 
-    r.m[0][3] = x; 
-    r.m[1][3] = y;
-    r.m[2][3] = z; 
+    r.m[0][3] = translate.x; 
+    r.m[1][3] = translate.y;
+    r.m[2][3] = translate.z; 
     return r; 
 } 
 
 matrix rotation_x_matrix(f32 angle) { 
     f32 s = sinf(angle); 
     f32 c = cosf(angle); 
-    matrix r = {0}; 
-    r.m[0][0] = 1.0f; 
-    r.m[1][1] = c; 
-    r.m[1][2] = -s; 
-    r.m[2][1] = s; 
-    r.m[2][2] = c; 
-    r.m[3][3] = 1.0f; 
+    matrix r = { {
+        {1,0,0,0},
+        {0,c,-s,0},
+        {0,s,c,0},
+        {0,0,0,1}
+        }
+    };
     return r; 
-} 
+}
 
 matrix rotation_y_matrix(f32 angle) { 
     f32 s = sinf(angle); 
     f32 c = cosf(angle); 
-    matrix r = {0}; 
-    r.m[0][0] = c; 
-    r.m[0][2] = s; 
-    r.m[1][1] = 1.0f; 
-    r.m[2][0] = -s; 
-    r.m[2][2] = c; 
-    r.m[3][3] = 1.0f; 
+    matrix r = { {
+        {c,0,s,0},
+        {0,1,0,0},
+        {-s,0,c,0},
+        {0,0,0,1}
+        }
+    };
     return r; 
+}
+
+matrix rotation_z_matrix(f32 angle) { 
+    f32 s = sinf(angle); 
+    f32 c = cosf(angle); 
+    matrix r = { {
+        {c,-s,0,0},
+        {s,c,0,0},
+        {0,0,1,0},
+        {0,0,0,1}
+        }
+    };
+    return r; 
+}
+
+matrix transform_to_matrix(const transform *t) { 
+    matrix sc = scale_matrix(
+        t->scale
+    );
+    matrix tr = translation_matrix(t->position);
+    matrix rx = rotation_x_matrix(t->rotation.x);
+    matrix ry = rotation_y_matrix(t->rotation.y);
+    matrix rz = rotation_z_matrix(t->rotation.z);
+
+    matrix r = mat_mul_mat(&rz, &ry);
+    r = mat_mul_mat(&r, &rx);
+    matrix rs = mat_mul_mat(&r, &sc);
+    return mat_mul_mat(&tr, &rs);
+
 }
 
 matrix transform_to_view_matrix(const transform *cam)
 {
-    matrix t = translation_matrix(
-        -cam->position.x,
-        -cam->position.y,
-        -cam->position.z);
+    matrix t = translation_matrix(scale_vert3(cam->position, -1.0f));
 
     matrix rx = rotation_x_matrix(-cam->rotation.x);
     matrix ry = rotation_y_matrix(-cam->rotation.y);
@@ -343,7 +369,6 @@ matrix transform_to_view_matrix(const transform *cam)
 
     return mat_mul_mat(&r, &t);
 }
-
 
 vert3f mat_mul_vert3(const matrix *m, const vert3f *v) {
     vert3f r;
@@ -391,32 +416,38 @@ vert3f mat_mul_normal(const matrix *m, const vert3f *n) {
 }
 
 
-typedef u16 u16_vec __attribute__((vector_size(8)));
-typedef f32 f32_vec __attribute__((vector_size(16)));
-typedef i32 i32_vec __attribute__((vector_size(16)));
-typedef u8 u8_vec __attribute__((vector_size(4)));
+/*
+
+    VECTORIZED/SIMD math
+
+*/
+
+#define VEC_LANES 4
+
+typedef u16 u16_vec __attribute__((vector_size(2*VEC_LANES)));
+typedef u16 u16_dvec __attribute__((vector_size(2*2*VEC_LANES)));
+typedef f32 f32_vec __attribute__((vector_size(4*VEC_LANES)));
+typedef f32 f32_dvec __attribute__((vector_size(4*2*VEC_LANES)));
+typedef i32 i32_vec __attribute__((vector_size(4*VEC_LANES)));
+typedef i32 i32_dvec __attribute__((vector_size(4*2*VEC_LANES)));
 
 
 static inline f32_vec broadcast_f32_vec(f32 a) {
     return (f32_vec){ a, a, a, a};
 }
 
+static inline f32_dvec broadcast_f32_dvec(f32 a) {
+    return (f32_dvec){ a, a, a, a, a, a, a, a};
+}
+
 static inline  f32_vec lerp_f32_vec(f32_vec a, f32_vec b, f32_vec mix) {
     return a + ((b-a) * mix);
 }
 
-static inline i32_vec init_i32_vec(i32 a, i32 b, i32 c, i32 d) {
-    return (i32_vec) {a, b, c, d};
-}
-
-static inline f32_vec init_f32_vec(f32 a, f32 b, f32 c, f32 d) {
-    return (f32_vec) {a, b, c, d};
-}
-
-static inline f32_vec dot_batch_single(vert3f a[4], vert3f b) {
-    f32_vec axs = (f32_vec){a[0].x, a[1].x, a[2].x, a[3].x};
-    f32_vec ays = (f32_vec){a[0].y, a[1].y, a[2].y, a[3].y};
-    f32_vec azs = (f32_vec){a[0].z, a[1].z, a[2].z, a[3].z};
+static inline f32_vec dot_batch_single(f32_vec a_comps[3], vert3f b) {
+    f32_vec axs = a_comps[0];//(f32_vec){a[0].x, a[1].x, a[2].x, a[3].x};
+    f32_vec ays = a_comps[1];//(f32_vec){a[0].y, a[1].y, a[2].y, a[3].y};
+    f32_vec azs = a_comps[2];//(f32_vec){a[0].z, a[1].z, a[2].z, a[3].z};
     f32_vec bxs = broadcast_f32_vec(b.x);
     f32_vec bys = broadcast_f32_vec(b.y);
     f32_vec bzs = broadcast_f32_vec(b.z);
@@ -443,11 +474,11 @@ static inline f32_vec dot_batch_multiple(vert3f a[4], vert3f b[4]) {
     return xs + ys + zs;
 }
 
-static inline void normalize_batch(vert3f a[4], vert3f out[4]) {
+static inline void normalize_batch(f32_vec comps[3], f32_vec normalized_out[3]) {
 
-    f32_vec xs = {a[0].x, a[1].x, a[2].x, a[3].x};
-    f32_vec ys = {a[0].y, a[1].y, a[2].y, a[3].y};
-    f32_vec zs = {a[0].z, a[1].z, a[2].z, a[3].z};
+    f32_vec xs = comps[0];//{a[0].x, a[1].x, a[2].x, a[3].x};
+    f32_vec ys = comps[1];//{a[0].y, a[1].y, a[2].y, a[3].y};
+    f32_vec zs = comps[2];//{a[0].z, a[1].z, a[2].z, a[3].z};
 
     f32_vec xxs = xs*xs;
     f32_vec yys = ys*ys;
@@ -466,18 +497,18 @@ static inline void normalize_batch(vert3f a[4], vert3f out[4]) {
     f32_vec norm_ys = ys * recip_lens;
     f32_vec norm_zs = zs * recip_lens;
 
-
-    for(int i = 0; i < 4; i++) {
-        out[i] = (vert3f){norm_xs[i], norm_ys[i], norm_zs[i]};
-    }
+    normalized_out[0] = norm_xs;
+    normalized_out[1] = norm_ys;
+    normalized_out[2] = norm_zs;
+    //for(int i = 0; i < 4; i++) {
+    //    out[i] = (vert3f){norm_xs[i], norm_ys[i], norm_zs[i]};
+    //}
 }
 
-void mat_mul_vert3_batch(const matrix *m, const vert3f v[4], vert3f *out)
-{
-    /* Transpose 4 vertices into SoA lanes */
-    f32_vec vx = { v[0].x, v[1].x, v[2].x, v[3].x };
-    f32_vec vy = { v[0].y, v[1].y, v[2].y, v[3].y };
-    f32_vec vz = { v[0].z, v[1].z, v[2].z, v[3].z };
+void mat_mul_vert3_batch(const matrix *m, const f32_vec poses_soa[3], f32_vec out_comps[3]) {
+    f32_vec vx = poses_soa[0];//{ v[0].x, v[1].x, v[2].x, v[3].x };
+    f32_vec vy = poses_soa[1];//{ v[0].y, v[1].y, v[2].y, v[3].y };
+    f32_vec vz = poses_soa[2];//{ v[0].z, v[1].z, v[2].z, v[3].z };
 
     f32_vec rx = broadcast_f32_vec(m->m[0][0]) * vx + broadcast_f32_vec(m->m[0][1]) * vy +
                broadcast_f32_vec(m->m[0][2]) * vz + broadcast_f32_vec(m->m[0][3]);
@@ -488,19 +519,21 @@ void mat_mul_vert3_batch(const matrix *m, const vert3f v[4], vert3f *out)
     f32_vec rz = broadcast_f32_vec(m->m[2][0]) * vx + broadcast_f32_vec(m->m[2][1]) * vy +
                broadcast_f32_vec(m->m[2][2]) * vz + broadcast_f32_vec(m->m[2][3]);
 
-    for (int i = 0; i < 4; i++) {
-        out[i].x = rx[i];
-        out[i].y = ry[i];
-        out[i].z = rz[i];
-    }
+    out_comps[0] = rx;
+    out_comps[1] = ry;
+    out_comps[2] = rz;
+    //for (int i = 0; i < 4; i++) {
+    //    out[i].x = rx[i];
+    //    out[i].y = ry[i];
+    //    out[i].z = rz[i];
+    //}
 }
 
-void mat_mul_normal_batch(const matrix *m, const vert3f v[4], vert3f *out)
-{
+void mat_mul_normal_batch(const matrix *m, const f32_vec norm_comp_soa[3], f32_vec out_comps[3]) {
     /* Transpose 4 vertices into SoA lanes */
-    f32_vec vx = { v[0].x, v[1].x, v[2].x, v[3].x };
-    f32_vec vy = { v[0].y, v[1].y, v[2].y, v[3].y };
-    f32_vec vz = { v[0].z, v[1].z, v[2].z, v[3].z };
+    f32_vec vx = norm_comp_soa[0];//{ v[0].x, v[1].x, v[2].x, v[3].x };
+    f32_vec vy = norm_comp_soa[1];//{ v[0].y, v[1].y, v[2].y, v[3].y };
+    f32_vec vz = norm_comp_soa[2];//{ v[0].z, v[1].z, v[2].z, v[3].z };
 
     f32_vec rx = broadcast_f32_vec(m->m[0][0]) * vx + broadcast_f32_vec(m->m[0][1]) * vy +
                broadcast_f32_vec(m->m[0][2]) * vz;
@@ -511,11 +544,14 @@ void mat_mul_normal_batch(const matrix *m, const vert3f v[4], vert3f *out)
     f32_vec rz = broadcast_f32_vec(m->m[2][0]) * vx + broadcast_f32_vec(m->m[2][1]) * vy +
                broadcast_f32_vec(m->m[2][2]) * vz;
 
-    for (int i = 0; i < 4; i++) {
-        out[i].x = rx[i];
-        out[i].y = ry[i];
-        out[i].z = rz[i];
-    }
+    out_comps[0] = rx;
+    out_comps[1] = ry;
+    out_comps[2] = rz;
+    //for (int i = 0; i < 4; i++) {
+    //    out[i].x = rx[i];
+    //    out[i].y = ry[i];
+    //    out[i].z = rz[i];
+    //}
 }
 
 
@@ -536,8 +572,7 @@ typedef struct {
 #define MAX_GLOBAL_TRIS 1000000
 typedef struct {
     vert2i proj_v0, proj_v1, proj_v2;
-    //f32 c0, c1, c2;
-    u8 c0;
+    u8 b0,b1,b2;
     //vert2f uv0, uv1, uv2;
     vert2f uv0_over_z, uv1_over_z, uv2_over_z;
     //vert3f nv0, nv1, nv2;
@@ -576,6 +611,12 @@ typedef struct {
 
 
 typedef struct {
+    vert3f *pos;
+    vert3f *norm;
+    vert2f *uv;
+} obj_vertex_stream;
+
+typedef struct {
     const obj_vertex *vertexStream;
     const u16 *indexStream; 
 
@@ -605,33 +646,6 @@ typedef struct {
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define CLAMP(a, mi, ma) MIN(MAX(a, mi), ma)
 
-
-static inline vert3f scale_vert3(vert3f a, f32 b) {
-    return (vert3f){.x = a.x*b, .y = a.y*b, .z = a.z*b};
-}
-
-static inline vert2f scale_vert2(vert2f a, f32 b) {
-    return (vert2f){.x = a.x*b, .y = a.y*b};
-}
-
-
-static inline vert3f add_vert3(vert3f a, vert3f b) {
-    return (vert3f){.x = a.x+b.x, .y = a.y+b.y, .z = a.z+b.z};
-}
-
-
-static inline int fast_floor(f32 x)
-{
-    int i = (int)x;
-    return i - (i > x);
-}
-
-
-static inline int fast_ceil(f32 x)
-{
-    int i = (int)x;
-    return i + (i < x);
-}
 
 
 const f32 FAR_Z = 256.0f;
@@ -721,28 +735,51 @@ static inline u16 encode_float_inv_z(f32 inv_z) {
 static inline f32 decode_u16_inv_z(u16 inv_z) {
     return ((f32)inv_z)/65536.0f;
 }
+
 static inline u16_vec encode_float_inv_z_vec(f32_vec inv_z) {
     //return (u16_vec)(inv_z*65536.0f);
+    f32_vec scaled = (inv_z*65536.0f);
     u16_vec res;
-    res[0] = (u16)(inv_z[0]*65536.0f);
-    res[1] = (u16)(inv_z[1]*65536.0f);
-    res[2] = (u16)(inv_z[2]*65536.0f);
-    res[3] = (u16)(inv_z[3]*65536.0f);
+    for(int i = 0; i < 4; i++) {
+        res[i] = (u16)scaled[i];
+    }
+    return res;
+}
+
+static inline u16_dvec encode_float_inv_z_dvec(f32_dvec inv_z) {
+    //return (u16_vec)(inv_z*65536.0f);
+    f32_dvec scaled = (inv_z*65536.0f);
+    u16_dvec res;
+    for(int i = 0; i < 8; i++) {
+        res[i] = (u16)scaled[i];
+    }
     return res;
 }
 
 static inline f32_vec decode_u16_inv_z_vec(u16_vec inv_z) {
-    f32_vec res;
-    res[0] = ((f32)(inv_z[0])/65536.0f);
-    res[1] = ((f32)(inv_z[1])/65536.0f);
-    res[2] = ((f32)(inv_z[2])/65536.0f);
-    res[3] = ((f32)(inv_z[3])/65536.0f);
-    return res;
+    f32_vec scaled;
+    for(int i = 0; i < 4; i++) {
+        scaled[i] = (f32)inv_z[i];
+    }
+    return scaled / 65536.0f;
+}
+static inline f32_dvec decode_u16_inv_z_dvec(u16_dvec inv_z) {
+    f32_dvec scaled;
+    for(int i = 0; i < 8; i++) {
+        scaled[i] = (f32)inv_z[i];
+    }
+    return scaled / 65536.0f;
 }
 
 static inline i32_vec broadcast_i32_vec(i32 a) {
     //i32_vec res;
     return (i32_vec){ a, a, a, a};
+    //for(int i = 0; i < 4; i++) { res[i] = a; }
+    //return res;
+}
+static inline i32_dvec broadcast_i32_dvec(i32 a) {
+    //i32_vec res;
+    return (i32_dvec){ a, a, a, a, a, a, a, a};
     //for(int i = 0; i < 4; i++) { res[i] = a; }
     //return res;
 }
@@ -780,9 +817,23 @@ static inline f32_vec i32_vec_convert_f32(i32_vec a) {
     for(int i = 0; i < 4; i++) { res[i] = (f32)a[i]; }
     return res;
 }
+
+static inline f32_dvec i32_dvec_convert_f32(i32_dvec a) {
+    f32_dvec res;
+    for(int i = 0; i < 8; i++) { res[i] = (f32)a[i]; }
+    return res;
+}
+
 static inline i32_vec f32_vec_convert_i32(f32_vec a) {
     i32_vec res;
     for(int i = 0; i < 4; i++) { res[i] = (i32)a[i]; }
+    return res;
+}
+
+
+static inline i32_dvec f32_dvec_convert_i32(f32_dvec a) {
+    i32_dvec res;
+    for(int i = 0; i < 8; i++) { res[i] = (i32)a[i]; }
     return res;
 }
 
@@ -801,6 +852,11 @@ static inline int i32_vec_any(const i32_vec a) {
   return 0;
 }
 
+static inline int i32_dvec_any(const i32_dvec a) {
+  for(int i=0; i<8; i++) { if(a[i]) return 1; }
+  return 0;
+}
+
 u32 i32_vec_extract_bytes(const i32_vec a) {
     u32 res = 0;
     for(int i = 0; i < 4; i++) {
@@ -809,11 +865,19 @@ u32 i32_vec_extract_bytes(const i32_vec a) {
     return res;
 }
 
+u64 i32_dvec_extract_bytes(const i32_dvec a) {
+    u64 res = 0;
+    for(int i = 0; i < 8; i++) {
+        res |= ((u64)(a[i] ? 0xFF : 0x00)<<(i*8));
+    }
+    return res;
+}
+
 i32_vec f32_vec_floor(f32_vec a) {
     i32_vec res;
     
-    i32_vec i = init_i32_vec((i32)a[0], (i32)a[1], (i32)a[2], (i32)a[3]);
-    f32_vec ii = init_f32_vec((f32)i[0], (f32)i[1], (f32)i[2], (f32)i[3]);
+    i32_vec i = (i32_vec){(i32)a[0], (i32)a[1], (i32)a[2], (i32)a[3]};
+    f32_vec ii = (f32_vec){(f32)i[0], (f32)i[1], (f32)i[2], (f32)i[3]};
 
     return i - (ii > a);
     //int i = (int)a;
@@ -881,6 +945,7 @@ static inline u32 parallel_pixel_shader(
     return res;
 }
 
+
 /*
 u8 pixel_shader(
     f32 z,
@@ -903,7 +968,6 @@ u8 pixel_shader(
 
 }
 */
-
 
 
 
@@ -932,7 +996,7 @@ int rasterize_triangle_2x2_quad(
     vert2f uv2_over_z = tri_attributes->uv2_over_z;
 
 
-    u16 quantized_brightness = tri_attributes->c0;
+    u16 quantized_brightness = tri_attributes->b0;
     u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
 
 
@@ -1031,24 +1095,24 @@ int rasterize_triangle_2x2_quad(
     i32 startY = miny << 4;
     #define FIXED_ONE_PX 16
 
-    i32_vec cy01_vec = init_i32_vec(
+    i32_vec cy01_vec = (i32_vec){
         c01 + dx01 * startY - dy01 * startX,
         c01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
         c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
         c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec cy12_vec = init_i32_vec(
+    };
+    i32_vec cy12_vec = (i32_vec){
         c12 + dx12 * startY - dy12 * startX,
         c12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
         c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
         c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec cy20_vec = init_i32_vec(
+    };
+    i32_vec cy20_vec = (i32_vec){
         c20 + dx20 * startY - dy20 * startX,
         c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    );
+    };
 
 
     for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
@@ -1329,6 +1393,212 @@ int rasterize_triangle_2x2_quad_no_tmap_vector(
 }
 */
 
+
+int rasterize_triangle_4x2_quad_no_tmap(
+    u16 *zbuffer,
+    transformed_tri* tri_attributes,
+    u8 color,
+    i32 start_x, i32 end_x,
+    i32 start_y, i32 end_y
+) {
+
+    // swap everything for first two vertexes (actual vertex positions and attributes)
+    f32 iz0 = tri_attributes->inv_z1;
+    f32 iz1 = tri_attributes->inv_z0;
+    f32 iz2 = tri_attributes->inv_z2;
+    f32_dvec iz0_vec = broadcast_f32_dvec(iz0);
+    f32_dvec iz1_vec = broadcast_f32_dvec(iz1);
+    f32_dvec iz2_vec = broadcast_f32_dvec(iz2);
+
+    vert2i v0 = tri_attributes->proj_v1;
+    vert2i v1 = tri_attributes->proj_v0;
+    vert2i v2 = tri_attributes->proj_v2;
+
+
+    u16 quantized_brightness = tri_attributes->b0;
+    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
+    u8 lit_color = lit_pal_ptr[color];
+
+    u64 lit_color_ew = ((u64)lit_color<<24)|((u64)lit_color<<16)|((u64)lit_color<<8)|(u64)lit_color;
+    lit_color_ew = ((u64)lit_color_ew << 32) | lit_color_ew;
+
+
+    int drew_pixel = 0;
+
+
+    // 28.4 fixed point
+    const i32 x0 = v0.x;
+    const i32 y0 = v0.y;
+    const i32 x1 = v1.x;
+    const i32 y1 = v1.y;
+    const i32 x2 = v2.x;
+    const i32 y2 = v2.y;
+    //
+    // Edge deltas
+    //
+    const i32 dx01 = x0 - x1;
+    const i32 dy01 = y0 - y1;
+    const i32 dx12 = x1 - x2;
+    const i32 dy12 = y1 - y2;
+    const i32 dx20 = x2 - x0;
+    const i32 dy20 = y2 - y0;
+
+    const i32_dvec dy01_shifted_vec = broadcast_i32_dvec(dy01<<6);// shift by 4 for subpixel, then twice more because we're doing 4x2 pixels per raster iteration (this is for y, so 4)
+    const i32_dvec dy12_shifted_vec = broadcast_i32_dvec(dy12<<6);
+    const i32_dvec dy20_shifted_vec = broadcast_i32_dvec(dy20<<6);
+    const i32_dvec dx01_shifted_vec = broadcast_i32_dvec(dx01<<5);// shift by 4 for subpixel, then once more because we're doing 4x2 pixels per raster iteration (this is for y, so 2)
+    const i32_dvec dx12_shifted_vec = broadcast_i32_dvec(dx12<<5);
+    const i32_dvec dx20_shifted_vec = broadcast_i32_dvec(dx20<<5); 
+
+
+    i32 area = (dx01 * dy20 - dy01 * dx20);
+    // barycentric weights weights (scaled by area)
+    f32 recip_area = 1.0f / (f32)area;
+    //f32_vec recip_area_vec = broadcast_f32_vec(recip_area);
+    iz1_vec = (iz1_vec-iz0_vec)*recip_area;
+    iz2_vec = (iz2_vec-iz0_vec)*recip_area;
+    
+    // bounding box of triangle (not so good for larger triangles)
+    i32 minx = MIN(x0, MIN(x1, x2));
+    i32 maxx = MAX(x0, MAX(x1, x2));
+    i32 miny = MIN(y0, MIN(y1, y2)); 
+    i32 maxy = MAX(y0, MAX(y1, y2));
+
+    minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~3; // mask off low bit to align to 4 pixels
+    maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
+    miny = CLAMP((miny + 15) >> 4, start_y, end_y) & ~1; // mask off low bit to align to 2 pixels
+    maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
+
+
+
+    // edge constants, used for incremental edge coverage calculation
+    i32 e01 = dy01 * x0 - dx01 * y0;
+    i32 e12 = dy12 * x1 - dx12 * y1;
+    i32 e20 = dy20 * x2 - dx20 * y2;
+
+    // copy the edge constants into separate variables, so that the fill rule nudge below doesn't affect attribute interpolation (although it would be minor)
+    i32 c01 = e01;
+    i32 c12 = e12;
+    i32 c20 = e20;
+
+    // top left fill rule
+    // ensure that sample positions on a left or top edge are nudged over (to be covered).
+    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
+        c01++;
+    }
+    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
+        c12++;
+    }
+    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
+        c20++;
+    }
+
+    i32 startX = minx << 4;
+    i32 startY = miny << 4;
+
+    i32 sx0 = startX;
+    i32 sx1 = startX + FIXED_ONE_PX;
+    i32 sx2 = startX + FIXED_ONE_PX + FIXED_ONE_PX;
+    i32 sx3 = startX + FIXED_ONE_PX + FIXED_ONE_PX + FIXED_ONE_PX;
+    i32 sy0 = startY;
+    i32 sy1 = startY + FIXED_ONE_PX;
+
+    // these are interleaved because our pixels are arranged in the following order
+    /*
+        visual order
+        0 1 2 3
+        4 5 6 7
+        memory order
+        0 1 4 5 2 3 6 7
+    */
+    i32_dvec cy01_vec = (i32_dvec){
+        c01 + dx01 * sy0 - dy01 * sx0,  
+        c01 + dx01 * sy0 - dy01 * sx1,  
+        c01 + dx01 * sy1 - dy01 * sx0,  
+        c01 + dx01 * sy1 - dy01 * sx1,  
+        c01 + dx01 * sy0 - dy01 * sx2,  
+        c01 + dx01 * sy0 - dy01 * sx3,
+        c01 + dx01 * sy1 - dy01 * sx2,  
+        c01 + dx01 * sy1 - dy01 * sx3
+    };
+    i32_dvec cy12_vec = (i32_dvec){
+        c12 + dx12 * sy0 - dy12 * sx0,  
+        c12 + dx12 * sy0 - dy12 * sx1,  
+        c12 + dx12 * sy1 - dy12 * sx0,  
+        c12 + dx12 * sy1 - dy12 * sx1,  
+        c12 + dx12 * sy0 - dy12 * sx2,  
+        c12 + dx12 * sy0 - dy12 * sx3,
+        c12 + dx12 * sy1 - dy12 * sx2,  
+        c12 + dx12 * sy1 - dy12 * sx3
+    };
+    i32_dvec cy20_vec = (i32_dvec){
+        c20 + dx20 * sy0 - dy20 * sx0,  
+        c20 + dx20 * sy0 - dy20 * sx1, 
+        c20 + dx20 * sy1 - dy20 * sx0,  
+        c20 + dx20 * sy1 - dy20 * sx1,  
+        c20 + dx20 * sy0 - dy20 * sx2,  
+        c20 + dx20 * sy0 - dy20 * sx3, 
+        c20 + dx20 * sy1 - dy20 * sx2,  
+        c20 + dx20 * sy1 - dy20 * sx3
+    };
+
+
+    for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
+        i32_dvec cx01_vec = cy01_vec;
+        i32_dvec cx12_vec = cy12_vec;
+        i32_dvec cx20_vec = cy20_vec;
+
+        int in_tile_y = y-start_y;
+        int in_tile_x = minx-start_x;
+        int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
+
+        u64 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 8);
+        u16_dvec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 16);
+
+        for (i32 x = 0; x < (maxx-minx); x += 4, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
+
+            i32_dvec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
+
+
+            int coverage_mask = i32_dvec_any(covered_vec);
+            if(coverage_mask == 0x0) {
+                continue;    
+            }
+            // skip completely uncovered quads
+            u16_dvec zbuf_val_vec_u16 = *zbuf_ptr;
+            f32_dvec zbuf_val_vec = decode_u16_inv_z_dvec(zbuf_val_vec_u16);
+            u64 cbuf_val = *col_buf_ptr;
+
+            f32_dvec w1_vec = i32_dvec_convert_f32(cx20_vec);
+            f32_dvec w2_vec = i32_dvec_convert_f32(cx01_vec);
+            f32_dvec inv_z_vec = (
+                                iz0_vec +
+                                (w1_vec * iz1_vec) +
+                                (w2_vec * iz2_vec)
+                );
+            inv_z_vec = inv_z_vec;
+
+            i32_dvec unoccluded = inv_z_vec >= zbuf_val_vec;
+            i32_dvec in_tri_and_unoccluded = unoccluded & covered_vec;
+
+            u64 mask_bytes = i32_dvec_extract_bytes(in_tri_and_unoccluded);
+            if(mask_bytes != 0) {
+                drew_pixel = 1;
+                                                            
+                u64 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_ew & mask_bytes);
+                *col_buf_ptr = masked_color;
+
+                f32_dvec new_zbuf_vec = (f32_dvec)((in_tri_and_unoccluded & (i32_dvec)inv_z_vec) | ((~in_tri_and_unoccluded) & (i32_dvec)zbuf_val_vec));
+
+                
+                *zbuf_ptr = encode_float_inv_z_dvec(new_zbuf_vec);
+            }
+        }
+    }
+    return drew_pixel;
+}
+
+
 int rasterize_triangle_2x2_quad_no_tmap(
     u16 *zbuffer,
     transformed_tri* tri_attributes,
@@ -1350,11 +1620,10 @@ int rasterize_triangle_2x2_quad_no_tmap(
     vert2i v2 = tri_attributes->proj_v2;
 
 
-
-    u16 quantized_brightness = tri_attributes->c0;
+    u8 quantized_brightness = tri_attributes->b0;
     u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
     u8 lit_color = lit_pal_ptr[color];
-
+    u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
 
     int drew_pixel = 0;
 
@@ -1431,27 +1700,25 @@ int rasterize_triangle_2x2_quad_no_tmap(
     i32 startY = miny << 4;
     #define FIXED_ONE_PX 16
 
-    i32_vec cy01_vec = init_i32_vec(
+    i32_vec cy01_vec = (i32_vec){
         c01 + dx01 * startY - dy01 * startX,
         c01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
         c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
         c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec cy12_vec = init_i32_vec(
+    };
+    i32_vec cy12_vec = (i32_vec){
         c12 + dx12 * startY - dy12 * startX,
         c12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
         c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
         c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec cy20_vec = init_i32_vec(
+    };
+    i32_vec cy20_vec = (i32_vec){
         c20 + dx20 * startY - dy20 * startX,
         c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    );
+    };
 
-
-    u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
     i32 dx = maxx-minx;
 
     for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
@@ -1485,8 +1752,6 @@ int rasterize_triangle_2x2_quad_no_tmap(
             f32_vec inv_z_vec = (iz0_vec + 
                                 (w1_vec * iz1_vec) +
                                 (w2_vec * iz2_vec));
-
-
 
             i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
             i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
@@ -1532,7 +1797,7 @@ int rasterize_trivial_triangle_2x2_quad_no_tmap(
 
 
 
-    u16 quantized_brightness = tri_attributes->c0;
+    u16 quantized_brightness = tri_attributes->b0;
     u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
     u8 lit_color = lit_pal_ptr[color];
 
@@ -1605,18 +1870,18 @@ int rasterize_trivial_triangle_2x2_quad_no_tmap(
     i32 startY = miny << 4;
     #define FIXED_ONE_PX 16
 
-    i32_vec cy01_vec = init_i32_vec(
+    i32_vec cy01_vec = (i32_vec){
         c01 + dx01 * startY - dy01 * startX,
         c01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
         c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
         c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    );
-    i32_vec cy20_vec = init_i32_vec(
+    };
+    i32_vec cy20_vec = (i32_vec){
         c20 + dx20 * startY - dy20 * startX,
         c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    );
+    };
 
 
     u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
@@ -1793,13 +2058,12 @@ vert3f project_coord(vert3f r) {
 }
 
 
-void parallel_project_coord(vert3f rs[4], vert3f* out) {
-    f32_vec rxs = (f32_vec){rs[0].x, rs[1].x, rs[2].x, rs[3].x};
-    f32_vec rys = (f32_vec){rs[0].y, rs[1].y, rs[2].y, rs[3].y};
-    f32_vec rzs = (f32_vec){rs[0].z, rs[1].z, rs[2].z, rs[3].z};
+void parallel_project_coord(f32_vec comps[3], vert3f* out) {
     //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
     const f32 focal = (RENDER_HEIGHT / 2.0f) / 0.15f; //tanf(fov_y / 2.0f);
-
+    f32_vec rxs = comps[0];
+    f32_vec rys = comps[1];
+    f32_vec rzs = comps[2];
     f32_vec proj_xs = camx + focal * rxs / rzs;
     f32_vec proj_ys = camy - focal * rys / rzs;
     f32_vec proj_zs = rzs;
@@ -2574,7 +2838,7 @@ i32 draw_end_frame = 0;
 void reset_game(ExotiqueInterface *ei) {
     s[3] = s[2];
     s[1] = s[0];
-    s[0] = ei->ticks;
+    s[0] = (u32)ei->ticks;
     cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     frame = 0;
     deal_steps = 0;
@@ -3603,14 +3867,14 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
     
 }
 
+int parallel_vertex_shading = 0;
 void game_update(ExotiqueInterface* ei) {
-
     u64 cur_frame_ticks = ei->ticks;
 
     u64 prev_ms_per_frame = ms_per_frame;
     ms_per_frame = cur_frame_ticks - prev_frame_ticks;
 
-
+    parallel_vertex_shading = (ei->input->y);
     if((frame & 63) == 0) {
         exotique_printf("%.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
     }
@@ -3696,12 +3960,8 @@ f32 board_min_y, board_max_y;
 f32 board_top_min_x, board_top_max_x;
 f32 board_bot_min_x, board_bot_max_x;
 
-void draw_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t
-) {
+void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
     u32 i;
-    u32 num_tris = t->num_tex_triangles;
-    u32 num_solid_tris = t->num_solid_triangles;
-    u32 num_trivial_solid_tris = t->num_trivial_solid_triangles;
 
     int base_x = t->start_x;
     int base_y = t->start_y;
@@ -3781,10 +4041,12 @@ void draw_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t
    
     //int drew_pix = 0;
 
+    u32 num_tris = t->num_tex_triangles;
+    u32 num_solid_tris = t->num_solid_triangles;
 
     for(i = 0; i < num_solid_tris; i++) {
         u32 global_tri_idx = t->solid_tri_indexes[i];
-        //drew_pix = 
+        // drew_pix
         rasterize_triangle_2x2_quad_no_tmap(
             zbuffer,
             &global_tri_buffer[global_tri_idx],
@@ -3792,7 +4054,10 @@ void draw_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t
             t->start_x, t->start_x+RENDER_TILE_SIZE,
             t->start_y, t->start_y+RENDER_TILE_SIZE
         );
-    }    
+
+    }
+    /*
+    u32 num_trivial_solid_tris = t->num_trivial_solid_triangles;
     for(i = 0; i < num_trivial_solid_tris; i++) {
         u32 global_tri_idx = t->trivial_solid_tri_indexes[i];
         //drew_pix = 
@@ -3804,6 +4069,8 @@ void draw_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t
             t->start_y, t->start_y+RENDER_TILE_SIZE
         );
     }
+    */
+
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tex_tri_indexes[i];
 
@@ -3896,7 +4163,7 @@ void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
 
 
 
-void draw_tiles(ExotiqueInterface *ei, u16 *zbuffer) {
+void rasterize_tiles(ExotiqueInterface *ei, u16 *zbuffer) {
 
     for(int y = 0; y < TILES_HIGH; y++) {
         for(int x = 0; x < TILES_WIDE; x++) {
@@ -3904,7 +4171,7 @@ void draw_tiles(ExotiqueInterface *ei, u16 *zbuffer) {
             tile* t = &tiles[y*TILES_WIDE+x];
             
             if(t->num_tex_triangles || t->num_solid_triangles || t->num_trivial_tex_triangles || t->num_trivial_solid_triangles) {
-                draw_tile(ei, zbuffer, &tiles[y*TILES_WIDE+x]);
+                rasterize_tile(ei, zbuffer, &tiles[y*TILES_WIDE+x]);
             } else {
                 fill_background_for_tile(ei, &tiles[y*TILES_WIDE+x]);
             }
@@ -4030,7 +4297,7 @@ void bin_triangle(
     vert2f *v0_uv,
     vert2f *v1_uv,
     vert2f *v2_uv,
-    u8 brightness,
+    u8 b0, u8 b1, u8 b2,
     u8 texture_id) {
 
         if(total_triangles == MAX_GLOBAL_TRIS) {
@@ -4210,7 +4477,9 @@ void bin_triangle(
             global_tri_buffer[total_triangles].proj_v1 = proj_v1;
             global_tri_buffer[total_triangles].proj_v2 = proj_v2;
             
-            global_tri_buffer[total_triangles].c0 = brightness;
+            global_tri_buffer[total_triangles].b0 = b0;
+            global_tri_buffer[total_triangles].b1 = b1;
+            global_tri_buffer[total_triangles].b2 = b2;
             global_tri_buffer[total_triangles].mip_level = mip_level;
 
             if(no_tmap) {
@@ -4246,15 +4515,23 @@ int vertexes_transformed = 0;
 typedef struct {
     vert3f rotv;
     vert2f uv;
-    u8 brightness;
+    f32 brightness;
 } shaded_vert;
 
 #define VCACHE_SIZE 16
+
+typedef struct {
+    vert3f rotv[VCACHE_SIZE];
+    vert2f uv[VCACHE_SIZE];
+    f32 brightness[VCACHE_SIZE];
+} vert_cache_soa;
+
 typedef struct {
     u8 v0_cache_idx, v1_cache_idx, v2_cache_idx;
 } tri_cache_idxs; 
 tri_cache_idxs tris_to_shade[16];
-shaded_vert vert_cache[VCACHE_SIZE];
+
+vert_cache_soa vert_cache;
 i16 vert_cache_tags[VCACHE_SIZE];
 int vcache_idx;
 //u64 hits;
@@ -4294,16 +4571,10 @@ void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, con
     i16 v_idx = vert_cache_tags[cache_tag_idx];
     const obj_vertex* in_vert = &vertex_stream[v_idx];
 
-    shaded_vert* out_vert = &vert_cache[cache_tag_idx];
+
     // Move in front of the camera.
-    vert3f r0 = mat_mul_vert3(model_to_view, &in_vert->pos);
-
-    // reject triangles behind the camera.
-    //if (r0.z <= NEAR_Z || r0.z >= FAR_Z) {
-    //    return 0;
-    //}
-
-    vert3f s0 = project_coord(r0);
+    vert3f rot_vert = mat_mul_vert3(model_to_view, &in_vert->pos);
+    vert3f proj_vert = project_coord(rot_vert);
     
 
     vertexes_transformed += 1;
@@ -4328,10 +4599,14 @@ void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, con
 
     f32 c0 = CLAMP(l0, 0.0f, 1.0f);
     f32 diffuse = CLAMP(c0, 0.0f, 1.0f);
-    u8 quantized_brightness = (u8)(diffuse * (NUM_SHADES-1));
-    out_vert->brightness = quantized_brightness;
-    out_vert->rotv = s0;
-    out_vert->uv = in_vert->uv;
+    f32 quantized_brightness = (diffuse * (NUM_SHADES-1));
+
+    vert_cache.brightness[cache_tag_idx] = quantized_brightness;
+    vert_cache.rotv[cache_tag_idx] = proj_vert;
+    vert_cache.uv[cache_tag_idx] = in_vert->uv;
+    //out_vert->brightness = quantized_brightness;
+    //out_vert->rotv = s0;
+    //out_vert->uv = in_vert->uv;
 }
 
 static inline f32_vec f32_vec_clamp(f32_vec a, f32 min, f32 max) {
@@ -4343,32 +4618,38 @@ static inline f32_vec f32_vec_clamp(f32_vec a, f32 min, f32 max) {
     };
 }
 
-void process_vertex_batch(const int batch_tag_idx, const obj_vertex* vertex_stream,  const vert3f vert_poses[4], const vert2f vert_uvs[4], const vert3f vert_norms[4], const matrix* model_to_view, const matrix *model_to_world, const shader cur_shader) {
+void process_vertex_batch(const int batch_tag_idx, 
+    const f32_vec vert_poses_soa[3], 
+    const vert2f vert_uvs[4], 
+    const f32_vec vert_norms_soa[3],
+    const matrix* model_to_view, 
+    const matrix *model_to_world, 
+    const shader cur_shader) {
 
-    vert3f r0[4];
-    mat_mul_vert3_batch(model_to_view, vert_poses, r0); // transform all four vertexes at once
+    f32_vec rot_vert_comps[3];
+
+    mat_mul_vert3_batch(model_to_view, vert_poses_soa, rot_vert_comps); // transform all four vertexes at once
     
     vert3f s0[4];
-    parallel_project_coord(r0, s0);
+    parallel_project_coord(rot_vert_comps, s0);
     
     vertexes_transformed += 4;
 
 
-    f32_vec hemi = (f32_vec){vert_norms[0].y, vert_norms[1].y, vert_norms[2].y, vert_norms[3].y} * 0.5f + 0.5f;
+    f32_vec hemi = vert_norms_soa[1] * 0.5f + 0.5f;
     f32_vec ambient = lerp_f32_vec(broadcast_f32_vec(0.20f), broadcast_f32_vec(0.40f), hemi);
 
     f32_vec l0;
-    vert3f rot_norms[4];
-    vert3f norm_norms[4];
+    f32_vec rot_norm_comps[3];
+    f32_vec normalized_norm_comps[3];
     if(cur_shader == UNLIT_TEXTURED) {
         l0 = ambient;
     } else {
         // Rotate normals into world space (not view)
-        mat_mul_normal_batch(model_to_world, vert_norms, rot_norms);
-        normalize_batch(rot_norms, norm_norms);
+        mat_mul_normal_batch(model_to_world, vert_norms_soa, rot_norm_comps);
+        normalize_batch(rot_norm_comps, normalized_norm_comps);
 
-        l0 = dot_batch_single(norm_norms, light) + ambient;
-        //l0 = dot_batch_single(rnorms, light) + ambient;
+        l0 = dot_batch_single(normalized_norm_comps, light) + ambient;
     }
 
 
@@ -4378,32 +4659,10 @@ void process_vertex_batch(const int batch_tag_idx, const obj_vertex* vertex_stre
 
     // we can load 
     for(int i = 0; i < 4; i++) {
-        
-        vertex_shader(batch_tag_idx+i, vertex_stream, model_to_view, model_to_world, cur_shader);
-        if(vert_cache[batch_tag_idx+i].brightness != (u8)(quantized_brightness[i])) {
-            //exotique_printf("wtf\n");
-            vertex_shader(batch_tag_idx+i, vertex_stream, model_to_view, model_to_world, cur_shader);
-        }
-        /*
-        if(!f32s_equal(vert_cache[batch_tag_idx+i].rotv.x, s0[i].x)) {
-            exotique_printf("wtf2 %f\n", (double)fabsf(vert_cache[batch_tag_idx+i].rotv.x-s0[i].x));
-        }
-        if(!f32s_equal(vert_cache[batch_tag_idx+i].rotv.y, s0[i].y)) {
-            exotique_printf("wtf3 %f\n", (double)fabsf(vert_cache[batch_tag_idx+i].rotv.y-s0[i].y));
-        }
-        if(!f32s_equal(vert_cache[batch_tag_idx+i].rotv.z, s0[i].z)){
-            exotique_printf("wtf4\n");
-        }
-        if(!f32s_equal(vert_cache[batch_tag_idx+i].uv.x, vert_uvs[i].x)) {
-            exotique_printf("wtf6\n");
-        }
-        if(!f32s_equal(vert_cache[batch_tag_idx+i].uv.y, vert_uvs[i].y)) {
-            exotique_printf("wtf6\n");
-        }
-        */
-        vert_cache[batch_tag_idx+i].brightness = (u8)(quantized_brightness[i]);
-        vert_cache[batch_tag_idx+i].rotv = s0[i];
-        vert_cache[batch_tag_idx+i].uv = vert_uvs[i];
+
+        vert_cache.brightness[batch_tag_idx+i] = (quantized_brightness[i]);
+        vert_cache.rotv[batch_tag_idx+i] = s0[i];
+        vert_cache.uv[batch_tag_idx+i] = vert_uvs[i];
     }
 }
 
@@ -4413,16 +4672,21 @@ void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream
     for(int bunch = 0; bunch < num_bunches; bunch++) {
         int batch_tag_idx = bunch*4;
 
-        vert3f vert_poses[4];
         vert2f vert_uvs[4];
-        vert3f vert_norms[4];
+        f32_vec norms_soa[3]; // xxxx, yyyy, zzzz
+        f32_vec poses_soa[3]; // xxxx, yyyy, zzzz
+
         for(int i = 0; i < 4; i++) {
             i16 idx = vert_cache_tags[batch_tag_idx+i];
-            vert_poses[i] = vertex_stream[idx].pos;
+            poses_soa[0][i] = vertex_stream[idx].pos.x;
+            poses_soa[1][i] = vertex_stream[idx].pos.y;
+            poses_soa[2][i] = vertex_stream[idx].pos.z;
+            norms_soa[0][i] = vertex_stream[idx].norm.x;
+            norms_soa[1][i] = vertex_stream[idx].norm.y;
+            norms_soa[2][i] = vertex_stream[idx].norm.z;
             vert_uvs[i] = vertex_stream[idx].uv;
-            vert_norms[i] = vertex_stream[idx].norm;
         }
-        process_vertex_batch(batch_tag_idx, vertex_stream, vert_poses, vert_uvs, vert_norms, model_to_view, model_to_world, cur_shader);
+        process_vertex_batch(batch_tag_idx, poses_soa, vert_uvs, norms_soa, model_to_view, model_to_world, cur_shader);
 
     }
     
@@ -4472,124 +4736,47 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
             tris_to_shade[tri-start_tri].v2_cache_idx = (u8)v2_cache_idx;
             tri++;
         }    
-
-        //parallel_vertex_shader(
-        //    vcache_idx,
-        //    m->vertexStream,
-        //    model_to_view, model_to_world,
-        //    cur_shader
-        //);
-        for(int i = 0; i < vcache_idx; i++) {
-            //int v_idx = vert_cache_tags[i];
-            vertex_shader(
-                i,
-                m->vertexStream,
-                model_to_view, model_to_world,
-                cur_shader
-            );
-        }
+        parallel_vertex_shader(
+            vcache_idx,
+            m->vertexStream,
+            model_to_view, model_to_world,
+            cur_shader
+        );
+            
         int tris_to_draw = tri - start_tri;  
         for(int t = 0; t < tris_to_draw; t++) {
             int v0_cache_idx = tris_to_shade[t].v0_cache_idx;
             int v1_cache_idx = tris_to_shade[t].v1_cache_idx;
             int v2_cache_idx = tris_to_shade[t].v2_cache_idx;
-            shaded_vert *shaded_v0 = &vert_cache[v0_cache_idx];
-            shaded_vert *shaded_v1 = &vert_cache[v1_cache_idx];
-            shaded_vert *shaded_v2 = &vert_cache[v2_cache_idx];
 
-            vert3f *s0 = &shaded_v0->rotv;
-            vert3f *s1 = &shaded_v1->rotv;
-            vert3f *s2 = &shaded_v2->rotv;
-            vert2f *uv0 = &shaded_v0->uv;
-            vert2f *uv1 = &shaded_v1->uv;
-            vert2f *uv2 = &shaded_v2->uv;
-            u8 quantized_brightness = shaded_v0->brightness;
+            vert3f *rotv0 = &vert_cache.rotv[v0_cache_idx];
+            vert3f *rotv1 = &vert_cache.rotv[v1_cache_idx];
+            vert3f *rotv2 = &vert_cache.rotv[v2_cache_idx];
 
-            if(s0->z < NEAR_Z && s1->z < NEAR_Z && s2->z < NEAR_Z) {
+            if(rotv0->z < NEAR_Z && rotv1->z < NEAR_Z && rotv2->z < NEAR_Z) {
                 continue;
             }
+            
+            vert2f *uv0 = &vert_cache.uv[v0_cache_idx];
+            vert2f *uv1 = &vert_cache.uv[v1_cache_idx];
+            vert2f *uv2 = &vert_cache.uv[v2_cache_idx];
+            u8 b0 = (u8)vert_cache.brightness[v0_cache_idx];
+            u8 b1 = (u8)vert_cache.brightness[v1_cache_idx];
+            u8 b2 = (u8)vert_cache.brightness[v2_cache_idx];
 
-            if(triangle_backfacing(s0, s1, s2)) {
+
+            if(triangle_backfacing(rotv0, rotv1, rotv2)) {
                 // do not submit backfacing triangles
                 continue;
             }
 
             bin_triangle(
-                s0, s1, s2,
+                rotv0, rotv1, rotv2,
                 uv0, uv1, uv2,
-                quantized_brightness,
-                texture_id
+                b0, b1, b2, texture_id
             );
         }
-
     }
-
-    /*
-    for (int i = 0; i < m->indexCount; i += 3) {
-
-        i16 v0_idx = (i16)m->indexStream[i+0];
-        i16 v1_idx = (i16)m->indexStream[i+1];
-        i16 v2_idx = (i16)m->indexStream[i+2];
-
-        shaded_vert shaded_v0, shaded_v1, shaded_v2;
-        int v0_cache_idx = vcache_lookup(v0_idx); 
-        int 
-        if(v0_in_cache == -1) {
-            int onscreen = vertex_shader(
-                &m->vertexStream[v0_idx],
-                model_to_view, model_to_world,
-                cur_shader,
-                &shaded_v0
-            );
-            if(!onscreen) { continue; }
-            vcache_insert(shaded_v0, v0_idx);
-        }
-        int v1_in_cache = vcache_lookup(v1_idx, &shaded_v1);
-        if(v1_in_cache == -1) {
-            int onscreen = vertex_shader(
-                &m->vertexStream[v1_idx],
-                model_to_view, model_to_world,
-                cur_shader,
-                &shaded_v1
-            );
-            if(!onscreen) { continue; }
-            vcache_insert(shaded_v1, v1_idx);
-        }
-        int v2_in_cache = vcache_lookup(v2_idx, &shaded_v2);
-        if(v2_in_cache == -1) {
-            int onscreen = vertex_shader(
-                &m->vertexStream[v2_idx],
-                model_to_view, model_to_world,
-                cur_shader,
-                &shaded_v2
-            );
-            if(!onscreen) { continue; }
-            vcache_insert(shaded_v2, v2_idx);
-        }
-
-
-        vert3f *s0 = &shaded_v0.rotv;
-        vert3f *s1 = &shaded_v1.rotv;
-        vert3f *s2 = &shaded_v2.rotv;
-        vert2f *uv0 = &shaded_v0.uv;
-        vert2f *uv1 = &shaded_v1.uv;
-        vert2f *uv2 = &shaded_v2.uv;
-        u8 quantized_brightness = shaded_v0.brightness;
-
-        if(triangle_backfacing(s0, s1, s2)) {
-            // do not submit backfacing triangles
-            continue;
-        }
-
-        bin_triangle(
-            s0, s1, s2,
-            uv0, uv1, uv2,
-            quantized_brightness,
-            texture_id
-        );
-    }
-    */
-    //exotique_printf("h%f\n", (double)((f32)hits/(f32)(misses+hits)));
 }
 
 void sort_draw_calls_near_to_far(mesh_draw_call *list, int num_meshes) {
@@ -4654,11 +4841,13 @@ void submit_draw_calls(mesh_draw_call *list, int num_meshes, culling_mode frustu
 
 transform identity_transform(void) {
     return (transform){
-        .scale = {1.0f,1.0f,1.0f},
-        .position = {0.0f,0.0f,0.0f},
-        .rotation = {0.0f,0.0f,0.0f}
+        .scale =    {1.0f, 1.0f, 1.0f},
+        .position = {0.0f, 0.0f, 0.0f},
+        .rotation = {0.0f, 0.0f, 0.0f}
     };
 }
+
+#define TILE_SCALE 1.0f
 
 
 const f32 wall_tile_spacing = 1.63f;
@@ -4725,12 +4914,10 @@ vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx) 
 
 const f32 hand_tile_spacing = 2.0f;
 
-f32 calc_hand_x_position(hand* h, int idx, f32 scale) {
-    f32 this_spacing = hand_tile_spacing*scale;
-    f32 whole_hand_width = (f32)(13 * 2);
-    f32 half = whole_hand_width / this_spacing;
-    f32 base_position_x = half*1.5f;
-    f32 normal = base_position_x - this_spacing*(f32)idx;
+f32 calc_hand_x_position(hand* h, int idx) {
+    f32 whole_hand_width = (f32)(13 * hand_tile_spacing);
+    f32 half_width = whole_hand_width / 2.0f;
+    f32 normal = half_width - hand_tile_spacing*(f32)idx;
     if(idx == h->num_closed_tiles) {
         return normal - 1.0f;
     } else {
@@ -4741,27 +4928,27 @@ f32 calc_hand_x_position(hand* h, int idx, f32 scale) {
 #define SELECTED_TILE_Y_POS 1.47f
 #define DISCARDING_TILE_Y_POS 2.0f
 #define UNSELECTED_TILE_Y_POS 0.455f
-f32 calc_hand_y_position(hand* h, int idx, int is_cur_player, f32 scale) {
+f32 calc_hand_y_position(hand* h, int idx, int is_cur_player) {
     f32 cur_player_height = (h->selected_tile_idx == idx ? SELECTED_TILE_Y_POS : UNSELECTED_TILE_Y_POS);
     f32 non_cur_player_height = UNSELECTED_TILE_Y_POS;
-    return is_cur_player ? cur_player_height*scale : non_cur_player_height*scale;
+    return is_cur_player ? cur_player_height : non_cur_player_height;
 }
 
-vert3f calc_local_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player, f32 scale) {
+vert3f calc_local_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player) {
     return (vert3f) {
-        calc_hand_x_position(h, tile_in_hand_idx, scale),
-        calc_hand_y_position(h, tile_in_hand_idx, is_cur_player, scale),
+        calc_hand_x_position(h, tile_in_hand_idx),
+        calc_hand_y_position(h, tile_in_hand_idx, is_cur_player),
         0.0f
     };
 }
 
-vert3f calc_global_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player, f32 scale, matrix* hand_to_world_matrix) {
+vert3f calc_global_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player, matrix* hand_to_world_matrix) {
     (void)h;
-    vert3f local = calc_local_hand_position(h, tile_in_hand_idx, is_cur_player, scale);
+    vert3f local = calc_local_hand_position(h, tile_in_hand_idx, is_cur_player);
     return mat_mul_vert3(hand_to_world_matrix, &local);
 }
 
-vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, f32 scale, int is_cur_player, matrix *hand_to_world, matrix *world_to_hand, int tile_in_hand_idx) {
+vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, int is_cur_player, matrix *hand_to_world, matrix *world_to_hand, int tile_in_hand_idx) {
     /* 
         this function calculates global positions for in the wall and in the hand
         lerps between them
@@ -4772,10 +4959,10 @@ vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, f32 sca
     f32 anim_progress = CLAMP(((f32)(cur_frame - h->deal_frame_for_tiles[tile_in_hand_idx]) / (f32)get_frames_for_duration(TILE_DEAL_DURATION)), 0.0f, 1.0f);
     vert3f local;
     if(anim_progress >= 1.0f) {
-        local = calc_local_hand_position(h, tile_in_hand_idx, is_cur_player, scale);
+        local = calc_local_hand_position(h, tile_in_hand_idx, is_cur_player);
     } else {
         vert3f global_wall_position = calc_wall_tile_global_position(cur_frame, w, h->wall_index_for_tiles[tile_in_hand_idx]);
-        vert3f global_hand_position = calc_global_hand_position(h, tile_in_hand_idx, is_cur_player, scale, hand_to_world);
+        vert3f global_hand_position = calc_global_hand_position(h, tile_in_hand_idx, is_cur_player, hand_to_world);
 
 
         vert3f lerp_pos;
@@ -4839,23 +5026,20 @@ void draw_hand(
 
     int draw_idx = 0;
 
-    f32 scale_hand = (discard_scale <= 1.0f) ? 1.2f : 1.0f;
 
     matrix world_to_hand = mat_inverse_affine(hand_to_world_matrix);
 
     for(int i = 0; i <  h->num_closed_tiles; i++) {
         //int is_open = 0;//(i >= h->num_closed_tiles);
 
-        vert3f local = calc_animated_hand_tile_position(cur_frame, w, h, scale_hand, is_cur_player, hand_to_world_matrix, &world_to_hand, i);
+        vert3f local = calc_animated_hand_tile_position(cur_frame, w, h, is_cur_player, hand_to_world_matrix, &world_to_hand, i);
 
         transform tile_trans = identity_transform();
         tile_trans.position.x = local.x;  //calc_hand_x_position(i); //lerp_x; //position;
         tile_trans.position.y = local.y;  //calc_hand_y_position(i); //position_y; //lerp_y; 
         tile_trans.position.z = local.z;  //0.0f; //lerp_z;
         tile_trans.rotation.x = 1.57f; // rotate back towards player
-        tile_trans.scale.x = scale_hand;
-        tile_trans.scale.y = scale_hand;
-        tile_trans.scale.z = scale_hand;
+        tile_trans.scale = (vert3f){TILE_SCALE, TILE_SCALE, TILE_SCALE};
 
 
         matrix tile_mat = transform_to_matrix(&tile_trans);
@@ -4901,9 +5085,8 @@ void draw_hand(
         tile_trans.position.z = 2.0f + (f32)open_tile_row * -2.6f;
         tile_trans.rotation.x = 0.0f; // rotate back towards player
         tile_trans.rotation.y = h->open_tile_rotated[i] ? (f32)M_PI/2.0f : 0.0f;
-        tile_trans.scale.x = scale_hand;
-        tile_trans.scale.y = scale_hand;
-        tile_trans.scale.z = scale_hand;
+        tile_trans.scale = (vert3f){TILE_SCALE, TILE_SCALE, TILE_SCALE};
+
         matrix tile_mat = transform_to_matrix(&tile_trans);
 
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tile_mat);
@@ -4937,7 +5120,7 @@ void draw_hand(
         
 
         vert3f old_pos = (vert3f){
-            calc_hand_x_position(h, hand_slot_idx, scale_hand),
+            calc_hand_x_position(h, hand_slot_idx),
             DISCARDING_TILE_Y_POS,
             0.0f
         };
@@ -4976,7 +5159,7 @@ void draw_hand(
         transform wind_indicator_trans = identity_transform();
         wind_indicator_trans.position.x = -25.0f;
         wind_indicator_trans.rotation.y = (f32)M_PI;
-        wind_indicator_trans.rotation.z = (f32)cur_frame/40.0f;//(f32)M_PI;
+        wind_indicator_trans.rotation.z = (f32)cur_frame/160.0f;//(f32)M_PI;
 
         wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
         matrix wind_indicator_to_hand_mat = transform_to_matrix(&wind_indicator_trans);
@@ -5032,6 +5215,8 @@ void draw_wall(game_state cur_state, u32 cur_frame, wall *w, matrix *view_mat) {
 
         tile_trans.position.y = calc_wall_tile_y_position(cur_frame, w, j);
         tile_trans.position.z = ((wall_side & 1) ? 0.0f : wall_z_tile_offsets[position_in_wall]);
+        tile_trans.scale = (vert3f){TILE_SCALE, TILE_SCALE, TILE_SCALE};
+
 
 
         matrix tile_mat = transform_to_matrix(&tile_trans);
@@ -5362,7 +5547,7 @@ void game_draw(ExotiqueInterface* ei) {
     );
     */
     
-    draw_tiles(ei, zbuf);
+    rasterize_tiles(ei, zbuf);
     //exotique_printf("meshes %i\n", meshes_transformed);
     //exotique_printf("triangles transformed %i\n", vertexes_transformed);
     //exotique_printf("triangles hi z culled %i\n", triangles_hi_z_culled);

@@ -11,7 +11,7 @@ typedef unsigned long u32;
 typedef int i32;
 typedef unsigned int u32;
 typedef long i64;
-typedef unsigned long u64;
+typedef unsigned long long u64;
 #else
 /* PLEASE READ ME!!! */
 /* This piece of code IS DESIGNED TO TRIGGER A COMPILTION ERROR! */

@@ -1,6 +1,6 @@
 # Blender 5.1.2
 # www.blender.org
-mtllib mahjong_tile_unopt.mtl
+mtllib mahjong_tile.mtl
 o Cube
 v -0.804487 0.561144 1.134336
 v -0.804487 -0.556744 1.134336

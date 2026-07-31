@@ -160,6 +160,8 @@ if __name__ == '__main__':
     print("#ifndef {}_mesh_h".format(obj_name))
     print("#define {}_mesh_h".format(obj_name))
     print("const obj_vertex {}_vertexes[{}]".format(obj_name, len(verts)) + " = {")
+
+
     for (vert, uv, norm) in verts:
         print("{" + ".pos = {}, .norm = {}, .uv = {}".format(
             format_triplet(vert), format_triplet(norm), format_double(uv)

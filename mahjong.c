@@ -200,7 +200,6 @@ static inline int fast_ceil(f32 x) {
     MATRIXES AND TRANSFORMS
 
 */
-
 typedef struct {
     float m[4][4];
 } matrix;
@@ -822,30 +821,6 @@ static inline u32 parallel_pixel_shader(
     res |= (u32)lit_pal_ptr[pal_idx3]<<0;
     return res;
 }
-
-/*
-u8 pixel_shader(
-    f32 z,
-    f32 w1, f32 w2, f32 v0u_over_z, f32 v0v_over_z, f32 v1u_over_z, f32 v1v_over_z, f32 v2u_over_z, f32 v2v_over_z, u8* texels, int tex_width, int tex_height, 
-    u8* lit_pal_ptr
-) {
-                        
-    f32 u_over_z = (v0u_over_z + w1 * v1u_over_z + w2 * v2u_over_z);
-    f32 v_over_z = (v0v_over_z + w1 * v1v_over_z + w2 * v2v_over_z);
-    f32 u = (u_over_z * z);
-    f32 v = (v_over_z * z);
-    
-    i32 int_u = (i32)fast_floor(u * (f32)tex_width);
-    i32 int_v = (i32)fast_floor(v * (f32)tex_height);
-    int_u &= (tex_width-1);
-    int_v &= (tex_height-1);
-    u8 tex_pal_idx = texels[((tex_height-1)-int_v)*tex_width+int_u];
-
-    return lit_pal_ptr[tex_pal_idx];
-
-}
-*/
-
 
 int rasterize_triangle_2x2_quad(
     u16 *zbuffer,
@@ -2418,46 +2393,14 @@ typedef enum {
     NUM_GAME_STATES
 } game_state;
 
-const tile_type init_deck[TILES_IN_DECK] = {
-    ONE_MAN, ONE_MAN, ONE_MAN, ONE_MAN,
-    TWO_MAN, TWO_MAN, TWO_MAN, TWO_MAN,
-    THREE_MAN, THREE_MAN, THREE_MAN, THREE_MAN,
-    FOUR_MAN, FOUR_MAN, FOUR_MAN, FOUR_MAN, 
-    FIVE_MAN, FIVE_MAN, FIVE_MAN,FIVE_MAN_RED,
-    SIX_MAN, SIX_MAN, SIX_MAN, SIX_MAN,
-    SEVEN_MAN, SEVEN_MAN, SEVEN_MAN, SEVEN_MAN,
-    EIGHT_MAN, EIGHT_MAN, EIGHT_MAN, EIGHT_MAN,
-    NINE_MAN, NINE_MAN, NINE_MAN, NINE_MAN,
-    ONE_PIN, ONE_PIN, ONE_PIN, ONE_PIN,
-    TWO_PIN, TWO_PIN, TWO_PIN, TWO_PIN,
-    THREE_PIN, THREE_PIN, THREE_PIN, THREE_PIN,
-    FOUR_PIN, FOUR_PIN, FOUR_PIN, FOUR_PIN,
-    FIVE_PIN, FIVE_PIN, FIVE_PIN,FIVE_PIN_RED,
-    SIX_PIN, SIX_PIN, SIX_PIN, SIX_PIN,
-    SEVEN_PIN, SEVEN_PIN, SEVEN_PIN, SEVEN_PIN,
-    EIGHT_PIN, EIGHT_PIN, EIGHT_PIN, EIGHT_PIN,
-    NINE_PIN, NINE_PIN, NINE_PIN, NINE_PIN,
-    ONE_SOU, ONE_SOU, ONE_SOU, ONE_SOU,
-    TWO_SOU, TWO_SOU, TWO_SOU, TWO_SOU,
-    THREE_SOU, THREE_SOU, THREE_SOU, THREE_SOU,
-    FOUR_SOU, FOUR_SOU, FOUR_SOU, FOUR_SOU,
-    FIVE_SOU, FIVE_SOU, FIVE_SOU,FIVE_SOU_RED,
-    SIX_SOU, SIX_SOU, SIX_SOU, SIX_SOU,
-    SEVEN_SOU, SEVEN_SOU, SEVEN_SOU, SEVEN_SOU,
-    EIGHT_SOU, EIGHT_SOU, EIGHT_SOU, EIGHT_SOU,
-    NINE_SOU, NINE_SOU, NINE_SOU, NINE_SOU,
-    NORTH,NORTH,NORTH,NORTH,
-    EAST, EAST, EAST, EAST,
-    SOUTH, SOUTH, SOUTH, SOUTH,
-    WEST, WEST, WEST, WEST,
-    WHITE_DRAGON,WHITE_DRAGON,WHITE_DRAGON,WHITE_DRAGON,
-    GREEN_DRAGON, GREEN_DRAGON, GREEN_DRAGON, GREEN_DRAGON,
-    RED_DRAGON, RED_DRAGON, RED_DRAGON, RED_DRAGON
-};
-
 void shuffle_deck(tile_type deck[TILES_IN_DECK]) {
-    for(int i = 0; i < TILES_IN_DECK; i++) {
-        deck[i] = init_deck[i];
+    int out = 0;
+    for(int i = 0; i < NUM_TILES; i++) {
+        if(i == FIVE_SOU_RED || i == FIVE_MAN_RED || i == FIVE_PIN_RED) {
+            deck[out-1] = i;
+            continue;
+        }
+        deck[out++] = i; deck[out++] = i; deck[out++] = i; deck[out++] = i; // 4 of each card type unless it's akadora
     }
 
     u32 j = TILES_IN_DECK-1;
@@ -3295,10 +3238,6 @@ u32 is_unused(int idx, u32 unused_bmp) {
     return (unused_bmp & (u32)(1 << idx));
 }
 
-u32 is_used(int idx, u32 unused_bmp) {
-    return is_unused(idx, unused_bmp) == 0;
-}
-
 int can_partition_into_melds(tile_type hand_tiles[13], u32 unused_bmp) {
     if(unused_bmp == 0) {
         return 1; // we've removed all the tiles
@@ -3308,7 +3247,7 @@ int can_partition_into_melds(tile_type hand_tiles[13], u32 unused_bmp) {
     int next_tile_idx = -1;
     int next_next_tile_idx = -1;
     for(int i = 0; i < 13; i++) {
-        if(is_used(i, unused_bmp)) {
+        if(!is_unused(i, unused_bmp)) {
             continue;
         }
         if(smallest_tile_idx != -1 && next_tile_idx != -1) {
@@ -4863,5 +4802,4 @@ void game_draw(ExotiqueInterface* ei) {
     meshes_transformed = 0;
     vertexes_transformed = 0;
     triangles_rasterized = 0;
-    triangles_hi_z_culled = 0;
 }

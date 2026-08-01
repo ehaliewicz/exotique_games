@@ -425,19 +425,12 @@ vert3f mat_mul_normal(const matrix *m, const vert3f *n) {
 #define VEC_LANES 4
 
 typedef u16 u16_vec __attribute__((vector_size(2*VEC_LANES)));
-typedef u16 u16_dvec __attribute__((vector_size(2*2*VEC_LANES)));
 typedef f32 f32_vec __attribute__((vector_size(4*VEC_LANES)));
-typedef f32 f32_dvec __attribute__((vector_size(4*2*VEC_LANES)));
 typedef i32 i32_vec __attribute__((vector_size(4*VEC_LANES)));
-typedef i32 i32_dvec __attribute__((vector_size(4*2*VEC_LANES)));
 
 
 static inline f32_vec broadcast_f32_vec(f32 a) {
     return (f32_vec){ a, a, a, a};
-}
-
-static inline f32_dvec broadcast_f32_dvec(f32 a) {
-    return (f32_dvec){ a, a, a, a, a, a, a, a};
 }
 
 static inline  f32_vec lerp_f32_vec(f32_vec a, f32_vec b, f32_vec mix) {
@@ -746,16 +739,6 @@ static inline u16_vec encode_float_inv_z_vec(f32_vec inv_z) {
     return res;
 }
 
-static inline u16_dvec encode_float_inv_z_dvec(f32_dvec inv_z) {
-    //return (u16_vec)(inv_z*65536.0f);
-    f32_dvec scaled = (inv_z*65536.0f);
-    u16_dvec res;
-    for(int i = 0; i < 8; i++) {
-        res[i] = (u16)scaled[i];
-    }
-    return res;
-}
-
 static inline f32_vec decode_u16_inv_z_vec(u16_vec inv_z) {
     f32_vec scaled;
     for(int i = 0; i < 4; i++) {
@@ -763,25 +746,9 @@ static inline f32_vec decode_u16_inv_z_vec(u16_vec inv_z) {
     }
     return scaled / 65536.0f;
 }
-static inline f32_dvec decode_u16_inv_z_dvec(u16_dvec inv_z) {
-    f32_dvec scaled;
-    for(int i = 0; i < 8; i++) {
-        scaled[i] = (f32)inv_z[i];
-    }
-    return scaled / 65536.0f;
-}
 
 static inline i32_vec broadcast_i32_vec(i32 a) {
-    //i32_vec res;
     return (i32_vec){ a, a, a, a};
-    //for(int i = 0; i < 4; i++) { res[i] = a; }
-    //return res;
-}
-static inline i32_dvec broadcast_i32_dvec(i32 a) {
-    //i32_vec res;
-    return (i32_dvec){ a, a, a, a, a, a, a, a};
-    //for(int i = 0; i < 4; i++) { res[i] = a; }
-    //return res;
 }
 
 static inline i32_vec i32_vec_select(i32_vec mask, i32_vec a, i32_vec b) {
@@ -793,34 +760,9 @@ static inline i32_vec i32_vec_select(i32_vec mask, i32_vec a, i32_vec b) {
     return res;
 }
 
-/*
-f32_vec f32_vec_select(i32_vec mask, f32_vec a, f32_vec b) {
-    // if mask[i] ? b[i] : a[i];
-    //f32_vec res = mask ? a : b;
-    //return res;
-    f32_vec fmask = (f32_vec)mask;
-    return (fmask & a) | (~fmask & b);
-    f32_vec res;
-    res[0] = mask[0] ? a[0] : b[0];
-    res[1] = mask[1] ? a[2] : b[1];
-    res[2] = mask[2] ? a[2] : b[2];
-    res[3] = mask[3] ? a[3] : b[3];
-    //for(int i = 0; i < 4; i++) {
-    //}
-    return res;
-}
-*/
-
-
 static inline f32_vec i32_vec_convert_f32(i32_vec a) {
     f32_vec res;
     for(int i = 0; i < 4; i++) { res[i] = (f32)a[i]; }
-    return res;
-}
-
-static inline f32_dvec i32_dvec_convert_f32(i32_dvec a) {
-    f32_dvec res;
-    for(int i = 0; i < 8; i++) { res[i] = (f32)a[i]; }
     return res;
 }
 
@@ -829,15 +771,6 @@ static inline i32_vec f32_vec_convert_i32(f32_vec a) {
     for(int i = 0; i < 4; i++) { res[i] = (i32)a[i]; }
     return res;
 }
-
-
-static inline i32_dvec f32_dvec_convert_i32(f32_dvec a) {
-    i32_dvec res;
-    for(int i = 0; i < 8; i++) { res[i] = (i32)a[i]; }
-    return res;
-}
-
-
 
 static inline u8 i32_vec_extract_low_bits(const i32_vec a) {
     u8 res = 0;
@@ -852,11 +785,6 @@ static inline int i32_vec_any(const i32_vec a) {
   return 0;
 }
 
-static inline int i32_dvec_any(const i32_dvec a) {
-  for(int i=0; i<8; i++) { if(a[i]) return 1; }
-  return 0;
-}
-
 u32 i32_vec_extract_bytes(const i32_vec a) {
     u32 res = 0;
     for(int i = 0; i < 4; i++) {
@@ -865,29 +793,11 @@ u32 i32_vec_extract_bytes(const i32_vec a) {
     return res;
 }
 
-u64 i32_dvec_extract_bytes(const i32_dvec a) {
-    u64 res = 0;
-    for(int i = 0; i < 8; i++) {
-        res |= ((u64)(a[i] ? 0xFF : 0x00)<<(i*8));
-    }
-    return res;
-}
-
-i32_vec f32_vec_floor(f32_vec a) {
-    i32_vec res;
-    
+i32_vec f32_vec_floor(f32_vec a) {    
     i32_vec i = (i32_vec){(i32)a[0], (i32)a[1], (i32)a[2], (i32)a[3]};
     f32_vec ii = (f32_vec){(f32)i[0], (f32)i[1], (f32)i[2], (f32)i[3]};
 
     return i - (ii > a);
-    //int i = (int)a;
-    //return i - (i > a);
-
-    //res[0] = fast_floor(a[0]);
-    //res[1] = fast_floor(a[1]);
-    //res[2] = fast_floor(a[2]);
-    //res[3] = fast_floor(a[3]);
-    return res;
 }
 
 int fast_log2(float x)
@@ -1392,212 +1302,6 @@ int rasterize_triangle_2x2_quad_no_tmap_vector(
     return drew_pixel;
 }
 */
-
-
-int rasterize_triangle_4x2_quad_no_tmap(
-    u16 *zbuffer,
-    transformed_tri* tri_attributes,
-    u8 color,
-    i32 start_x, i32 end_x,
-    i32 start_y, i32 end_y
-) {
-
-    // swap everything for first two vertexes (actual vertex positions and attributes)
-    f32 iz0 = tri_attributes->inv_z1;
-    f32 iz1 = tri_attributes->inv_z0;
-    f32 iz2 = tri_attributes->inv_z2;
-    f32_dvec iz0_vec = broadcast_f32_dvec(iz0);
-    f32_dvec iz1_vec = broadcast_f32_dvec(iz1);
-    f32_dvec iz2_vec = broadcast_f32_dvec(iz2);
-
-    vert2i v0 = tri_attributes->proj_v1;
-    vert2i v1 = tri_attributes->proj_v0;
-    vert2i v2 = tri_attributes->proj_v2;
-
-
-    u16 quantized_brightness = tri_attributes->b0;
-    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
-    u8 lit_color = lit_pal_ptr[color];
-
-    u64 lit_color_ew = ((u64)lit_color<<24)|((u64)lit_color<<16)|((u64)lit_color<<8)|(u64)lit_color;
-    lit_color_ew = ((u64)lit_color_ew << 32) | lit_color_ew;
-
-
-    int drew_pixel = 0;
-
-
-    // 28.4 fixed point
-    const i32 x0 = v0.x;
-    const i32 y0 = v0.y;
-    const i32 x1 = v1.x;
-    const i32 y1 = v1.y;
-    const i32 x2 = v2.x;
-    const i32 y2 = v2.y;
-    //
-    // Edge deltas
-    //
-    const i32 dx01 = x0 - x1;
-    const i32 dy01 = y0 - y1;
-    const i32 dx12 = x1 - x2;
-    const i32 dy12 = y1 - y2;
-    const i32 dx20 = x2 - x0;
-    const i32 dy20 = y2 - y0;
-
-    const i32_dvec dy01_shifted_vec = broadcast_i32_dvec(dy01<<6);// shift by 4 for subpixel, then twice more because we're doing 4x2 pixels per raster iteration (this is for y, so 4)
-    const i32_dvec dy12_shifted_vec = broadcast_i32_dvec(dy12<<6);
-    const i32_dvec dy20_shifted_vec = broadcast_i32_dvec(dy20<<6);
-    const i32_dvec dx01_shifted_vec = broadcast_i32_dvec(dx01<<5);// shift by 4 for subpixel, then once more because we're doing 4x2 pixels per raster iteration (this is for y, so 2)
-    const i32_dvec dx12_shifted_vec = broadcast_i32_dvec(dx12<<5);
-    const i32_dvec dx20_shifted_vec = broadcast_i32_dvec(dx20<<5); 
-
-
-    i32 area = (dx01 * dy20 - dy01 * dx20);
-    // barycentric weights weights (scaled by area)
-    f32 recip_area = 1.0f / (f32)area;
-    //f32_vec recip_area_vec = broadcast_f32_vec(recip_area);
-    iz1_vec = (iz1_vec-iz0_vec)*recip_area;
-    iz2_vec = (iz2_vec-iz0_vec)*recip_area;
-    
-    // bounding box of triangle (not so good for larger triangles)
-    i32 minx = MIN(x0, MIN(x1, x2));
-    i32 maxx = MAX(x0, MAX(x1, x2));
-    i32 miny = MIN(y0, MIN(y1, y2)); 
-    i32 maxy = MAX(y0, MAX(y1, y2));
-
-    minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~3; // mask off low bit to align to 4 pixels
-    maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
-    miny = CLAMP((miny + 15) >> 4, start_y, end_y) & ~1; // mask off low bit to align to 2 pixels
-    maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
-
-
-
-    // edge constants, used for incremental edge coverage calculation
-    i32 e01 = dy01 * x0 - dx01 * y0;
-    i32 e12 = dy12 * x1 - dx12 * y1;
-    i32 e20 = dy20 * x2 - dx20 * y2;
-
-    // copy the edge constants into separate variables, so that the fill rule nudge below doesn't affect attribute interpolation (although it would be minor)
-    i32 c01 = e01;
-    i32 c12 = e12;
-    i32 c20 = e20;
-
-    // top left fill rule
-    // ensure that sample positions on a left or top edge are nudged over (to be covered).
-    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
-        c01++;
-    }
-    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
-        c12++;
-    }
-    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
-        c20++;
-    }
-
-    i32 startX = minx << 4;
-    i32 startY = miny << 4;
-
-    i32 sx0 = startX;
-    i32 sx1 = startX + FIXED_ONE_PX;
-    i32 sx2 = startX + FIXED_ONE_PX + FIXED_ONE_PX;
-    i32 sx3 = startX + FIXED_ONE_PX + FIXED_ONE_PX + FIXED_ONE_PX;
-    i32 sy0 = startY;
-    i32 sy1 = startY + FIXED_ONE_PX;
-
-    // these are interleaved because our pixels are arranged in the following order
-    /*
-        visual order
-        0 1 2 3
-        4 5 6 7
-        memory order
-        0 1 4 5 2 3 6 7
-    */
-    i32_dvec cy01_vec = (i32_dvec){
-        c01 + dx01 * sy0 - dy01 * sx0,  
-        c01 + dx01 * sy0 - dy01 * sx1,  
-        c01 + dx01 * sy1 - dy01 * sx0,  
-        c01 + dx01 * sy1 - dy01 * sx1,  
-        c01 + dx01 * sy0 - dy01 * sx2,  
-        c01 + dx01 * sy0 - dy01 * sx3,
-        c01 + dx01 * sy1 - dy01 * sx2,  
-        c01 + dx01 * sy1 - dy01 * sx3
-    };
-    i32_dvec cy12_vec = (i32_dvec){
-        c12 + dx12 * sy0 - dy12 * sx0,  
-        c12 + dx12 * sy0 - dy12 * sx1,  
-        c12 + dx12 * sy1 - dy12 * sx0,  
-        c12 + dx12 * sy1 - dy12 * sx1,  
-        c12 + dx12 * sy0 - dy12 * sx2,  
-        c12 + dx12 * sy0 - dy12 * sx3,
-        c12 + dx12 * sy1 - dy12 * sx2,  
-        c12 + dx12 * sy1 - dy12 * sx3
-    };
-    i32_dvec cy20_vec = (i32_dvec){
-        c20 + dx20 * sy0 - dy20 * sx0,  
-        c20 + dx20 * sy0 - dy20 * sx1, 
-        c20 + dx20 * sy1 - dy20 * sx0,  
-        c20 + dx20 * sy1 - dy20 * sx1,  
-        c20 + dx20 * sy0 - dy20 * sx2,  
-        c20 + dx20 * sy0 - dy20 * sx3, 
-        c20 + dx20 * sy1 - dy20 * sx2,  
-        c20 + dx20 * sy1 - dy20 * sx3
-    };
-
-
-    for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
-        i32_dvec cx01_vec = cy01_vec;
-        i32_dvec cx12_vec = cy12_vec;
-        i32_dvec cx20_vec = cy20_vec;
-
-        int in_tile_y = y-start_y;
-        int in_tile_x = minx-start_x;
-        int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
-
-        u64 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 8);
-        u16_dvec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 16);
-
-        for (i32 x = 0; x < (maxx-minx); x += 4, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
-
-            i32_dvec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
-
-
-            int coverage_mask = i32_dvec_any(covered_vec);
-            if(coverage_mask == 0x0) {
-                continue;    
-            }
-            // skip completely uncovered quads
-            u16_dvec zbuf_val_vec_u16 = *zbuf_ptr;
-            f32_dvec zbuf_val_vec = decode_u16_inv_z_dvec(zbuf_val_vec_u16);
-            u64 cbuf_val = *col_buf_ptr;
-
-            f32_dvec w1_vec = i32_dvec_convert_f32(cx20_vec);
-            f32_dvec w2_vec = i32_dvec_convert_f32(cx01_vec);
-            f32_dvec inv_z_vec = (
-                                iz0_vec +
-                                (w1_vec * iz1_vec) +
-                                (w2_vec * iz2_vec)
-                );
-            inv_z_vec = inv_z_vec;
-
-            i32_dvec unoccluded = inv_z_vec >= zbuf_val_vec;
-            i32_dvec in_tri_and_unoccluded = unoccluded & covered_vec;
-
-            u64 mask_bytes = i32_dvec_extract_bytes(in_tri_and_unoccluded);
-            if(mask_bytes != 0) {
-                drew_pixel = 1;
-                                                            
-                u64 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_ew & mask_bytes);
-                *col_buf_ptr = masked_color;
-
-                f32_dvec new_zbuf_vec = (f32_dvec)((in_tri_and_unoccluded & (i32_dvec)inv_z_vec) | ((~in_tri_and_unoccluded) & (i32_dvec)zbuf_val_vec));
-
-                
-                *zbuf_ptr = encode_float_inv_z_dvec(new_zbuf_vec);
-            }
-        }
-    }
-    return drew_pixel;
-}
-
 
 int rasterize_triangle_2x2_quad_no_tmap(
     u16 *zbuffer,
@@ -2256,8 +1960,10 @@ u32 roll_die() {
 #include "texture_green_dragon.h"
 #include "texture_red_dragon.h"
 #include "texture_white_dragon.h"
-//#include "texture_background_quarter.h"
-#include "texture_tenbou_blue.h"
+#include "texture_red_tenbou.h"
+#include "texture_blue_tenbou.h"
+#include "texture_gold_tenbou.h"
+#include "texture_white_tenbou.h"
 #include "texture_board.h"
 #include "texture_wind_indicator.h"
 
@@ -2313,7 +2019,11 @@ typedef enum {
     TILE_LIST
 #undef X
     NUM_TILES,
+    WHITE_TENBOU,
     BLUE_TENBOU,
+    RED_TENBOU,
+    GREEN_TENBOU,
+    GOLD_TENBOU,
     BOARD,
     WIND_INDICATOR,
     NUM_ALL_TEXTURE_TYPES
@@ -2458,8 +2168,20 @@ texture textures[NUM_ALL_TEXTURE_TYPES+1] = {
     { // NUM_TILES
         &comp_tex_east, {texture_board, NULL_PTR, NULL_PTR, NULL_PTR}, 1, 1, UNCOMPRESSED, WHITE
     },
-    { // TENBOU
-        &comp_tex_east, {texture_tenbou_blue, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, BASE_COLOR_INDEXES, 0
+    { // WHITE TENBOU
+        &comp_tex_white_tenbou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, WHITE
+    },
+    { // BLUE TENBOU
+        &comp_tex_blue_tenbou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, BLUE
+    },
+    { // RED TENBOU
+        &comp_tex_red_tenbou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, RED
+    },
+    { // GREEN TENBOU
+        &comp_tex_white_tenbou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, GREEN
+    },
+    { // GOLD TENBOU
+        &comp_tex_gold_tenbou, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, GOLD
     },
     { // BOARD
         &comp_tex_east, {texture_board, NULL_PTR, NULL_PTR, NULL_PTR}, 1, 1, UNCOMPRESSED, 0
@@ -2503,10 +2225,15 @@ void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byt
     return;
 }
 
-void translate_texture(u8* tex,  int total_pixels) {
+void translate_texture(u8* src, u8* dst,  int total_pixels, u8 base_color) {
     for(int i = 0; i < total_pixels; i++) {
-        *tex = light_remap_table[NUM_SHADES-1][*tex];
-        tex++;
+        u8 col = *src++;
+        if(col != WHITE) {
+            col = base_color;
+        } else if (base_color == WHITE) { // if the base color is WHITE, the WHITE texels will be replaced with black
+            col = BLACK;
+        }
+        *dst++ = light_remap_table[NUM_SHADES-1][col];
     }
 }
 
@@ -2630,11 +2357,28 @@ void decompress_textures(ExotiqueInterface *ei) {
         u8* tex_buf;
         if(textures[i].compressed == COMPRESSED) {
             tex_buf = texture_buffer[i];
-
+            if(i == BLUE_TENBOU || i == RED_TENBOU || i == GREEN_TENBOU) {
+                // replace black index with white
+                if(textures[i].comp_tex_ptr->palette[0] == BLACK) {
+                    textures[i].comp_tex_ptr->palette[0] = WHITE;
+                } else {
+                    textures[i].comp_tex_ptr->palette[1] = WHITE;
+                }
+            } else if (i == GOLD_TENBOU) {
+                // replace black index with red
+                if(textures[i].comp_tex_ptr->palette[0] == BLACK) {
+                    textures[i].comp_tex_ptr->palette[0] = RED;
+                } else {
+                    textures[i].comp_tex_ptr->palette[1] = RED;
+                }
+            } else if (i == WHITE_TENBOU) {
+                textures[i].comp_tex_ptr->palette[0] = textures[i].comp_tex_ptr->palette[0];
+            }
             decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height, textures[i].default_pal_idx);    
+            
         } else if (textures[i].compressed == BASE_COLOR_INDEXES) {
-            translate_texture(textures[i].texels[0], width*height);
-            tex_buf = textures[i].texels[0];
+            tex_buf = texture_buffer[i];
+            translate_texture(textures[i].texels[0], tex_buf, width*height, textures[i].default_pal_idx);
         } else {
             tex_buf = textures[i].texels[0];
 
@@ -2645,34 +2389,37 @@ void decompress_textures(ExotiqueInterface *ei) {
         textures[i].texels[3]  = mip_3_tex_buf;
     
         if(width > 1) {
-            mip_texture(ei, tex_buf, mip_tex_buf, width, -1); //(i16)light_remap_table[NUM_SHADES-1][BLUE]);
+            mip_texture(ei, tex_buf, mip_tex_buf, width, -1);
             int mip_width = width>>1;
             int mip_height = height>>1;
-            mip_tex_buf[(mip_height-2)*mip_width+mip_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_tex_buf[(mip_height-2)*mip_width+mip_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_tex_buf[(mip_height-1)*mip_width+mip_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_tex_buf[(mip_height-1)*mip_width+mip_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
-            mip_texture(ei, mip_tex_buf, mip_2_tex_buf, mip_width, -1); //(i16)light_remap_table[NUM_SHADES-1][GOLD]);
+            mip_texture(ei, mip_tex_buf, mip_2_tex_buf, mip_width, -1);
             int mip2_width = mip_width>>1;
             int mip2_height = mip_height>>1;
-            mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
             
-            mip_texture(ei, mip_2_tex_buf, mip_3_tex_buf, mip2_width, -1); //(i16)light_remap_table[NUM_SHADES-1][RED]);
+            mip_texture(ei, mip_2_tex_buf, mip_3_tex_buf, mip2_width, -1);
             int mip3_width = mip2_width>>1;
             int mip3_height = mip2_height>>1;
+            if(i < NUM_TILES) {
+                mip_tex_buf[(mip_height-2)*mip_width+mip_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_tex_buf[(mip_height-2)*mip_width+mip_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_tex_buf[(mip_height-1)*mip_width+mip_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_tex_buf[(mip_height-1)*mip_width+mip_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
-            mip_3_tex_buf[(mip3_height-2)*mip3_width+mip3_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_3_tex_buf[(mip3_height-2)*mip3_width+mip3_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_3_tex_buf[(mip3_height-1)*mip3_width+mip3_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
-            mip_3_tex_buf[(mip3_height-1)*mip3_width+mip3_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_2_tex_buf[(mip2_height-2)*mip2_width+mip2_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_2_tex_buf[(mip2_height-1)*mip2_width+mip2_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+
+                mip_3_tex_buf[(mip3_height-2)*mip3_width+mip3_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_3_tex_buf[(mip3_height-2)*mip3_width+mip3_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_3_tex_buf[(mip3_height-1)*mip3_width+mip3_width-2] = light_remap_table[NUM_SHADES-1][BLUE];
+                mip_3_tex_buf[(mip3_height-1)*mip3_width+mip3_width-1] = light_remap_table[NUM_SHADES-1][BLUE];
 
 
-            tex_buf[(height-1)*height+width-1] = light_remap_table[NUM_SHADES-1][BLUE]; //(y >= 504) ? GOLD : (y >= 496) ? WHITE : BLACK;
+                tex_buf[(height-1)*height+width-1] = light_remap_table[NUM_SHADES-1][BLUE]; //(y >= 504) ? GOLD : (y >= 496) ? WHITE : BLACK;
+            }
         }
     }
 
@@ -2835,6 +2582,14 @@ void shuffle_deck() {
 
 int switch_player_timer = -1;
 i32 draw_end_frame = 0;
+int cur_dealer = 0;
+typedef enum {
+    EAST_WIND,
+    SOUTH_WIND
+} game_wind;
+
+game_wind cur_wind = EAST_WIND;
+
 void reset_game(ExotiqueInterface *ei) {
     s[3] = s[2];
     s[1] = s[0];
@@ -2843,6 +2598,11 @@ void reset_game(ExotiqueInterface *ei) {
     frame = 0;
     deal_steps = 0;
     cur_player = 0;
+    cur_dealer++;
+    if(cur_dealer == 4) {
+        cur_dealer = 0;
+        cur_wind = (cur_wind+1)%2;
+    }
     switch_player_timer = -1;
     draw_end_frame = 0;
     
@@ -3120,8 +2880,10 @@ void stop_device_callback(ma_device* pDevice) {
 }
 ma_device_config ma_config;
 ma_device sound_device;
+
 void game_load(ExotiqueInterface* ei) {
     cur_game_state = STARTUP;
+    cur_dealer = 0;
     num_active_sounds = 0;
     
     ma_config = ma_device_config_init(ma_device_type_playback);
@@ -4534,13 +4296,8 @@ tri_cache_idxs tris_to_shade[16];
 vert_cache_soa vert_cache;
 i16 vert_cache_tags[VCACHE_SIZE];
 int vcache_idx;
-//u64 hits;
-//u64 misses;
 void vcache_reset() {
     vcache_idx = 0;
-    //for(int i = 0; i < VCACHE_SIZE; i++) { vert_cache_tags[i] = -1; }
-    //hits = 0;
-    //misses = 0;
 }
 
 i32 vcache_lookup(i16 vidx) {
@@ -4549,7 +4306,6 @@ i32 vcache_lookup(i16 vidx) {
             return i;
         }
     }
-    //misses++;
     return -1;
 }
 
@@ -4593,9 +4349,7 @@ void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, con
         vert3f nn0 = normalize(rn0);
         f32 dot_light = dot(nn0, light);
         l0 = dot_light + ambient;
-
     }
-
 
     f32 c0 = CLAMP(l0, 0.0f, 1.0f);
     f32 diffuse = CLAMP(c0, 0.0f, 1.0f);
@@ -4604,9 +4358,6 @@ void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, con
     vert_cache.brightness[cache_tag_idx] = quantized_brightness;
     vert_cache.rotv[cache_tag_idx] = proj_vert;
     vert_cache.uv[cache_tag_idx] = in_vert->uv;
-    //out_vert->brightness = quantized_brightness;
-    //out_vert->rotv = s0;
-    //out_vert->uv = in_vert->uv;
 }
 
 static inline f32_vec f32_vec_clamp(f32_vec a, f32 min, f32 max) {
@@ -4652,14 +4403,12 @@ void process_vertex_batch(const int batch_tag_idx,
         l0 = dot_batch_single(normalized_norm_comps, light) + ambient;
     }
 
-
     f32_vec c0 = f32_vec_clamp(l0, 0.0f, 1.0f);
     f32_vec diffuse = f32_vec_clamp(c0, 0.0f, 1.0f);
     f32_vec quantized_brightness = (diffuse * (NUM_SHADES-1));
 
     // we can load 
     for(int i = 0; i < 4; i++) {
-
         vert_cache.brightness[batch_tag_idx+i] = (quantized_brightness[i]);
         vert_cache.rotv[batch_tag_idx+i] = s0[i];
         vert_cache.uv[batch_tag_idx+i] = vert_uvs[i];
@@ -4779,42 +4528,6 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
     }
 }
 
-void sort_draw_calls_near_to_far(mesh_draw_call *list, int num_meshes) {
-    (void)list; (void)num_meshes;
-
-    //for(int i = 0; i < num_meshes; i++) {
-    //    vert3f model_pos = (vert3f){list[i].pos_x, list[i].pos_y, list[i].pos_z};
-    //    vert3f trans_pos = transform_coord(model_pos, 0.0f, 0.0f, 0.0f, 
-    //        sinf(list[i].angle_x), sinf(list[i].angle_y),
-    //        cosf(list[i].angle_x), cosf(list[i].angle_y)
-    //    );
-    //    list[i].trans_centroid_z = trans_pos.z;
-    //}
-
-    /*
-    int gaps[] = {701, 301, 132, 57, 23, 10, 4, 1};
-    int num_gaps = sizeof(gaps)/sizeof(gaps[0]);
-    for(int gi = 0; gi < num_gaps; gi++) {
-        int gap = gaps[gi];
-        for (int i = gap; i < num_meshes; ++i) {
-            // save a[i] in temp and make a hole at position i
-            mesh_draw_call temp = list[i];
-
-            int j;
-            // shift earlier gap-sorted elements up until the correct location for a[i] is found
-            for (j = i; (j >= gap) && (list[j - gap].trans_centroid_z > temp.trans_centroid_z); j -= gap)
-            {
-                list[j] = list[j - gap];
-            }
-            // put temp (the original a[i]) in its correct location
-            list[j] = temp;
-        }
-    }
-    */
-    //exotique_printf("sorted\n");
-    
-}
-
 typedef enum {
     NO_FRUSTUM_CULL,
     FRUSTUM_CULL
@@ -4833,9 +4546,6 @@ void submit_draw_calls(mesh_draw_call *list, int num_meshes, culling_mode frustu
         }
         submit_mesh_draw_call(&list[i]);
     }
-    //exotique_printf("%i/%i meshes clipped\n", meshes_clipped, num_meshes);
-
-    //exotique_printf("----------------DONE-------------------------\n");
 }
 
 
@@ -4857,10 +4567,6 @@ f32 calc_wall_tile_x_position(int row_on_wall) {
     f32 wall_length = (f32)(16 * wall_tile_spacing);
     f32 half = wall_length / 2.0f;
 
-    //int wall_side = tot_tile_idx/34;
-    //int row_on_wall = ((wall_side*34)-tot_tile_idx)/2;
-    
-    //int top = (tot_tile_idx&1);
     f32 start_position = half;
     f32 row_x_offset = (f32)row_on_wall * -wall_tile_spacing;
 
@@ -4938,7 +4644,7 @@ vert3f calc_local_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player
     return (vert3f) {
         calc_hand_x_position(h, tile_in_hand_idx),
         calc_hand_y_position(h, tile_in_hand_idx, is_cur_player),
-        0.0f
+        -2.0f
     };
 }
 
@@ -5017,28 +4723,24 @@ vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix)
 
 void draw_hand(
     u32 cur_frame, wall* w, hand* h, 
-    int is_cur_player, f32 discard_scale, int draw_wind_indicator,
+    int is_cur_player, int draw_wind_indicator,
     matrix* hand_to_view_matrix, matrix* hand_to_world_matrix) {
     (void)cur_frame; (void)w;
-    mesh_draw_call draw_calls[14 + MAX_DISCARDS + MAX_OPEN_TILES + 1]; // one extra for wind indicator if necessary
-
-
+    mesh_draw_call draw_calls[14 + MAX_DISCARDS + MAX_OPEN_TILES + 1 + 40]; // one extra for wind indicator if necessary, plus 20 for tenbou sticks :)
 
     int draw_idx = 0;
-
 
     matrix world_to_hand = mat_inverse_affine(hand_to_world_matrix);
 
     for(int i = 0; i <  h->num_closed_tiles; i++) {
-        //int is_open = 0;//(i >= h->num_closed_tiles);
 
         vert3f local = calc_animated_hand_tile_position(cur_frame, w, h, is_cur_player, hand_to_world_matrix, &world_to_hand, i);
 
         transform tile_trans = identity_transform();
-        tile_trans.position.x = local.x;  //calc_hand_x_position(i); //lerp_x; //position;
-        tile_trans.position.y = local.y;  //calc_hand_y_position(i); //position_y; //lerp_y; 
-        tile_trans.position.z = local.z;  //0.0f; //lerp_z;
-        tile_trans.rotation.x = 1.57f; // rotate back towards player
+        tile_trans.position.x = local.x;
+        tile_trans.position.y = local.y;
+        tile_trans.position.z = local.z;
+        tile_trans.rotation.x = 1.57f;
         tile_trans.scale = (vert3f){TILE_SCALE, TILE_SCALE, TILE_SCALE};
 
 
@@ -5068,7 +4770,6 @@ void draw_hand(
     };
 
     for(int i = 0; i < h->num_open_tiles; i++) {
-       //int is_open = 1;//(i >= h->num_closed_tiles);
 
         int pos_in_row = i%3;
         int open_tile_row = i/3;
@@ -5106,7 +4807,6 @@ void draw_hand(
         draw discards
 
     */
-
     u32 discard_frames = get_frames_for_duration(DISCARD_DURATION);
     for(int i = 0; i < h->num_discards; i++) {
 
@@ -5130,17 +4830,13 @@ void draw_hand(
 
         f32 cur_rot_x = lerp(old_rot, 0.0f, discard_progress);
 
-
-
         // rotate up
         // position downwards
         transform discard_transform = identity_transform();
         discard_transform.position = cur_pos;
         discard_transform.rotation.x = cur_rot_x;
         discard_transform.rotation.y = discard_y_rots[i];
-        discard_transform.scale.x = discard_scale;
-        discard_transform.scale.y = discard_scale;
-        discard_transform.scale.z = discard_scale;
+        discard_transform.scale = (vert3f){TILE_SCALE, TILE_SCALE, TILE_SCALE};
         matrix discard_tile_mat = transform_to_matrix(&discard_transform);
       
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &discard_tile_mat);
@@ -5159,7 +4855,7 @@ void draw_hand(
         transform wind_indicator_trans = identity_transform();
         wind_indicator_trans.position.x = -25.0f;
         wind_indicator_trans.rotation.y = (f32)M_PI;
-        wind_indicator_trans.rotation.z = (f32)cur_frame/160.0f;//(f32)M_PI;
+        wind_indicator_trans.rotation.z = cur_wind == EAST_WIND ? 0.0f : (f32)M_PI; //(f32)M_PI; //(f32)cur_frame/160.0f;//(f32)M_PI;
 
         wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
         matrix wind_indicator_to_hand_mat = transform_to_matrix(&wind_indicator_trans);
@@ -5170,6 +4866,54 @@ void draw_hand(
         draw_calls[draw_idx].texture = WIND_INDICATOR;
         draw_calls[draw_idx].model_to_view = mat_mul_mat(hand_to_view_matrix, &wind_indicator_to_hand_mat);
         draw_calls[draw_idx++].model_to_world = mat_mul_mat(hand_to_world_matrix, &wind_indicator_to_hand_mat);
+    }
+
+    {
+        /* draw tenbou */
+        
+        f32 stick_poses[10][4] = {
+            {0.01f, 0.0f, 0.0f},{-0.01f, 0.0f, 0.5f},{-0.02f, 0.0f, 1.0f},{0.0f, 0.0f, 1.5f},
+                 {0.0f, 0.4f, 0.25f},{0.0f, 0.4f, 0.75f},{0.0f, 0.4f, 1.25f},
+                        {0.0f, 0.8f, 0.5f},{0.0f, 0.8f, 1.0f},
+                             {0.0f, 1.2f, 0.75f}
+        };
+        
+
+        // 1 10,000 stick (RED)
+        // 2 5,000 sticks (GOLD)
+        // 4 1,000 sticks (BLUE)
+        // ten 100 sticks (WHITE)
+        int tenbou_num[4] = {1, 2, 4, 10};
+        tile_type tenbou_colors[4] = {RED_TENBOU, GOLD_TENBOU, BLUE_TENBOU, WHITE_TENBOU};
+
+        for(int i = 0; i < 4; i++) {
+            f32 type_x_position = 8.0f - (f32)(6*i);
+            transform tenbou_transform = identity_transform();
+            tenbou_transform.scale = (vert3f){4.0f, 6.0f, 4.0f};
+
+            tile_type color = tenbou_colors[i];
+
+            for(int j = 0; j < tenbou_num[i]; j++) {
+                f32 x_position = type_x_position + stick_poses[j][0];
+                f32 y_position = stick_poses[j][1];
+                f32 z_position = 2.5f + stick_poses[j][2];
+                f32 y_rot = stick_poses[j][0];
+                tenbou_transform.position = (vert3f){x_position, y_position, z_position};
+                tenbou_transform.rotation.y = y_rot;
+
+                matrix tenbou_mat = transform_to_matrix(&tenbou_transform);
+                matrix tenbou_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tenbou_mat);
+                matrix tenbou_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tenbou_mat);
+                
+
+                draw_calls[draw_idx].shdr = LIT_TEXTURED;
+                draw_calls[draw_idx].mesh = &tenbou_mesh;
+                draw_calls[draw_idx].bounds = &tile_bbox; // TODO: invalid but unused
+                draw_calls[draw_idx].texture = color;
+                draw_calls[draw_idx].model_to_view = tenbou_to_view_matrix;
+                draw_calls[draw_idx++].model_to_world = tenbou_to_world_matrix;
+            }
+        }
     }
 
     submit_draw_calls(draw_calls, draw_idx, NO_FRUSTUM_CULL);
@@ -5261,12 +5005,6 @@ int draw_row(board* b, int tiles_drawn, f32 sz, f32 sx, f32 sy, int num_tiles, m
     if(tiles_left < tiles_to_draw) {
         tiles_to_draw = tiles_left;
     }
-    //int offset_into_extra_tiles = 0;
-    //if(draw_extra_tiles && tiles_drawn >= 95) {
-    //    offset_into_extra_tiles = tiles_drawn-95;
-    //    tiles_to_draw = num_tiles;
-    //    exotique_printf("extra tiles offset %i\n", offset_into_extra_tiles);
-    //}
     
     f32 x = sx * tile_dx;
     f32 y = sy * tile_dy;
@@ -5361,18 +5099,6 @@ void draw_riichi_game(game_state cur_state, u32 cur_frame, board* b, matrix* vie
     matrix north_view_matrix = mat_mul_mat(view_mat, &north_matrix);
 
 
-    f32 discard_scales[4] = {
-        1.0f, 1.0f, 1.0f, 1.0f
-    };
-    
-    for(int i = 0; i < 4; i++) {
-        // distance to current player
-        //int dist = i;
-        //if(dist < 0) { dist = -dist; }
-        //if(dist == 3) { dist = 1; }
-        //discard_scales[i] = 1.0f + (.1f * (f32)dist);
-    }
-    
     matrix *hand_matrixes[4][2] = {
         {&east_view_matrix, &east_matrix},
         {&south_view_matrix, &south_matrix},
@@ -5384,7 +5110,7 @@ void draw_riichi_game(game_state cur_state, u32 cur_frame, board* b, matrix* vie
         hand* this_hand = &game_board.hands[i];
         draw_hand(cur_frame, 
             &b->board_wall, this_hand, 
-            cur_player == i, discard_scales[i], (i == 0), // draw wind indicator
+            cur_player == i, (i == cur_dealer), // draw wind indicator
             hand_matrixes[i][0], hand_matrixes[i][1]
         );
         for(int j = 0; j < this_hand->num_discards; j++) {
@@ -5411,9 +5137,7 @@ void draw_board(matrix* view_mat) {
     mesh_draw_call draw_board_call;
     transform board_transform = identity_transform();
     board_transform.position.y = -0.73f;
-    board_transform.scale.x = 30.0f;
-    board_transform.scale.z = 30.0f;
-    board_transform.scale.y = 10.0f;
+    board_transform.scale = (vert3f){32.0, 10.0f, 32.0f};
     matrix board_matrix = transform_to_matrix(&board_transform);
     matrix board_to_view_matrix = mat_mul_mat(view_mat, &board_matrix);
     
@@ -5485,45 +5209,19 @@ void game_draw(ExotiqueInterface* ei) {
     draw_board(&view_matrix);
 
 
-    /*
-    if(draw_mode == HI_Z_DRAW) {
-        for(int y = 0; y < TILES_HIGH; y++) {
-            for(int x = 0; x < TILES_WIDE; x++) {
-                tile t = tiles[y*TILES_WIDE+x];
-                int t_x = t.start_x;
-                int t_y = t.start_y;
-                f32 normalized = (1.0f/t.max_z)/FAR_Z;
-                //float normalized =
-                //    (t.max_z - 1.0f/FAR_Z) /
-                //    (1.0f/NEAR_Z - 1.0f/FAR_Z);
-                normalized = CLAMP(normalized, 0.0f, 1.0f);
-
-                f32 quantized_depth = lerp(0.0f, (f32)NUM_SHADES, 1.0f-normalized);
-                u8 brightness = (u8)CLAMP(quantized_depth, 0.0f, (f32)(NUM_SHADES-1));
-                u8 idx = light_remap_table[brightness][WHITE];
-
-                for(int py = 0; py < TILE_SIZE; py++) {
-                    for(int px = 0; px < TILE_SIZE; px++) {
-                        ei->screen[(t_y+py)*kScreenWidth + (t_x+px)] = idx;
-                    }
-                }
-
-
-            }
-        }
-    }
-    */
     
     //f32 ty = sinf((f32)frame/100)*2;
     //f32 tz = cosf((f32)frame/100)*2;
     
+    // red, green, white, blue, gold
     /*
+    tile_type tenbou_types[5] = {BLUE_TENBOU, RED_TENBOU, WHITE_TENBOU, GREEN_TENBOU, GOLD_TENBOU};
     mesh_draw_call tenbou_list[25];
     transform trn = identity_transform();
     for(int z = 0; z < 5; z++) {
         for(int x = 0; x < 5; x++) {
             int idx = z*5+x;
-            f32 ty = sinf((f32)((int)frame+idx)/32.0f)*4.0f;
+            f32 ty = 1.0f;//sinf((f32)((int)frame+idx)/32.0f)*4.0f;
             trn.position.x = (f32)x*13-33;
             trn.position.y = ty+0.5f;
             trn.position.z = (f32)z*6-15;
@@ -5535,7 +5233,7 @@ void game_draw(ExotiqueInterface* ei) {
 
             tenbou_list[idx].mesh = &tenbou_mesh;
             tenbou_list[idx].shdr = LIT_TEXTURED;
-            tenbou_list[idx].texture = BLUE_TENBOU;
+            tenbou_list[idx].texture = tenbou_types[(idx&7)%5];
             tenbou_list[idx].model_to_world = trn_matrix;
             tenbou_list[idx].model_to_view = trn_view_matrix;
 
@@ -5546,6 +5244,7 @@ void game_draw(ExotiqueInterface* ei) {
         25, NO_FRUSTUM_CULL
     );
     */
+    
     
     rasterize_tiles(ei, zbuf);
     //exotique_printf("meshes %i\n", meshes_transformed);

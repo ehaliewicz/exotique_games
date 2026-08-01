@@ -3778,117 +3778,10 @@ void rasterize_tiles(ExotiqueInterface *ei, u16 *zbuffer) {
     }
 }
 
-edge_prep calc_edges(vert3f *v1, vert3f *v0, vert3f *v2) {
-    const i32 x0 = (i32)(v0->x * 16.0f);
-    const i32 y0 = (i32)(v0->y * 16.0f);
-    const i32 x1 = (i32)(v1->x * 16.0f);
-    const i32 y1 = (i32)(v1->y * 16.0f);
-    const i32 x2 = (i32)(v2->x * 16.0f);
-    const i32 y2 = (i32)(v2->y * 16.0f);
-
-    const i32 dx01 = x0 - x1;
-    const i32 dy01 = y0 - y1;
-    const i32 dx12 = x1 - x2;
-    const i32 dy12 = y1 - y2;
-    const i32 dx20 = x2 - x0;
-    const i32 dy20 = y2 - y0;
-
-    i32 c01 = dy01 * x0 - dx01 * y0;
-    i32 c12 = dy12 * x1 - dx12 * y1;
-    i32 c20 = dy20 * x2 - dx20 * y2;
-    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
-        c01++;
-    }
-    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
-        c12++;
-    }
-    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
-        c20++;
-    }
-    return (edge_prep) {
-        .active_edges = 3,
-        //.c0 = c01, .c1 = c12, .c2 = c20,
-        .cvals = {c01,c12,c20},
-        .dxvals = {dx01,dx12,dx20}, 
-        .dyvals = {dy01,dy12,dy20}
-        //= dx01, .dy0 = dy01, 
-        //.dx1 = dx12, .dy1 = dy12, 
-        //.dx2 = dx20, .dy2 = dy20
-    };
-}
-
-typedef enum {
-    TRIVIAL_REJECT,
-    TRIVIAL_ACCEPT,
-    NOT_TRIVIAL
-} trivial_res;
-
-trivial_res check_trivial_reject_accept(int tile_x, int tile_y, edge_prep tri_edges) { //vert3f *v1, vert3f *v0, vert3f *v2) {   
-    // if all four corners are outside of any of the one edges
-    
-    i32 c0 = tri_edges.cvals[0];
-    i32 c1 = tri_edges.cvals[1];
-    i32 c2 = tri_edges.cvals[2];
-    i32 dx0 = tri_edges.dxvals[0];
-    i32 dx1 = tri_edges.dxvals[1];
-    i32 dx2 = tri_edges.dxvals[2];
-    i32 dy0 = tri_edges.dyvals[0];
-    i32 dy1 = tri_edges.dyvals[1];
-    i32 dy2 = tri_edges.dyvals[2];
-
-    i32 lx = (tile_x*RENDER_TILE_SIZE) * 16;
-    i32 rx = ((tile_x*RENDER_TILE_SIZE)+RENDER_TILE_SIZE-1)*16;
-    i32 ty = (tile_y*RENDER_TILE_SIZE) * 16;
-    i32 by = ((tile_y*RENDER_TILE_SIZE)+RENDER_TILE_SIZE-1)*16;
-    
-    i32 top_left01 = c0 + dx0 * ty - dy0 * lx;
-    i32 top_right01 = c0 + dx0 * ty - dy0 * rx;
-    i32 bot_left01 = c0 + dx0 * by - dy0 * lx;
-    i32 bot_right01 = c0 + dx0 * by - dy0 * rx;
-    i32 most_positive01 = MAX(top_left01, MAX(top_right01, MAX(bot_left01, bot_right01)));
-    i32 most_negative01 = MIN(top_left01, MIN(top_right01, MIN(bot_left01, bot_right01)));
-    if(most_positive01 < 0) {
-        return TRIVIAL_REJECT;
-    } else if (most_negative01 < 0) {
-        return NOT_TRIVIAL;
-    }
-
-    i32 top_left12 = c1 + dx1 * ty - dy1 * lx;
-    i32 top_right12 = c1 + dx1 * ty - dy1 * rx;
-    i32 bot_left12 = c1 + dx1 * by - dy1 * lx;
-    i32 bot_right12 = c1 + dx1 * by - dy1 * rx;
-    i32 most_positive12 = MAX(top_left12, MAX(top_right12, MAX(bot_left12, bot_right12)));
-    i32 most_negative12 = MIN(top_left12, MIN(top_right12, MIN(bot_left12, bot_right12)));
-    if(most_positive12 < 0) {
-        return TRIVIAL_REJECT;
-    } else if (most_negative12 < 0) {
-        return NOT_TRIVIAL;
-    }
-
-    i32 top_left20 = c2 + dx2 * ty - dy2 * lx;
-    i32 top_right20 = c2 + dx2 * ty - dy2 * rx;
-    i32 bot_left20 = c2 + dx2 * by - dy2 * lx;
-    i32 bot_right20 = c2 + dx2 * by - dy2 * rx;
-    i32 most_positive20 = MAX(top_left20, MAX(top_right20, MAX(bot_left20, bot_right20)));
-    i32 most_negative20 = MIN(top_left20, MIN(top_right20, MIN(bot_left20, bot_right20)));
-    if(most_positive20 < 0) {
-        return TRIVIAL_REJECT;
-    } else if (most_negative20 < 0) {
-        return NOT_TRIVIAL;
-    }
-
-
-    return TRIVIAL_ACCEPT;
-}
-
 int triangles_rasterized;
 void bin_triangle(
-    vert3f *v0,
-    vert3f *v1,
-    vert3f *v2,
-    vert2f *v0_uv,
-    vert2f *v1_uv,
-    vert2f *v2_uv,
+    vert3f *v0, vert3f *v1, vert3f *v2,
+    vert2f *v0_uv, vert2f *v1_uv, vert2f *v2_uv,
     u8 b0, u8 b1, u8 b2,
     u8 texture_id) {
 
@@ -3915,8 +3808,6 @@ void bin_triangle(
         int tile_start_y = startY / RENDER_TILE_SIZE;
         int tile_end_x = endX / RENDER_TILE_SIZE;
         int tile_end_y = endY / RENDER_TILE_SIZE;
-
-        //edge_prep tri_edges = calc_edges(v0, v1, v2);
 
         // HACK
         // only texturemap if there is a difference in U and V over the triangle

@@ -1,5 +1,4 @@
 #include "exotique.h"
-
 #include "miniaudio.h"
 
 #define OUTPUT_TILE_SIZE 64
@@ -12,14 +11,11 @@
 const int kScreenWidth = OUTPUT_WIDTH;
 const int kScreenHeight = OUTPUT_HEIGHT;
 
-
 u8 render_target[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
 u16 zbuf[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
 
-
 #define TILES_WIDE (RENDER_WIDTH/RENDER_TILE_SIZE)
 #define TILES_HIGH (RENDER_HEIGHT/RENDER_TILE_SIZE)
-
 
 typedef struct {
     f32 x,y;
@@ -37,11 +33,9 @@ typedef struct {
     i32 x,y;
 } vert2i;
 
-
 #define M_PI (3.141592)
 #define M_PI_2 (M_PI/2.)
 #define M_PI_M_2 (M_PI*2.0)
-
 
 /* 
 
@@ -191,18 +185,15 @@ static inline vert3f add_vert3(vert3f a, vert3f b) {
     return (vert3f){.x = a.x+b.x, .y = a.y+b.y, .z = a.z+b.z};
 }
 
-static inline int fast_floor(f32 x)
-{
+static inline int fast_floor(f32 x) {
     int i = (int)x;
     return i - (i > x);
 }
 
-static inline int fast_ceil(f32 x)
-{
+static inline int fast_ceil(f32 x) {
     int i = (int)x;
     return i + (i < x);
 }
-
 
 /*
 
@@ -394,7 +385,6 @@ vert3f mat_mul_vert3(const matrix *m, const vert3f *v) {
     return r;
 }
 
-
 vert3f mat_mul_normal(const matrix *m, const vert3f *n) {
     vert3f r;
     r.x =
@@ -415,7 +405,6 @@ vert3f mat_mul_normal(const matrix *m, const vert3f *n) {
     return normalize(r);
 }
 
-
 /*
 
     VECTORIZED/SIMD math
@@ -427,7 +416,6 @@ vert3f mat_mul_normal(const matrix *m, const vert3f *n) {
 typedef u16 u16_vec __attribute__((vector_size(2*VEC_LANES)));
 typedef f32 f32_vec __attribute__((vector_size(4*VEC_LANES)));
 typedef i32 i32_vec __attribute__((vector_size(4*VEC_LANES)));
-
 
 static inline f32_vec broadcast_f32_vec(f32 a) {
     return (f32_vec){ a, a, a, a};
@@ -577,7 +565,6 @@ typedef struct {
 #define MAX_TILE_TRIS 1024
 typedef struct {
     i16 start_x; i16 start_y;
-
     u32 num_tex_triangles, num_solid_triangles;
     u32 num_trivial_tex_triangles, num_trivial_solid_triangles;
 
@@ -585,8 +572,6 @@ typedef struct {
     u32 solid_tri_indexes[MAX_TILE_TRIS];
     u32 trivial_tex_tri_indexes[MAX_TILE_TRIS];
     u32 trivial_solid_tri_indexes[MAX_TILE_TRIS];
-    //f32 max_z, min_z;
-    //u8 z_dirty;
 } tile;
 
 tile tiles[TILES_WIDE*TILES_HIGH];
@@ -796,11 +781,8 @@ f32 absf(f32 a) {
     return a;
 }
 
-u8 mix_table[256*256] __attribute__((aligned(64)));
-
 static inline u32 parallel_pixel_shader(
-    f32_vec z,
-    f32_vec w1, f32_vec w2, 
+    f32_vec z, f32_vec w1, f32_vec w2, 
     f32 v0u_over_z, f32 v0v_over_z, 
     f32 v1u_over_z, f32 v1v_over_z, 
     f32 v2u_over_z, f32 v2v_over_z, 
@@ -1618,17 +1600,7 @@ int rasterize_trivial_triangle_2x2_quad_no_tmap(
 }
 
 
-typedef enum {
-    NORMAL,
-    TILE_DRAW,
-    HI_Z_DRAW,
-    NUM_DRAW_MODES
-} draw_modes;
-int hi_z_enabled = 1, trivial_reject_enabled = 1;
-draw_modes draw_mode = NORMAL;
-
 transform cam_view_trans;
-
 
 vert3f orbit_camera_position(float yaw, float pitch, float radius)
 {
@@ -2259,6 +2231,8 @@ u8 closest_overall_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
     return (u8)best_dist_idx;
 }
 
+u8 mix_table[256*256] __attribute__((aligned(64)));
+
 void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size, i16 override_color) {
     (void)ei;
     int dst_size = src_size>>1;
@@ -2409,7 +2383,6 @@ typedef struct {
     hand hands[4];
 } board;
 
-
 wall init_empty_wall() {
     wall d;
     d.rem = 0;
@@ -2450,8 +2423,7 @@ const tile_type init_deck[TILES_IN_DECK] = {
     TWO_MAN, TWO_MAN, TWO_MAN, TWO_MAN,
     THREE_MAN, THREE_MAN, THREE_MAN, THREE_MAN,
     FOUR_MAN, FOUR_MAN, FOUR_MAN, FOUR_MAN, 
-    FIVE_MAN, FIVE_MAN, FIVE_MAN,
-    FIVE_MAN_RED,
+    FIVE_MAN, FIVE_MAN, FIVE_MAN,FIVE_MAN_RED,
     SIX_MAN, SIX_MAN, SIX_MAN, SIX_MAN,
     SEVEN_MAN, SEVEN_MAN, SEVEN_MAN, SEVEN_MAN,
     EIGHT_MAN, EIGHT_MAN, EIGHT_MAN, EIGHT_MAN,
@@ -2460,8 +2432,7 @@ const tile_type init_deck[TILES_IN_DECK] = {
     TWO_PIN, TWO_PIN, TWO_PIN, TWO_PIN,
     THREE_PIN, THREE_PIN, THREE_PIN, THREE_PIN,
     FOUR_PIN, FOUR_PIN, FOUR_PIN, FOUR_PIN,
-    FIVE_PIN, FIVE_PIN, FIVE_PIN,
-    FIVE_PIN_RED,
+    FIVE_PIN, FIVE_PIN, FIVE_PIN,FIVE_PIN_RED,
     SIX_PIN, SIX_PIN, SIX_PIN, SIX_PIN,
     SEVEN_PIN, SEVEN_PIN, SEVEN_PIN, SEVEN_PIN,
     EIGHT_PIN, EIGHT_PIN, EIGHT_PIN, EIGHT_PIN,
@@ -2470,8 +2441,7 @@ const tile_type init_deck[TILES_IN_DECK] = {
     TWO_SOU, TWO_SOU, TWO_SOU, TWO_SOU,
     THREE_SOU, THREE_SOU, THREE_SOU, THREE_SOU,
     FOUR_SOU, FOUR_SOU, FOUR_SOU, FOUR_SOU,
-    FIVE_SOU, FIVE_SOU, FIVE_SOU,
-    FIVE_SOU_RED,
+    FIVE_SOU, FIVE_SOU, FIVE_SOU,FIVE_SOU_RED,
     SIX_SOU, SIX_SOU, SIX_SOU, SIX_SOU,
     SEVEN_SOU, SEVEN_SOU, SEVEN_SOU, SEVEN_SOU,
     EIGHT_SOU, EIGHT_SOU, EIGHT_SOU, EIGHT_SOU,
@@ -2608,7 +2578,6 @@ typedef struct {
     u32 num_bytes;
     u32 num_mono_samples;
 } sound_data;
-
 
 sound_data sounds[NUM_SOUNDS] = {
     {
@@ -2989,25 +2958,17 @@ void step_deal(u32 cur_frame) {
 
     int cur_num_tiles = this_hand->num_closed_tiles;
 
+    int cur_deal_count = 1;
     if(deal_steps < 12) {
-        for(int i = 0; i < 4; i++) {
-            this_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
-            this_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
-            this_hand->tiles[cur_num_tiles++] = game_board.board_wall.tiles[game_board.board_wall.rem];
-        }
-        this_hand->num_closed_tiles = cur_num_tiles;
-    } else if (deal_steps < 16) {
-        this_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
-        this_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
-        this_hand->tiles[cur_num_tiles++] = game_board.board_wall.tiles[game_board.board_wall.rem];
-        this_hand->num_closed_tiles = cur_num_tiles;
-    } else {  
-        this_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
-        this_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
-        this_hand->tiles[cur_num_tiles++] = game_board.board_wall.tiles[game_board.board_wall.rem];
-        this_hand->num_closed_tiles = cur_num_tiles;
-        this_hand->selected_tile_idx = cur_num_tiles-1;
+        cur_deal_count = 4;
     }
+    for(int i = 0; i < cur_deal_count; i++) {
+        this_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
+        this_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
+        this_hand->tiles[cur_num_tiles++] = game_board.board_wall.tiles[game_board.board_wall.rem];
+    }
+    this_hand->num_closed_tiles = cur_num_tiles;
+    this_hand->selected_tile_idx = cur_num_tiles-1;
     deal_steps++;
     if(deal_steps == 17) {
         cur_game_state = IN_GAME;
@@ -3022,7 +2983,6 @@ int last_a_pushed = 0, last_b_pushed = 0;
 int last_left_pushed = 0, last_right_pushed = 0;
 
 int last_x_pushed = 0, last_y_pushed = 0;
-
 f32 prev_cam_radius;
 int zoom;
 
@@ -3754,17 +3714,6 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
             *output_row++ = mix;
         }
     }
-    
-    
-    if(draw_mode == TILE_DRAW) {
-        for(int cnt = 0; cnt < OUTPUT_TILE_SIZE; cnt++) {
-            ei->screen[((t->start_y>>1)+cnt)*kScreenWidth + (t->start_x>>1)] = 0;
-            ei->screen[((t->start_y>>1)+cnt)*kScreenWidth + (t->start_x>>1)+OUTPUT_TILE_SIZE-1] = 0;
-            ei->screen[(t->start_y>>1)*kScreenWidth + (t->start_x>>1)+cnt] = 0;
-            ei->screen[((t->start_y>>1)+OUTPUT_TILE_SIZE-1)*kScreenWidth + (t->start_x>>1)+cnt] = 0;
-        }
-    }
-    
 }
 
 void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
@@ -3932,8 +3881,7 @@ trivial_res check_trivial_reject_accept(int tile_x, int tile_y, edge_prep tri_ed
     return TRIVIAL_ACCEPT;
 }
 
-
-int triangles_rasterized, triangles_hi_z_culled;
+int triangles_rasterized;
 void bin_triangle(
     vert3f *v0,
     vert3f *v1,
@@ -3951,8 +3899,6 @@ void bin_triangle(
         f32 inv_z0 = 1.0f/v0->z;
         f32 inv_z1 = 1.0f/v1->z;
         f32 inv_z2 = 1.0f/v2->z;
-        //f32 closest_inv_z = MAX(inv_z0, MAX(inv_z1, inv_z2));
-
 
         f32 minx = MIN(v0->x, MIN(v1->x, v2->x));
         f32 maxx = MAX(v0->x, MAX(v1->x, v2->x));
@@ -3970,7 +3916,6 @@ void bin_triangle(
         int tile_end_x = endX / RENDER_TILE_SIZE;
         int tile_end_y = endY / RENDER_TILE_SIZE;
 
-
         //edge_prep tri_edges = calc_edges(v0, v1, v2);
 
         // HACK
@@ -3981,8 +3926,6 @@ void bin_triangle(
          f32s_equal(v0_uv->x, v2_uv->x)) ||
         (f32s_equal(v0_uv->y, v1_uv->y) &&
          f32s_equal(v0_uv->y, v2_uv->y)));
-
-
 
         int rasterized_at_least_once = 0;
         for(int y = tile_start_y; y <= tile_end_y; y++) {
@@ -4037,21 +3980,7 @@ void bin_triangle(
                         tiles[y*TILES_WIDE+x].num_tex_triangles = num_tex_tris_in_tile;
                     }
                 }
-                
-
-                // if our closest inv_z is further than this, it's HI-Z culled baby
-                //f32 this_tiles_furthest_inv_z = tiles[y*TILES_WIDE+x].max_z;
-                // but since it's inv_z, the value gets smaller as it gets further away
-
-                // disable hi-z, fun experiment but not useful
-
-                //if(hi_z_enabled && closest_inv_z < this_tiles_furthest_inv_z) {
-                //    triangles_hi_z_culled++;
-                //    continue;
-                //}
                 //triangles_rasterized++;
-                
-                
             }
         }
         if(rasterized_at_least_once) {
@@ -4094,11 +4023,7 @@ void bin_triangle(
                 f32 edge0_dv_per_len = v1v0uvlen / v1v0len;
                 f32 edge1_dv_per_len = v2v0uvlen / v2v0len;
                 f32 duv_per_pix = MAX(edge0_dv_per_len, edge1_dv_per_len);
-                (void)duv_per_pix;
-                
-
-                //f32 duv_per_pix = (biggest_duv*(f32)tex_width)/dpix;
-                
+                                
                 //if(duv_per_pix > 1.0f) {
                 //    mip_level = 1;
                     if(duv_per_pix > 2.0f) { // 6
@@ -4110,12 +4035,7 @@ void bin_triangle(
                 //}
                 duv_per_pix /= (f32)(2 << mip_level);
                 duv_per_pix = duv_per_pix;
-                //if(duv_per_pix > 1.0f) {
-                //    exotique_printf("wtf\n");
-                //}
             }
-            
-
             
             global_tri_buffer[total_triangles].proj_v0 = proj_v0;
             global_tri_buffer[total_triangles].proj_v1 = proj_v1;
@@ -4249,8 +4169,7 @@ void process_vertex_batch(const int batch_tag_idx,
     const f32_vec vert_poses_soa[3], 
     const vert2f vert_uvs[4], 
     const f32_vec vert_norms_soa[3],
-    const matrix* model_to_view, 
-    const matrix *model_to_world, 
+    const matrix* model_to_view, const matrix *model_to_world, 
     const shader cur_shader) {
 
     f32_vec rot_vert_comps[3];
@@ -4321,7 +4240,6 @@ void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream
         );
     }
 }
-
 
 void submit_mesh_draw_call(mesh_draw_call* mdc) {
     const obj_mesh *m = mdc->mesh;
@@ -4422,7 +4340,6 @@ void submit_draw_calls(mesh_draw_call *list, int num_meshes, culling_mode frustu
         submit_mesh_draw_call(&list[i]);
     }
 }
-
 
 transform identity_transform(void) {
     return (transform){
@@ -4551,7 +4468,6 @@ vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, int is_
 
     return local;
 }
-
 
 const f32 discard_x_offsets[18] = {
     -0.02f, -0.04f, 0.0f, 0.03f, 0.0f, 0.0f,
@@ -5049,13 +4965,10 @@ void game_draw(ExotiqueInterface* ei) {
     //}
 
     draw_board(&view_matrix);
-
     rasterize_tiles(ei, zbuf);
     //exotique_printf("meshes %i\n", meshes_transformed);
     //exotique_printf("triangles transformed %i\n", vertexes_transformed);
-    //exotique_printf("triangles hi z culled %i\n", triangles_hi_z_culled);
     //exotique_printf("triangles rasterized %i\n", triangles_rasterized);
-    //exotique_printf("hi_z_enabled %i\n", hi_z_enabled);
     meshes_transformed = 0;
     vertexes_transformed = 0;
     triangles_rasterized = 0;

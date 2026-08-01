@@ -565,12 +565,8 @@ typedef struct {
 typedef struct {
     i16 start_x; i16 start_y;
     u32 num_tex_triangles, num_solid_triangles;
-    u32 num_trivial_tex_triangles, num_trivial_solid_triangles;
-
     u32 tex_tri_indexes[MAX_TILE_TRIS]; // up to 2048 triangles per tile
     u32 solid_tri_indexes[MAX_TILE_TRIS];
-    u32 trivial_tex_tri_indexes[MAX_TILE_TRIS];
-    u32 trivial_solid_tri_indexes[MAX_TILE_TRIS];
 } tile;
 
 tile tiles[TILES_WIDE*TILES_HIGH];
@@ -1610,33 +1606,18 @@ void look_at_yx(transform *cam, vert3f position, vert3f target)
 }
 
 
-void init_tiles() {
+void clear_tile_bins() {
     for(i16 y = 0; y < TILES_HIGH; y++) {
         for(i16 x = 0; x < TILES_WIDE; x++) {
             tiles[y*TILES_WIDE+x].num_tex_triangles = 0;
             tiles[y*TILES_WIDE+x].num_solid_triangles = 0;
-            tiles[y*TILES_WIDE+x].num_trivial_tex_triangles = 0;
-            tiles[y*TILES_WIDE+x].num_trivial_solid_triangles = 0;
             tiles[y*TILES_WIDE+x].start_y = (i16)(y * RENDER_TILE_SIZE);
             tiles[y*TILES_WIDE+x].start_x = (i16)(x * RENDER_TILE_SIZE);
-            //tiles[y*TILES_WIDE+x].max_z = 1.0f/FAR_Z;
-            //tiles[y*TILES_WIDE+x].min_z = 1.0f/FAR_Z;
-            //tiles[y*TILES_WIDE+x].z_dirty = 0;
         }
     }
 }
 
 static u32 total_triangles;
-void clear_tile_bins() {
-    for(int y = 0; y < TILES_HIGH; y++) {
-        for(int x = 0; x < TILES_WIDE; x++) {
-            tiles[y*TILES_WIDE+x].num_tex_triangles = 0;
-            tiles[y*TILES_WIDE+x].num_solid_triangles = 0;
-            tiles[y*TILES_WIDE+x].num_trivial_tex_triangles = 0;
-            tiles[y*TILES_WIDE+x].num_trivial_solid_triangles = 0;
-        }
-    }
-}
 
 typedef struct {
     f32 min_x, max_x;
@@ -2827,20 +2808,15 @@ void game_load(ExotiqueInterface* ei) {
     }
     //output_mixing_table(ei);
     //output_palette(ei);
-    
     decompress_sounds();
     decompress_textures(ei);
 
     texture_board[0] = light_remap_table[NUM_SHADES-1][GREEN];
     
-
-    init_tiles();
+    clear_tile_bins();
 
     tile_bbox = get_mesh_bbox(&mahjong_tile_mesh);
     board_bbox = get_mesh_bbox(&board_mesh);
-
-   
-    //reset_game(ei);
 }
 
 vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx);
@@ -3708,7 +3684,7 @@ void rasterize_tiles(ExotiqueInterface *ei, u16 *zbuffer) {
 
             tile* t = &tiles[y*TILES_WIDE+x];
             
-            if(t->num_tex_triangles || t->num_solid_triangles || t->num_trivial_tex_triangles || t->num_trivial_solid_triangles) {
+            if(t->num_tex_triangles || t->num_solid_triangles) {
                 rasterize_tile(ei, zbuffer, &tiles[y*TILES_WIDE+x]);
             } else {
                 fill_background_for_tile(ei, &tiles[y*TILES_WIDE+x]);
@@ -3763,52 +3739,21 @@ void bin_triangle(
 
                 u32 num_tex_tris_in_tile = tiles[y*TILES_WIDE+x].num_tex_triangles;
                 u32 num_solid_tris_in_tile = tiles[y*TILES_WIDE+x].num_solid_triangles;
-                u32 num_trivial_tex_tris_in_tile = tiles[y*TILES_WIDE+x].num_trivial_tex_triangles;
-                u32 num_trivial_solid_tris_in_tile = tiles[y*TILES_WIDE+x].num_trivial_solid_triangles;
-                (void)num_trivial_tex_tris_in_tile;
-                (void)num_trivial_solid_tris_in_tile;
 
-                // disable trivial reject, not useful anymore since we no longer have large triangles
-
-                //trivial_res triv = check_trivial_reject_accept(x, y, tri_edges);
-                //if(triv == TRIVIAL_REJECT) {
-                //    continue;
-                //}
-
-                int trivially_accepted = 0;// triv == TRIVIAL_ACCEPT;
-                if(trivially_accepted) {
-                    if(no_tmap) {
-                        if(num_trivial_solid_tris_in_tile == MAX_TILE_TRIS) {
-                            continue;
-                        }
-                        rasterized_at_least_once = 1;
-                        tiles[y*TILES_WIDE+x].trivial_solid_tri_indexes[num_trivial_solid_tris_in_tile++] = total_triangles;
-                        tiles[y*TILES_WIDE+x].num_trivial_solid_triangles = num_trivial_solid_tris_in_tile;
-
-                    } else {
-                        if(num_trivial_tex_tris_in_tile == MAX_TILE_TRIS) {
-                            continue;
-                        }
-                        rasterized_at_least_once = 1;
-                        tiles[y*TILES_WIDE+x].trivial_tex_tri_indexes[num_trivial_tex_tris_in_tile++] = total_triangles;
-                        tiles[y*TILES_WIDE+x].num_trivial_tex_triangles = num_trivial_tex_tris_in_tile;
+                if(no_tmap) {
+                    if(num_solid_tris_in_tile == MAX_TILE_TRIS) {
+                        continue;
                     }
+                    rasterized_at_least_once = 1;
+                    tiles[y*TILES_WIDE+x].solid_tri_indexes[num_solid_tris_in_tile++] = total_triangles;
+                    tiles[y*TILES_WIDE+x].num_solid_triangles = num_solid_tris_in_tile;
                 } else {
-                    if(no_tmap) {
-                        if(num_solid_tris_in_tile == MAX_TILE_TRIS) {
-                            continue;
-                        }
-                        rasterized_at_least_once = 1;
-                        tiles[y*TILES_WIDE+x].solid_tri_indexes[num_solid_tris_in_tile++] = total_triangles;
-                        tiles[y*TILES_WIDE+x].num_solid_triangles = num_solid_tris_in_tile;
-                    } else {
-                        if(num_tex_tris_in_tile == MAX_TILE_TRIS) {
-                            continue;
-                        }
-                        rasterized_at_least_once = 1;
-                        tiles[y*TILES_WIDE+x].tex_tri_indexes[num_tex_tris_in_tile++] = total_triangles;
-                        tiles[y*TILES_WIDE+x].num_tex_triangles = num_tex_tris_in_tile;
+                    if(num_tex_tris_in_tile == MAX_TILE_TRIS) {
+                        continue;
                     }
+                    rasterized_at_least_once = 1;
+                    tiles[y*TILES_WIDE+x].tex_tri_indexes[num_tex_tris_in_tile++] = total_triangles;
+                    tiles[y*TILES_WIDE+x].num_tex_triangles = num_tex_tris_in_tile;
                 }
                 //triangles_rasterized++;
             }

@@ -38,7 +38,7 @@ SET GAME=%~n1
 REM ============================================================
 REM  Compile exotique.c
 REM ============================================================
-"%GCC%" -c %CFLAGS% -std=c2x -O2 -march=haswell ^
+"%GCC%" -c %CFLAGS% -std=c2x -Ofast -march=native ^
     -I "%SDL2_INC%" -D_REENTRANT ^
     exotique.c
 IF ERRORLEVEL 1 (
@@ -57,7 +57,7 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c99 -O3 -march=westmere -ffast-math -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -ggdb -ffast-math -march=native -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
     -I ".." ^
     ^
     -D ARCH=%ARCH% ^

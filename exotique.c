@@ -356,6 +356,10 @@ int exotique_printf( const char * format, ... ) {
   return ret;
 }
 
+uint64_t exotique_get_ticks() {
+  return SDL_GetTicks64();
+}
+
 static void
 exotique_update(GameManager* gm, ExotiqueInterface* ei)
 {

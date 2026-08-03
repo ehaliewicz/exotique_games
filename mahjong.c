@@ -17,6 +17,89 @@ u16 zbuf[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
 #define TILES_WIDE (RENDER_WIDTH/RENDER_TILE_SIZE)
 #define TILES_HIGH (RENDER_HEIGHT/RENDER_TILE_SIZE)
 
+typedef struct block block;
+
+struct block {
+    const char* name;
+    u64 count;
+    u64 cumulative_count;
+    u64 cur_start_ticks;
+    u64 total_ticks;
+    u64 cumulative_total_ticks;
+    int num_children;
+    block *children[16];
+};
+
+void enter_block(block* blk) {
+    blk->cur_start_ticks = exotique_get_ticks();
+}
+
+void exit_block(block* blk) {
+    blk->count++;
+    blk->total_ticks = exotique_get_ticks() - blk->cur_start_ticks;
+    blk->cumulative_count++;
+    blk->cumulative_total_ticks += blk->total_ticks;
+}
+
+block new_timed_block(const char* name) {
+    block blk;
+    blk.name = name;
+    blk.count = 0;
+    blk.total_ticks = 0;
+    return blk;
+}
+
+#define ROOT_TIMED_BLOCK(var, name) {name, 0, 0, 0, 0, 0, 0, {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}; do {   \
+    enter_block(&var);                           \
+
+#define START_TIMED_BLOCK(var, name, parent) {name, 0, 0, 0, 0, 0, 0, {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}; static int init ## var = 0; \
+    if(! init ## var ) { block_add_child(&parent, &var); init ## var = 1; }     \
+    enter_block(&var);    do {          \
+
+#define END_TIMED_BLOCK(blk)    \
+    exit_block(&blk);           \
+} while(0);                     \
+
+void print_prefix(int depth) {
+    for(int i = 0; i < depth; i++) {
+        exotique_printf("  ");
+    }
+    exotique_printf("-");
+}
+
+void print_and_reset_block(block *blk, int depth) {
+    double total_per_tick = (double)blk->cumulative_total_ticks/(double)blk->cumulative_count;
+    u64 children_total = 0;
+    u64 children_cumulative_total = 0;
+    for(int i = 0; i < blk->num_children; i++) {
+        children_total += blk->children[i]->total_ticks;
+        children_cumulative_total += blk->children[i]->cumulative_total_ticks;
+    }
+    u64 exclusive_total = blk->total_ticks - children_total;
+    u64 exclusive_cumulative_total = blk->cumulative_total_ticks - children_cumulative_total;
+    double exclusive_per_tick = (double)exclusive_cumulative_total / (double)blk->cumulative_count;
+
+    print_prefix(depth);
+    exotique_printf("%s total %llu total per %f\n", blk->name, blk->total_ticks, total_per_tick);
+    print_prefix(depth);
+    exotique_printf(" exc %llu, exc per %f\n", exclusive_total, exclusive_per_tick);
+    
+    for(int i = 0; i < blk->num_children; i++) {
+        print_and_reset_block(blk->children[i], depth+1);
+    }
+
+    blk->count = 0;
+    blk->total_ticks = 0;
+}
+
+void print_and_reset_root_block(block *blk) {
+    print_and_reset_block(blk, 0);
+}
+
+void block_add_child(block *parent, block *child) {
+    parent->children[parent->num_children++] = child;
+}
+
 typedef struct {
     f32 x,y;
 } vert2f;
@@ -549,16 +632,13 @@ typedef struct {
 
 #define MAX_GLOBAL_TRIS 1000000
 typedef struct {
-    vert2i proj_v0, proj_v1, proj_v2;
-    u8 b0,b1,b2;
-    //vert2f uv0, uv1, uv2;
-    vert2f uv0_over_z, uv1_over_z, uv2_over_z;
-    //vert3f nv0, nv1, nv2;
-    u8 tex; u8 mip_level; 
+    vert2i proj_v0, proj_v1, proj_v2; // 24 bytes
+    f32 inv_z0, inv_z1, inv_z2;       // 12 bytes
+    vert2f uv0_over_z, uv1_over_z, uv2_over_z; // 24 bytes
+    f32 b0, b1, b2;
+    u8 tex;
     u8 no_tmap; 
-    u8 color;
-    f32 inv_z0, inv_z1, inv_z2;
-    //edge_prep edges;
+    u8 mip_level_or_color; 
 } transformed_tri;
 
 #define MAX_TILE_TRIS 1024
@@ -615,21 +695,15 @@ typedef struct {
 const f32 FAR_Z = 256.0f;
 const f32 NEAR_Z = 1.0f;
 
-int triangle_backfacing(
-    vert3f *v0,
-    vert3f *v1,
-    vert3f *v2) {
-    vert3f *tmp = v0;
-    v0 = v1; v1 = tmp;
-
+int triangle_backfacing(vert3f *v0, vert3f *v1, vert3f *v2) {
 
     // 28.4 fixed point
-    const i32 X0 = (i32)(v0->x * 16.0f);
-    const i32 Y0 = (i32)(v0->y * 16.0f);
-    const i32 X1 = (i32)(v1->x * 16.0f);
-    const i32 Y1 = (i32)(v1->y * 16.0f);
-    const i32 X2 = (i32)(v2->x * 16.0f);
-    const i32 Y2 = (i32)(v2->y * 16.0f);
+    const i32 X0 = (i32)v1->x;
+    const i32 Y0 = (i32)v1->y;
+    const i32 X1 = (i32)v0->x;
+    const i32 Y1 = (i32)v0->y;
+    const i32 X2 = (i32)v2->x;
+    const i32 Y2 = (i32)v2->y;
     //
     // Edge deltas
     //
@@ -640,9 +714,7 @@ int triangle_backfacing(
     //
     // Triangle area
     //
-    i32 area =
-        (dx01 * dy20 -
-        dy01 * dx20);
+    i32 area =(dx01 * dy20 - dy01 * dx20);
     return (area <= 0);
 }
 
@@ -732,6 +804,15 @@ static inline f32_vec i32_vec_convert_f32(i32_vec a) {
     return res;
 }
 
+static inline f32_vec clamp_f32_vec(f32_vec a, f32 mi, f32 ma) {
+    return (f32_vec) {
+        CLAMP(a[0], mi, ma),
+        CLAMP(a[1], mi, ma),
+        CLAMP(a[2], mi, ma),
+        CLAMP(a[3], mi, ma),
+    };
+}
+
 static inline i32_vec f32_vec_convert_i32(f32_vec a) {
     i32_vec res;
     for(int i = 0; i < 4; i++) { res[i] = (i32)a[i]; }
@@ -782,14 +863,18 @@ static inline u32 parallel_pixel_shader(
     f32 v1u_over_z, f32 v1v_over_z, 
     f32 v2u_over_z, f32 v2v_over_z, 
     u8* texels, int tex_width, int tex_height, 
-    u8* lit_pal_ptr
+    f32_vec brightness_vec
 ) {
-    (void)tex_width;
-    (void)lit_pal_ptr;
     f32_vec u_over_z = (v0u_over_z + w1 * v1u_over_z + w2 * v2u_over_z);
     f32_vec v_over_z = (v0v_over_z + w1 * v1v_over_z + w2 * v2v_over_z);
     f32_vec u = (u_over_z * z);
     f32_vec v = (v_over_z * z);
+
+    u8 *lit_pal_ptr0 = full_light_remap_table[(u8)(brightness_vec[0])];
+    u8 *lit_pal_ptr1 = full_light_remap_table[(u8)(brightness_vec[1])];
+    u8 *lit_pal_ptr2 = full_light_remap_table[(u8)(brightness_vec[2])];
+    u8 *lit_pal_ptr3 = full_light_remap_table[(u8)(brightness_vec[3])];
+
 
     // it's impossible to wrap around or go out of bounds in a way that is visible or harmful
     // so flooring is not necessary
@@ -811,10 +896,10 @@ static inline u32 parallel_pixel_shader(
 
 
     u32 res = 0;
-    res |= (u32)lit_pal_ptr[pal_idx0]<<24;
-    res |= (u32)lit_pal_ptr[pal_idx1]<<16;
-    res |= (u32)lit_pal_ptr[pal_idx2]<<8;
-    res |= (u32)lit_pal_ptr[pal_idx3]<<0;
+    res |= (u32)lit_pal_ptr0[pal_idx0]<<24;
+    res |= (u32)lit_pal_ptr1[pal_idx1]<<16;
+    res |= (u32)lit_pal_ptr2[pal_idx2]<<8;
+    res |= (u32)lit_pal_ptr3[pal_idx3]<<0;
     return res;
 }
 
@@ -842,8 +927,14 @@ int rasterize_triangle_2x2_quad(
     vert2f uv2_over_z = tri_attributes->uv2_over_z;
 
 
-    u16 quantized_brightness = tri_attributes->b0;
-    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
+    //u16 quantized_brightness = tri_attributes->b0;
+    //u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
+    f32 b0 = tri_attributes->b1;
+    f32 b1 = tri_attributes->b0;
+    f32 b2 = tri_attributes->b2;
+    f32_vec b0_vec = broadcast_f32_vec(b0);
+    f32_vec b1_vec = broadcast_f32_vec(b1);
+    f32_vec b2_vec = broadcast_f32_vec(b2);
 
 
     int drew_pixel = 0;
@@ -857,13 +948,12 @@ int rasterize_triangle_2x2_quad(
     f32 v2u_over_z = uv2_over_z.x;
     f32 v2v_over_z = uv2_over_z.y;
 
-    int mip_level = tri_attributes->mip_level;
+    int mip_level = tri_attributes->mip_level_or_color;
 
     int tex_width = tex->width>>mip_level;
     int tex_height = tex->height>>mip_level;
     u8* texels = tex->texels[mip_level];
 
-    // 28.4 fixed point
     const i32 x0 = v0.x;
     const i32 y0 = v0.y;
     const i32 x1 = v1.x;
@@ -900,6 +990,11 @@ int rasterize_triangle_2x2_quad(
 
     v2u_over_z = (v2u_over_z-v0u_over_z)*recip_area;
     v2v_over_z = (v2v_over_z-v0v_over_z)*recip_area;
+
+    b1_vec = (b1_vec - b0_vec) * recip_area;
+    b2_vec = (b2_vec - b0_vec) * recip_area;
+
+    
 
     
     // bounding box of triangle (not so good for larger triangles)
@@ -994,6 +1089,8 @@ int rasterize_triangle_2x2_quad(
                     );
                 inv_z_vec = inv_z_vec;
 
+                f32_vec brightness_vec = clamp_f32_vec(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
+
                 i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
                 i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
 
@@ -1003,6 +1100,7 @@ int rasterize_triangle_2x2_quad(
 
 
                     f32_vec z_vec = 1.0f / inv_z_vec;
+                    //f32_vec brightness_vec = brightness_over_z_vec * z_vec;
                                                                 
                     u32 lit_color_qw = parallel_pixel_shader(
                         z_vec,
@@ -1011,7 +1109,8 @@ int rasterize_triangle_2x2_quad(
                         v1u_over_z, v1v_over_z, 
                         v2u_over_z, v2v_over_z,
                         texels, tex_width, tex_height, 
-                        lit_pal_ptr
+                        brightness_vec
+                        //lit_pal_ptr
                     );
                     u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
                     *col_buf_ptr = masked_color;
@@ -1027,224 +1126,12 @@ int rasterize_triangle_2x2_quad(
     return drew_pixel;
 }
 
-/*
-#include "immintrin.h"
-
-int rasterize_triangle_2x2_quad_no_tmap_vector(
-    f32 *zbuffer,
-    transformed_tri* tri_attributes,
-    u8 color,
-    i32 start_x, i32 end_x,
-    i32 start_y, i32 end_y
-) {
-    (void)zbuffer;
-    (void)tri_attributes;
-    (void)color;
-    (void)start_x;
-    (void)end_x;
-    (void)start_y;
-    (void)end_y;
-    return 0;
-
-    // swap everything for first two vertexes (actual vertex positions and attributes)
-    f32 iz0 = tri_attributes->inv_z1;
-    f32 iz1 = tri_attributes->inv_z0;
-    f32 iz2 = tri_attributes->inv_z2;
-    __m512 iz0_vec = _mm512_set1_ps(iz0);
-    __m512 iz1_vec = _mm512_set1_ps(iz1);
-    __m512 iz2_vec = _mm512_set1_ps(iz2);
-    
-
-    vert2i v0 = tri_attributes->proj_v1;
-    vert2i v1 = tri_attributes->proj_v0;
-    vert2i v2 = tri_attributes->proj_v2;
-
-
-    u16 quantized_brightness = tri_attributes->c0;
-    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
-    u8 lit_color = lit_pal_ptr[color];
-
-
-    int drew_pixel = 0;
-
-
-    // 28.4 fixed point
-    const i32 x0 = v0.x;
-    const i32 y0 = v0.y;
-    const i32 x1 = v1.x;
-    const i32 y1 = v1.y;
-    const i32 x2 = v2.x;
-    const i32 y2 = v2.y;
-    //
-    // Edge deltas
-    //
-    const i32 dx01 = x0 - x1;
-    const i32 dy01 = y0 - y1;
-    const i32 dx12 = x1 - x2;
-    const i32 dy12 = y1 - y2;
-    const i32 dx20 = x2 - x0;
-    const i32 dy20 = y2 - y0;
-
-
-    // shift by 4 for subpixel, but double again because we're using 4x4 quad-quad blocks now 
-    const __m512i dy01_shifted_vec = _mm512_set1_epi32(dy01<<6);
-    const __m512i dy12_shifted_vec = _mm512_set1_epi32(dy12<<6);
-    const __m512i dy20_shifted_vec = _mm512_set1_epi32(dy20<<6);
-    const __m512i dx01_shifted_vec = _mm512_set1_epi32(dx01<<6);
-    const __m512i dx12_shifted_vec = _mm512_set1_epi32(dx12<<6);
-    const __m512i dx20_shifted_vec = _mm512_set1_epi32(dx20<<6); 
-
-    //const i32_vec dy01_shifted_vec = broadcast_i32_vec(dy01<<5);
-    //const i32_vec dy12_shifted_vec = broadcast_i32_vec(dy12<<5);
-    //const i32_vec dy20_shifted_vec = broadcast_i32_vec(dy20<<5);
-    //const i32_vec dx01_shifted_vec = broadcast_i32_vec(dx01<<5);
-    //const i32_vec dx12_shifted_vec = broadcast_i32_vec(dx12<<5);
-    //const i32_vec dx20_shifted_vec = broadcast_i32_vec(dx20<<5); 
-
-    i32 area = (dx01 * dy20 - dy01 * dx20);
-    // barycentric weights weights (scaled by area)
-    f32 recip_area = 1.0f / (f32)area;
-    iz1_vec = (iz1_vec-iz0_vec)*recip_area;
-    iz2_vec = (iz2_vec-iz0_vec)*recip_area;
-
-
-    
-    // bounding box of triangle (not so good for larger triangles)
-    i32 minx = MIN(x0, MIN(x1, x2));
-    i32 maxx = MAX(x0, MAX(x1, x2));
-    i32 miny = MIN(y0, MIN(y1, y2)); 
-    i32 maxy = MAX(y0, MAX(y1, y2));
-
-    minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~1; // mask off low bit to align to 2 pixels
-    maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
-    miny = CLAMP((miny + 15) >> 4, start_y, end_y) & ~1; // mask off low bit to align to 2 pixels
-    maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
-
-
-
-    // edge constants, used for incremental edge coverage calculation
-    i32 e01 = dy01 * x0 - dx01 * y0;
-    i32 e12 = dy12 * x1 - dx12 * y1;
-    i32 e20 = dy20 * x2 - dx20 * y2;
-
-    // copy the edge constants into separate variables, so that the fill rule nudge below doesn't affect attribute interpolation (although it would be minor)
-    i32 c01 = e01;
-    i32 c12 = e12;
-    i32 c20 = e20;
-
-    // top left fill rule
-    // ensure that sample positions on a left or top edge are nudged over (to be covered).
-    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
-        c01++;
-    }
-    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
-        c12++;
-    }
-    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
-        c20++;
-    }
-
-    i32 startX = minx << 4;
-    i32 startY = miny << 4;
-    #define FIXED_ONE_PX 16
-
-    i32 startX0 = startX;
-    i32 startX1 = startX + FIXED_ONE_PX;
-    i32 startX2 = startX + FIXED_ONE_PX*2;
-    i32 startX3 = startX + FIXED_ONE_PX*3;
-    i32 startY0 = startY;
-    i32 startY1 = startY + FIXED_ONE_PX;
-    i32 startY2 = startY + FIXED_ONE_PX*2;
-    i32 startY3 = startY + FIXED_ONE_PX*3;
-
-    __m512i cy01_vec = _mm512_set_epi32(
-        c01 + dx01 * startY0 - dy01 * startX0,  c01 + dx01 * startY0 - dy01 * startX1,  c01 + dx01 * startY0- dy01 * startX2, c01 + dx01 * startY0 - dy01 * startX3,
-        c01 + dx01 * startY1 - dy01 * startX0,  c01 + dx01 * startY1 - dy01 * startX1,  c01 + dx01 * startY1 - dy01 * startX2, c01 + dx01 * startY1 - dy01 * startX3,
-        c01 + dx01 * startY2 - dy01 * startX0,  c01 + dx01 * startY2 - dy01 * startX1,  c01 + dx01 * startY2 - dy01 * startX2, c01 + dx01 * startY2 - dy01 * startX3,
-        c01 + dx01 * startY3 - dy01 * startX0,  c01 + dx01 * startY3 - dy01 * startX1,  c01 + dx01 * startY3 - dy01 * startX2, c01 + dx01 * startY3 - dy01 * startX3
-    );
-    __m512i cy12_vec = _mm512_set_epi32(
-        //c12 + dx12 * startY - dy12 * startX, c12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
-        //c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
-        //c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
-
-        c12 + dx12 * startY0 - dy12 * startX0,  c12 + dx12 * startY0 - dy12 * startX1,  c12 + dx12 * startY0 - dy12 * startX2, c12 + dx12 * startY0 - dy12 * startX3,
-        c12 + dx12 * startY1 - dy12 * startX0,  c12 + dx12 * startY1 - dy12 * startX1,  c12 + dx12 * startY1 - dy12 * startX2, c12 + dx12 * startY1 - dy12 * startX3,
-        c12 + dx12 * startY2 - dy12 * startX0,  c12 + dx12 * startY2 - dy12 * startX1,  c12 + dx12 * startY2 - dy12 * startX2, c12 + dx12 * startY2 - dy12 * startX3,
-        c12 + dx12 * startY3 - dy12 * startX0,  c12 + dx12 * startY3 - dy12 * startX1,  c12 + dx12 * startY3 - dy12 * startX2, c12 + dx12 * startY3 - dy12 * startX3
-
-    );
-    __m512i cy20_vec = _mm512_set_epi32(
-        //c20 + dx20 * startY - dy20 * startX, c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
-        //c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX, c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-        c20 + dx20 * startY0 - dy20 * startX0,  c20 + dx20 * startY0 - dy20 * startX1,  c20 + dx20 * startY0 - dy20 * startX2, c20 + dx20 * startY0 - dy20 * startX3,
-        c20 + dx20 * startY1 - dy20 * startX0,  c20 + dx20 * startY1 - dy20 * startX1,  c20 + dx20 * startY1 - dy20 * startX2, c20 + dx20 * startY1 - dy20 * startX3,
-        c20 + dx20 * startY2 - dy20 * startX0,  c20 + dx20 * startY2 - dy20 * startX1,  c20 + dx20 * startY2 - dy20 * startX2, c20 + dx20 * startY2 - dy20 * startX3,
-        c20 + dx20 * startY3 - dy20 * startX0,  c20 + dx20 * startY3 - dy20 * startX1,  c20 + dx20 * startY3 - dy20 * startX2, c20 + dx20 * startY3 - dy20 * startX3
-    );
-
-    __m512i fxptZero = _mm512_set1_epi32(0);
-
-
-    u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
-    __m128i lit_color_128bit = _mm_set1_epi32((int)lit_color_qw);
-    (void)lit_color_128bit;
-
-    for (i32 y = miny; y < maxy; y += 4, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
-        __m512i cx01_vec = cy01_vec;
-        __m512i cx12_vec = cy12_vec;
-        __m512i cx20_vec = cy20_vec;
-
-        int in_tile_y = y-start_y;
-        int in_tile_x = minx-start_x;
-        int tile_idx = (in_tile_y&~3)*RENDER_TILE_SIZE + ((in_tile_x&~3)<<2);
-
-        __m128i *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 16);
-        __m512 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 64);
-
-        for (i32 x = 0; x < (maxx-minx); x += 4, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
-
-            __mmask16 coverage = _mm512_cmplt_epi32_mask(fxptZero, _mm512_or_si512(cx01_vec, _mm512_or_si512(cx12_vec, cx20_vec)));
-
-
-            // skip completely uncovered quads
-            if(coverage == 0) {
-                continue;
-            }
-
-            __m512 old_invz = _mm512_load_ps(zbuf_ptr);
-
-            __m512 w1_vec = _mm512_cvtepi32_ps(cx20_vec);
-            __m512 w2_vec = _mm512_cvtepi32_ps(cx01_vec);
-            __m512 new_invz = (iz0_vec + 
-                                (w1_vec * iz1_vec) +
-                                (w2_vec * iz2_vec));
-
-
-
-            __mmask16 visible = _mm512_cmplt_ps_mask(old_invz, new_invz) & coverage;
-
-            if (visible == 0) {
-                continue;
-            }
-            drew_pixel = 1;
-
-
-            _mm512_mask_storeu_ps(zbuf_ptr, visible, new_invz);
-            _mm_mask_storeu_epi8(col_buf_ptr, visible, lit_color_128bit);
-
-        }
-    }
-    return drew_pixel;
-}
-*/
-
 int rasterize_triangle_2x2_quad_no_tmap(
     u16 *zbuffer,
     transformed_tri* tri_attributes,
     i32 start_x, i32 end_x, i32 start_y, i32 end_y
 ) {
-    u8 color = tri_attributes->color;
+    u8 color = tri_attributes->mip_level_or_color;
     // swap everything for first two vertexes (actual vertex positions and attributes)
     f32 iz0 = tri_attributes->inv_z1;
     f32 iz1 = tri_attributes->inv_z0;
@@ -1258,10 +1145,18 @@ int rasterize_triangle_2x2_quad_no_tmap(
     vert2i v2 = tri_attributes->proj_v2;
 
 
-    u8 quantized_brightness = tri_attributes->b0;
-    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
-    u8 lit_color = lit_pal_ptr[color];
-    u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
+    //u8 quantized_brightness = tri_attributes->b0;
+    //u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
+    //u8 lit_color = lit_pal_ptr[color];
+    //u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
+
+    f32 b0 = tri_attributes->b1;
+    f32 b1 = tri_attributes->b0;
+    f32 b2 = tri_attributes->b2;
+    f32_vec b0_vec = broadcast_f32_vec(b0);
+    f32_vec b1_vec = broadcast_f32_vec(b1);
+    f32_vec b2_vec = broadcast_f32_vec(b2);
+
 
     int drew_pixel = 0;
 
@@ -1297,6 +1192,8 @@ int rasterize_triangle_2x2_quad_no_tmap(
     iz1_vec = (iz1_vec-iz0_vec)*recip_area;
     iz2_vec = (iz2_vec-iz0_vec)*recip_area;
 
+    b1_vec = (b1_vec - b0_vec) * recip_area;
+    b2_vec = (b2_vec - b0_vec) * recip_area;
 
     
     // bounding box of triangle (not so good for larger triangles)
@@ -1391,6 +1288,9 @@ int rasterize_triangle_2x2_quad_no_tmap(
                                 (w1_vec * iz1_vec) +
                                 (w2_vec * iz2_vec));
 
+            f32_vec brightness_vec = clamp_f32_vec(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
+
+
             i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
             i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
 
@@ -1398,170 +1298,23 @@ int rasterize_triangle_2x2_quad_no_tmap(
 
             if(mask_bytes != 0) {
                 drew_pixel = 1;
+                //f32_vec z_vec = 1.0f / inv_z_vec;
+                //f32_vec brightness_vec = brightness_over_z_vec * z_vec;
+                u8 *lit_pal_ptr0 = full_light_remap_table[(u8)(brightness_vec[0])];
+                u8 *lit_pal_ptr1 = full_light_remap_table[(u8)(brightness_vec[1])];
+                u8 *lit_pal_ptr2 = full_light_remap_table[(u8)(brightness_vec[2])];
+                u8 *lit_pal_ptr3 = full_light_remap_table[(u8)(brightness_vec[3])];
+                u8 lit_color0 = lit_pal_ptr0[color];
+                u8 lit_color1 = lit_pal_ptr1[color];
+                u8 lit_color2 = lit_pal_ptr2[color];
+                u8 lit_color3 = lit_pal_ptr3[color];
+                u32 lit_color_qw = ((u32)lit_color0<<24)|((u32)lit_color1<<16)|((u32)lit_color2<<8)|(u32)lit_color3;
+
 
                 u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
                 *col_buf_ptr = masked_color;
 
                 f32_vec new_zbuf_vec = (f32_vec)((in_tri_and_unoccluded & (i32_vec)inv_z_vec) | ((~in_tri_and_unoccluded) & (i32_vec)zbuf_val_vec));
-                
-                *zbuf_ptr = encode_float_inv_z_vec(new_zbuf_vec);
-            }
-        }
-    }
-    return drew_pixel;
-}
-
-
-int rasterize_trivial_triangle_2x2_quad_no_tmap(
-    u16 *zbuffer,
-    transformed_tri* tri_attributes,
-    i32 start_x, i32 end_x, i32 start_y, i32 end_y
-) {
-
-    u8 color = tri_attributes->color;
-    // swap everything for first two vertexes (actual vertex positions and attributes)
-    f32 iz0 = tri_attributes->inv_z1;
-    f32 iz1 = tri_attributes->inv_z0;
-    f32 iz2 = tri_attributes->inv_z2;
-
-    f32_vec iz0_vec = broadcast_f32_vec(iz0);
-    f32_vec iz1_vec = broadcast_f32_vec(iz1);
-    f32_vec iz2_vec = broadcast_f32_vec(iz2);
-
-    vert2i v0 = tri_attributes->proj_v1;
-    vert2i v1 = tri_attributes->proj_v0;
-    vert2i v2 = tri_attributes->proj_v2;
-
-
-
-    u16 quantized_brightness = tri_attributes->b0;
-    u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
-    u8 lit_color = lit_pal_ptr[color];
-
-
-    int drew_pixel = 0;
-
-
-    // 28.4 fixed point
-    const i32 x0 = v0.x;
-    const i32 y0 = v0.y;
-    const i32 x1 = v1.x;
-    const i32 y1 = v1.y;
-    const i32 x2 = v2.x;
-    const i32 y2 = v2.y;
-    //
-    // Edge deltas
-    //
-    const i32 dx01 = x0 - x1;
-    const i32 dy01 = y0 - y1;
-    const i32 dx12 = x1 - x2;
-    const i32 dy12 = y1 - y2;
-    const i32 dx20 = x2 - x0;
-    const i32 dy20 = y2 - y0;
-
-    const i32_vec dy01_shifted_vec = broadcast_i32_vec(dy01<<5);
-    const i32_vec dy20_shifted_vec = broadcast_i32_vec(dy20<<5);
-    const i32_vec dx01_shifted_vec = broadcast_i32_vec(dx01<<5);
-    const i32_vec dx20_shifted_vec = broadcast_i32_vec(dx20<<5); // shift by 4 for subpixel, but double again because we're using 2x2 quad blocks now 
-
-
-    i32 area = (dx01 * dy20 - dy01 * dx20);
-    // barycentric weights weights (scaled by area)
-    f32 recip_area = 1.0f / (f32)area;
-    iz1_vec = (iz1_vec-iz0_vec)*recip_area;
-    iz2_vec = (iz2_vec-iz0_vec)*recip_area;
-
-
-    
-    // bounding box of triangle (not so good for larger triangles)
-    i32 minx = MIN(x0, MIN(x1, x2));
-    i32 maxx = MAX(x0, MAX(x1, x2));
-    i32 miny = MIN(y0, MIN(y1, y2)); 
-    i32 maxy = MAX(y0, MAX(y1, y2));
-
-    minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~1; // mask off low bit to align to 2 pixels
-    maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
-    miny = CLAMP((miny + 15) >> 4, start_y, end_y) & ~1; // mask off low bit to align to 2 pixels
-    maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
-
-
-
-    // edge constants, used for incremental edge coverage calculation
-    i32 c01 = dy01 * x0 - dx01 * y0;
-    i32 c12 = dy12 * x1 - dx12 * y1;
-    i32 c20 = dy20 * x2 - dx20 * y2;
-
-    // top left fill rule
-    // ensure that sample positions on a left or top edge are nudged over (to be covered).
-    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
-        c01++;
-    }
-    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
-        c12++;
-    }
-    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
-        c20++;
-    }
-
-    i32 startX = minx << 4;
-    i32 startY = miny << 4;
-    #define FIXED_ONE_PX 16
-
-    i32_vec cy01_vec = (i32_vec){
-        c01 + dx01 * startY - dy01 * startX,
-        c01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
-        c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
-        c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    };
-    i32_vec cy20_vec = (i32_vec){
-        c20 + dx20 * startY - dy20 * startX,
-        c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
-        c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
-        c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    };
-
-
-    u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
-
-    for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy20_vec += dx20_shifted_vec) {
-        i32_vec cx01_vec = cy01_vec;
-        i32_vec cx20_vec = cy20_vec;
-
-        int in_tile_y = y-start_y;
-        int in_tile_x = minx-start_x;
-        int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
-
-        u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
-        u16_vec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
-
-        for (i32 x = 0; x < (maxx-minx); x += 2, cx01_vec -= dy01_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
-
-
-
-            // skip completely uncovered quads
-            u32 cbuf_val = *col_buf_ptr;
-            u16_vec zbuf_val_vec_u16 = *zbuf_ptr;
-            f32_vec zbuf_val_vec = decode_u16_inv_z_vec(zbuf_val_vec_u16);
-
-            f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
-            f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
-            f32_vec inv_z_vec = (iz0_vec + 
-                                (w1_vec * iz1_vec) +
-                                (w2_vec * iz2_vec));
-
-            i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
-
-            u32 mask_bytes = i32_vec_extract_bytes(unoccluded);
-
-            if(mask_bytes != 0) {
-                drew_pixel = 1;
-
-                u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
-                *col_buf_ptr = masked_color;
-
-
-                f32_vec new_zbuf_vec = (f32_vec)((unoccluded & (i32_vec)inv_z_vec) | ((~unoccluded) & (i32_vec)zbuf_val_vec));
-
                 
                 *zbuf_ptr = encode_float_inv_z_vec(new_zbuf_vec);
             }
@@ -2309,6 +2062,7 @@ typedef struct {
     i32 discard_click_frames[MAX_DISCARDS];
     int discard_from_hand_idx[MAX_DISCARDS];
     int in_riichi;
+    int num_tenbou[4];
 } hand;
 
 #define TILES_IN_DECK 136
@@ -2355,6 +2109,10 @@ hand init_hand() {
     return h;
 }
 
+// 1 10,000 stick (RED)
+// 2 5,000 sticks (GOLD)
+// 4 1,000 sticks (BLUE)
+// ten 100 sticks (WHITE)
 hand init_empty_hand() {
     hand h;
     h.num_open_tiles = 0; 
@@ -2362,6 +2120,10 @@ hand init_empty_hand() {
     h.num_discards = 0;
     h.selected_tile_idx = -1;
     h.in_riichi = 0;
+    h.num_tenbou[0] = 1;
+    h.num_tenbou[1] = 2;
+    h.num_tenbou[2] = 4;
+    h.num_tenbou[3] = 10;
 
     return h;
 }
@@ -2409,7 +2171,7 @@ int cur_player = 0;
 tile_type shuffled_deck[TILES_IN_DECK];
 int switch_player_timer = -1;
 i32 draw_end_frame = 0;
-int cur_dealer = 0;
+int cur_dealer = -1;
 
 game_wind cur_wind = EAST_WIND;
 
@@ -2703,7 +2465,7 @@ ma_device sound_device;
 
 void game_load(ExotiqueInterface* ei) {
     cur_game_state = STARTUP;
-    cur_dealer = 0;
+    cur_dealer = -1;
     num_active_sounds = 0;
     
     ma_config = ma_device_config_init(ma_device_type_playback);
@@ -2720,13 +2482,13 @@ void game_load(ExotiqueInterface* ei) {
     
     ma_result dev_init_res = ma_device_init(NULL_PTR, &ma_config, &sound_device);
     if (dev_init_res != MA_SUCCESS) {
-        exotique_printf("wtf %i\n", dev_init_res);
+        exotique_printf("miniaudio failed to init %i\n", dev_init_res);
         return;  // Failed to initialize the device.
     }
     
     ma_result dev_start_res = ma_device_start(&sound_device);     // The device is sleeping by default so you'll need to start it manually.
     if(dev_start_res != MA_SUCCESS) {
-        exotique_printf("wtf %i\n", dev_start_res);
+        exotique_printf("miniaudio failed to init %i\n", dev_start_res);
         return;
     }
     
@@ -2768,7 +2530,6 @@ void game_load(ExotiqueInterface* ei) {
             }
         }
     }
-    //exotique_printf("last used pal idx %i\n", last_used_pal_idx);
 
 
     // load background texture entries into palette
@@ -2821,15 +2582,15 @@ void game_load(ExotiqueInterface* ei) {
 
 vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx);
 
-void step_shuffle_and_setup(u32 cur_frame, wall* w, PlayerInput* inp) {
+void step_shuffle_and_setup(u32 cur_frame, wall* w) {
     if((cur_frame&7) != 7) {
         return;
     }
     if(w->rem == TILES_IN_DECK) {
         if(w->tile_fall_frames[w->rem-1]+get_frames_for_duration(TILE_FALL_DURATION) <= cur_frame) {
-            if(inp->a) {
+            //if(inp->a) {
                 cur_game_state = DEALING;
-            }
+            //}
         }
     } else {
         w->tile_fall_frames[w->rem] = cur_frame;
@@ -2850,6 +2611,79 @@ void step_shuffle_and_setup(u32 cur_frame, wall* w, PlayerInput* inp) {
             w->tile_click_frames[i] = -1;
         }
     }
+}
+
+
+#define ACTIONS             \
+    X(MOVE_SELECTED_LEFT)   \
+    X(MOVE_SELECTED_RIGHT)  \
+    X(SORT_HAND)            \
+    X(ATTEMPT_CALL)         \
+    X(ATTEMPT_DRAW)         \
+    X(ATTEMPT_DISCARD)      \
+    X(ATTEMPT_RIICHI)
+
+typedef enum {
+#define X(a) a,
+    ACTIONS
+#undef X
+} player_action_type;
+
+const char* action_names[] = {
+#define X(a) #a,
+    ACTIONS
+#undef X
+};
+
+typedef struct {
+    int player_num;
+    player_action_type cmd;
+} player_action;
+
+player_action make_player_action(int player_num, player_action_type cmd) {
+    return (player_action){player_num, cmd};
+}
+
+#define MAX_PLAYER_EVENTS 128
+player_action action_queue[MAX_PLAYER_EVENTS];
+int queue_head = 0;
+int queue_tail = 0;
+
+// 0-0 -> no events
+// 0-1 -> 1 event
+// 0-2 -> 2 events
+// 0-3 -> 3 events
+// 0-4 -> 4 events
+
+int queue_full() {
+    return (queue_tail - queue_head) == MAX_PLAYER_EVENTS;
+}
+int queue_empty() {
+    return (queue_tail - queue_head) == 0;
+}
+player_action queue_peek() {
+    return action_queue[queue_tail&(MAX_PLAYER_EVENTS-1)];
+}
+
+void exit(int);
+
+player_action queue_pop() {
+    if(queue_empty()) {
+        exotique_printf("ACTION QUEUE UNDERFLOW!\n");
+        exit(1);
+    }
+    player_action act = queue_peek();
+    queue_tail++;
+    return act;
+}
+
+void queue_push(player_action act) {
+    if(queue_full()) {
+        exotique_printf("ACTION QUEUE OVERFLOW!\n");
+        exit(1);
+    }
+    action_queue[queue_head&(MAX_PLAYER_EVENTS-1)] = act;
+    queue_head++;
 }
 
 void sort_hand(hand* h) {
@@ -2944,9 +2778,6 @@ typedef enum {
 
 #define AI_PLAYER_SPEED 0.192f
 
-u32 ai_player_next_move_frame = 0;
-ai_state ai_player_state = UNMOVED;
-
 tile_type player_winds[4] = {
     EAST, NORTH, WEST, SOUTH 
 };
@@ -3026,57 +2857,44 @@ int get_best_discard(int player, hand* h) {
     return h->num_closed_tiles-2;
 }
 
-void reset_ai_player_state(u32 cur_frame) {
-    //exotique_printf("resetting ai player state\n");
-    ai_player_next_move_frame = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
-    ai_player_state = UNMOVED;
+
+u32 ai_player_next_move_frames[4] = {0, 24, 36, 52};
+ai_state ai_player_states[4] = {UNMOVED, UNMOVED, UNMOVED, UNMOVED};
+
+void reset_ai_player_state(int idx, u32 cur_frame) {
+    ai_player_next_move_frames[idx] = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
+    ai_player_states[idx] = UNMOVED;
 }
 
-void run_ai_player(int player, hand* h, u32 cur_frame, int can_move) {
-    // we now the hand is sorted
+void run_ai_player(int player, hand* h, u32 cur_frame, int this_player_turn) {
+    // we know the hand is sorted
     // just drop the last tile before the one we just drew lol
-    if(cur_frame > ai_player_next_move_frame && can_move) {
-        ai_player_next_move_frame = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
+    if(cur_frame > ai_player_next_move_frames[player]) {
+        ai_player_next_move_frames[player] = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
         int best_discard = get_best_discard(player, h);
-        // make move
-        switch(ai_player_state) {
-            case UNMOVED:
-                if(h->selected_tile_idx == best_discard) {
-                    ai_player_state = MOVED;
-                } else {
-                    int right = (best_discard + h->num_closed_tiles - h->selected_tile_idx) % h->num_closed_tiles;
-                    int left = (h->selected_tile_idx + h->num_closed_tiles - best_discard) % h->num_closed_tiles;
-                    if(left < right) {
-                        h->selected_tile_idx--;
-                    } else {
-                        h->selected_tile_idx++;
-                    }
-                    add_sound(
-                        TILE_CLICK, 0.125f
-                    );
-                    if(h->selected_tile_idx < 0) {
-                        h->selected_tile_idx = h->num_closed_tiles-1;
-                    } else if (h->selected_tile_idx >= h->num_closed_tiles) {
-                        h->selected_tile_idx = 0;
-                    }
+        if(this_player_turn && h->selected_tile_idx == best_discard) {
+            if(h->num_closed_tiles + h->num_open_tiles == 14) {
+                if(cur_frame > (u32)draw_end_frame) {
+                    queue_push(make_player_action(player, ATTEMPT_DISCARD));
                 }
-                break;
-            case MOVED:                
-                //exotique_printf("ai player %i discarding %i of %i\n", player, h->selected_tile_idx, h->num_closed_tiles);
-                discard_current_tile(player, cur_frame);
-                switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
-                reset_ai_player_state(cur_frame);
-                break;
-            default:
-                break;
-            
+            } else {
+                queue_push(make_player_action(player, ATTEMPT_DRAW));   
+            }
+        } else {
+            int right = (best_discard + h->num_closed_tiles - h->selected_tile_idx) % h->num_closed_tiles;
+            int left = (h->selected_tile_idx + h->num_closed_tiles - best_discard) % h->num_closed_tiles;
+            if(left < right) {
+                queue_push(make_player_action(player, MOVE_SELECTED_LEFT));
+            } else if(right < left) {
+                queue_push(make_player_action(player, MOVE_SELECTED_RIGHT));
+            }
         }
     }
 }
 
 f32 wall_offsets_x[4] = {17.0f, 0.0f, -17.0f, 0.0f};
 f32 wall_offsets_z[4] = {0.0f, 17.0f, 0.0, -17.0f};
-f32 wall_rots_y[4] = {(f32)M_PI * 0.5f, 0.0f, -(f32)M_PI * 0.5f, (f32)M_PI};
+f32 wall_y_rots[4] = {(f32)M_PI * 0.5f, 0.0f, -(f32)M_PI * 0.5f, (f32)M_PI};
 
 static u64 ms_per_frame;
 static u64 prev_frame_ticks = 0;  
@@ -3311,10 +3129,10 @@ int attempt_riichi(int player) {
     return 0;
 }
 
+
+
 void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
 
-    hand* cur_player_hand = &game_board.hands[cur_player];
-    hand* human_hand = &game_board.hands[0];
 
     int held_y = ei->input->y;
     int held_x = ei->input->x;
@@ -3324,30 +3142,22 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
     int pushed_x = held_x && !last_x_pushed;
     int pushed_a = held_a && !last_a_pushed;
     int pushed_b = held_b && !last_b_pushed;
-    (void)pushed_b;
     
 
     int switching = (switch_player_timer != -1);
-    int can_discard = !switching && cur_frame >= (u32)draw_end_frame && draw_end_frame != -1;
     if(switching) {
         switch_player_timer--;
         if(switch_player_timer == 0) {
             cur_player += 1;
             cur_player &= 3;
-            if(cur_player != 0) {
-                // TODO: note AUTO DRAW FOR CPU PLAYERS, NO CALLING TIME
-                draw_end_frame = (i32)draw_next_tile(cur_frame, cur_player);
-            } else {
-                draw_end_frame = -1;
-            }
-            //printf("setting draw end frame %i\n", )
-            camera_rot_y = DEFAULT_CAM_ROT_Y;
-            //camera_rot_x = DEFAULT_CAM_ROT_X;
+            draw_end_frame = -1;
+
             switch_player_timer = -1;
         }
     }
     if(pushed_y) {
-        sort_hand(human_hand);
+        //sort_hand(cur_player_hand);
+        queue_push(make_player_action(0, SORT_HAND));
     }
 
 
@@ -3357,97 +3167,144 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
     // you haven't started drawing yet
     if(pushed_x && last_discard_player != 0 && (cur_player != 0 || (draw_end_frame == -1))) {
         // allow a call if either the 
-        call_type can_call = attempt_call(&game_board, 0);
-        if(can_call != NO_CALL) {
-            add_sound(
-                call_sounds[can_call],
-                0.125f
-                //location
-            );
-            sort_last_three_open_tiles_based_on_player_order(human_hand, 0);
-            cur_player = 0;
-            switch_player_timer = -1;
-            return;
-        }
+        queue_push(make_player_action(cur_player, ATTEMPT_CALL));        
     }
 
 
     if(cur_player == 0) {
 
         if(ei->input->left && !last_left_pushed) {
-        //    camera_rot_y += 0.006f;
-            cur_player_hand->selected_tile_idx--;
-            add_sound(
-                TILE_CLICK,
-                0.085f
-                //cam_pos
-            );
+            queue_push(make_player_action(cur_player, MOVE_SELECTED_LEFT));
         } else if (ei->input->right && !last_right_pushed) {
-        //    camera_rot_y -= 0.006f;
-            cur_player_hand->selected_tile_idx++;
-            add_sound(
-                TILE_CLICK,
-                0.085f
-                //cam_pos
-            );
-        } 
-        if(cur_player_hand->selected_tile_idx < 0) {
-            cur_player_hand->selected_tile_idx = cur_player_hand->num_closed_tiles-1;
-        } else if (cur_player_hand->selected_tile_idx >= cur_player_hand->num_closed_tiles) {
-            cur_player_hand->selected_tile_idx = 0;
-        } else {
-            if(pushed_a) {
+            queue_push(make_player_action(cur_player, MOVE_SELECTED_RIGHT));
+        }
+
+        if(pushed_a) {
+            queue_push(make_player_action(cur_player, ATTEMPT_DRAW));
+        }
+        if(pushed_b) {
+            queue_push(make_player_action(cur_player, ATTEMPT_DISCARD));
+        }
+        if (pushed_y) {
+            queue_push(make_player_action(cur_player, ATTEMPT_RIICHI));
+        }
+    } else {
+    }
+    for(int i = 1; i < 4; i++) {
+        run_ai_player(i, &game_board.hands[i], cur_frame, (cur_player == i));
+    }
+
+    //process_action_queue();
+    while(!queue_empty()) {
+        player_action action = queue_pop();
+        exotique_printf("got action %s from player %i\n", action_names[action.cmd], action.player_num);
+        int this_player = action.player_num;
+
+        
+        int draw_not_started = draw_end_frame == -1;
+        int draw_started = !draw_not_started;
+        int this_players_turn = cur_player == this_player;
+
+        // if switching, we can do a call, but nothing else
+        int can_draw = !switching && this_players_turn && draw_not_started;
+        int can_discard = !switching && this_players_turn && cur_frame >= (u32)draw_end_frame && draw_started;
+
+
+        hand *player_hand = &game_board.hands[action.player_num];
+
+        switch(action.cmd) {
+            case MOVE_SELECTED_LEFT:
+                player_hand->selected_tile_idx--;
+                if(player_hand->selected_tile_idx < 0) {
+                    player_hand->selected_tile_idx = player_hand->num_closed_tiles-1;
+                }            
+                add_sound(
+                    TILE_CLICK,
+                    0.085f
+                    //cam_pos
+                );
+                break;
+            case MOVE_SELECTED_RIGHT:
+                player_hand->selected_tile_idx++;
+                if (player_hand->selected_tile_idx >= player_hand->num_closed_tiles) {
+                    player_hand->selected_tile_idx = 0;
+                }            
+                add_sound(
+                    TILE_CLICK,
+                    0.085f
+                    //cam_pos
+                );
+                break;
+            case ATTEMPT_DRAW:
+                exotique_printf("can draw %i, switching %i, this players turn %i, draw_not_started %i, draw_end_frame %i\n", can_draw, switching, this_players_turn, draw_not_started, draw_end_frame);
+                if(can_draw) {
+                    draw_end_frame = (i32)draw_next_tile(cur_frame, cur_player);
+                }
+                break;
+            case ATTEMPT_DISCARD:
                 if(can_discard) {
                     discard_current_tile(cur_player, cur_frame);
                     switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
-                    reset_ai_player_state(cur_frame);
-                } else if (draw_end_frame == -1) {
-                    draw_end_frame = (i32)draw_next_tile(cur_frame, cur_player);
+                    reset_ai_player_state(1, cur_frame);
+                    reset_ai_player_state(2, cur_frame);
+                    reset_ai_player_state(3, cur_frame);
                 }
-            } else if (pushed_y) {
-                if(can_discard && attempt_riichi(cur_player)) {
-                    discard_current_tile(cur_player, cur_frame);
+                break;
+            case SORT_HAND:
+                sort_hand(player_hand);
+                break;
+            case ATTEMPT_CALL: do {
+                    // you can if
+                    // the last discard WASNT YOU
+                    // and either
+                    // the current player ISNT YOU
+                    // OR
+                    // it IS YOU, but you haven't drawn yet
+                    if(last_discard_player != this_player && (cur_player != this_player || (draw_end_frame == -1))) {
+                        call_type can_call = attempt_call(&game_board, this_player);
+                        if(can_call != NO_CALL) {
+                            add_sound(
+                                call_sounds[can_call],
+                                0.125f
+                                //location
+                            );
+                            sort_last_three_open_tiles_based_on_player_order(player_hand, this_player);
+                            cur_player = this_player;
+                            switch_player_timer = -1;
+                            // bail out so that the player switch code can run before we continue to process events here 
+                            return;
+                        }
+                    }
+                } while(0);
+                break;
+            case ATTEMPT_RIICHI: 
+                if(can_discard && attempt_riichi(this_player)) {
+                    discard_current_tile(this_player, cur_frame);
                     switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
-                    reset_ai_player_state(cur_frame);
+                    reset_ai_player_state(1, cur_frame);
+                    reset_ai_player_state(2, cur_frame);
+                    reset_ai_player_state(3, cur_frame);
                 }
-            }
+                break;
+            default:
+                exotique_printf("Unhandled event type\n");
+                break;
         }
-    } else {
-        run_ai_player(cur_player, cur_player_hand, cur_frame, can_discard);
     }
-
-
-        
-    
 }
 
 void game_update(ExotiqueInterface* ei) {
-    u64 cur_frame_ticks = ei->ticks;
 
-    u64 prev_ms_per_frame = ms_per_frame;
-    ms_per_frame = cur_frame_ticks - prev_frame_ticks;
-
-    if((frame & 63) == 0) {
-        exotique_printf("%.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
-    }
-
-    prev_frame_ticks = cur_frame_ticks;
-    static int init;
-    if(frame > 2) {
-        if(!init) {
-            bench_frame_ms = ms_per_frame;
-        }
-        init = 1;
-    }
 
     int cur_start_pushed = ei->input->start;
-    if(cur_start_pushed && !last_start_pushed) {
-        paused = !paused;
-    }
+    int cur_select_pushed = ei->input->select;
+    //if(cur_start_pushed && !last_start_pushed) {
+    //    paused = !paused;
+    //}
+
     last_start_pushed = cur_start_pushed;
 
-    f32 abs_cam_rot_y = wall_rots_y[0];
-
+    f32 abs_cam_rot_y = wall_y_rots[0];
 
     camera_rot_x = CLAMP(camera_rot_x, 0.0f, 1.568f);
     f32 use_camera_rot_x = camera_rot_x; //(ei->input->x ? 1.568f : camera_rot_x);
@@ -3466,19 +3323,18 @@ void game_update(ExotiqueInterface* ei) {
 
     light = normalize(mat_mul_vert3(&rot, &forward));
     
-    if(paused) {
-        return;
-    }
-    int cur_select_pushed = ei->input->select;
+    //if(paused) {
+    //    return;
+    //}
+
     if(cur_select_pushed && !last_select_pushed) {
         reset_game(ei);
     }
-    last_select_pushed = cur_select_pushed;
     switch(cur_game_state) {
         case STARTUP:
             break;
         case INITIAL_SHUFFLE_AND_SETUP:
-            step_shuffle_and_setup(frame, &game_board.board_wall, ei->input);
+            step_shuffle_and_setup(frame, &game_board.board_wall);
             break;
         case DEALING:
             step_deal(frame);
@@ -3492,10 +3348,13 @@ void game_update(ExotiqueInterface* ei) {
     }
     
     frame++;
+    last_select_pushed = cur_select_pushed;
     last_left_pushed = ei->input->left;
     last_right_pushed = ei->input->right;
     last_x_pushed = ei->input->x;
     last_y_pushed = ei->input->y;
+    last_a_pushed = ei->input->a;
+    last_b_pushed = ei->input->b;
 }
 
 f32 board_min_y, board_max_y;
@@ -3583,20 +3442,7 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
         );
 
     }
-    /*
-    u32 num_trivial_solid_tris = t->num_trivial_solid_triangles;
-    for(i = 0; i < num_trivial_solid_tris; i++) {
-        u32 global_tri_idx = t->trivial_solid_tri_indexes[i];
-        //drew_pix = 
-        rasterize_trivial_triangle_2x2_quad_no_tmap(
-            zbuffer,
-            &global_tri_buffer[global_tri_idx],
-            global_tri_buffer[global_tri_idx].color,
-            t->start_x, t->start_x+RENDER_TILE_SIZE,
-            t->start_y, t->start_y+RENDER_TILE_SIZE
-        );
-    }
-    */
+
 
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tex_tri_indexes[i];
@@ -3697,16 +3543,12 @@ int triangles_rasterized;
 void bin_triangle(
     vert3f *v0, vert3f *v1, vert3f *v2,
     vert2f *v0_uv, vert2f *v1_uv, vert2f *v2_uv,
-    u8 b0, u8 b1, u8 b2,
+    f32 b0, f32 b1, f32 b2,
     u8 texture_id) {
 
         if(total_triangles == MAX_GLOBAL_TRIS) {
             return;
         }
-
-        f32 inv_z0 = 1.0f/v0->z;
-        f32 inv_z1 = 1.0f/v1->z;
-        f32 inv_z2 = 1.0f/v2->z;
 
         f32 minx = MIN(v0->x, MIN(v1->x, v2->x));
         f32 maxx = MAX(v0->x, MAX(v1->x, v2->x));
@@ -3728,10 +3570,8 @@ void bin_triangle(
         // only texturemap if there is a difference in U and V over the triangle
         // we only have two models, and the only textured face is mapped over a 2d area (so it changes in both U and V)
         // TODO: implement this with materials instead of this hack
-        u8 no_tmap = ((f32s_equal(v0_uv->x, v1_uv->x) &&
-         f32s_equal(v0_uv->x, v2_uv->x)) ||
-        (f32s_equal(v0_uv->y, v1_uv->y) &&
-         f32s_equal(v0_uv->y, v2_uv->y)));
+        u8 no_tmap = ((f32s_equal(v0_uv->x, v1_uv->x) &&f32s_equal(v0_uv->x, v2_uv->x)) ||
+                      (f32s_equal(v0_uv->y, v1_uv->y) && f32s_equal(v0_uv->y, v2_uv->y)));
 
         int rasterized_at_least_once = 0;
         for(int y = tile_start_y; y <= tile_end_y; y++) {
@@ -3755,7 +3595,7 @@ void bin_triangle(
                     tiles[y*TILES_WIDE+x].tex_tri_indexes[num_tex_tris_in_tile++] = total_triangles;
                     tiles[y*TILES_WIDE+x].num_tex_triangles = num_tex_tris_in_tile;
                 }
-                //triangles_rasterized++;
+                triangles_rasterized++;
             }
         }
         if(rasterized_at_least_once) {
@@ -3772,9 +3612,10 @@ void bin_triangle(
             uv1.y = 1.0f-uv1.y;
             uv2.y = 1.0f-uv2.y;
 
-            vert2f uv0_over_z = {uv0.x * inv_z0, uv0.y * inv_z0};
-            vert2f uv1_over_z = {uv1.x * inv_z1, uv1.y * inv_z1};
-            vert2f uv2_over_z = {uv2.x * inv_z2, uv2.y * inv_z2};
+            f32 inv_z0 = 1.0f/v0->z;
+            f32 inv_z1 = 1.0f/v1->z;
+            f32 inv_z2 = 1.0f/v2->z;
+
 
 
             u8 mip_level = 1;
@@ -3819,7 +3660,6 @@ void bin_triangle(
             global_tri_buffer[total_triangles].b0 = b0;
             global_tri_buffer[total_triangles].b1 = b1;
             global_tri_buffer[total_triangles].b2 = b2;
-            global_tri_buffer[total_triangles].mip_level = mip_level;
 
             if(no_tmap) {
                 texture tex = textures[texture_id];
@@ -3832,17 +3672,21 @@ void bin_triangle(
                 u8 tex_pal_idx = texels[int_v*tex.width+int_u];
 
 
-                global_tri_buffer[total_triangles].color = tex_pal_idx;
+                global_tri_buffer[total_triangles].mip_level_or_color = tex_pal_idx;
             } else {
+                vert2f uv0_over_z = {uv0.x * inv_z0, uv0.y * inv_z0};
+                vert2f uv1_over_z = {uv1.x * inv_z1, uv1.y * inv_z1};
+                vert2f uv2_over_z = {uv2.x * inv_z2, uv2.y * inv_z2};
                 global_tri_buffer[total_triangles].uv0_over_z = uv0_over_z;
                 global_tri_buffer[total_triangles].uv1_over_z = uv1_over_z;
                 global_tri_buffer[total_triangles].uv2_over_z = uv2_over_z;
+                global_tri_buffer[total_triangles].tex = texture_id;
+                global_tri_buffer[total_triangles].mip_level_or_color = mip_level;
             }
             
             global_tri_buffer[total_triangles].inv_z0 = inv_z0;
             global_tri_buffer[total_triangles].inv_z1 = inv_z1;
-            global_tri_buffer[total_triangles].inv_z2 = inv_z2;
-            global_tri_buffer[total_triangles++].tex = texture_id;
+            global_tri_buffer[total_triangles++].inv_z2 = inv_z2;
         }
 }
 
@@ -3866,7 +3710,7 @@ typedef struct {
 typedef struct {
     u8 v0_cache_idx, v1_cache_idx, v2_cache_idx;
 } tri_cache_idxs; 
-tri_cache_idxs tris_to_shade[16];
+tri_cache_idxs tris_to_shade[VCACHE_SIZE];
 
 vert_cache_soa vert_cache;
 i16 vert_cache_tags[VCACHE_SIZE];
@@ -3924,9 +3768,9 @@ void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, con
 
     f32 c0 = CLAMP(l0, 0.0f, 1.0f);
     f32 diffuse = CLAMP(c0, 0.0f, 1.0f);
-    f32 quantized_brightness = (diffuse * (NUM_SHADES-1));
+    f32 scaled_brightness = (diffuse * (NUM_SHADES-1));
 
-    vert_cache.brightness[cache_tag_idx] = quantized_brightness;
+    vert_cache.brightness[cache_tag_idx] = scaled_brightness;
     vert_cache.rotv[cache_tag_idx] = proj_vert;
     vert_cache.uv[cache_tag_idx] = in_vert->uv;
 }
@@ -3975,11 +3819,11 @@ void process_vertex_batch(const int batch_tag_idx,
 
     f32_vec c0 = f32_vec_clamp(l0, 0.0f, 1.0f);
     f32_vec diffuse = f32_vec_clamp(c0, 0.0f, 1.0f);
-    f32_vec quantized_brightness = (diffuse * (NUM_SHADES-1));
+    f32_vec scaled_brightness = (diffuse * (NUM_SHADES-1));
 
     // we can load 
     for(int i = 0; i < 4; i++) {
-        vert_cache.brightness[batch_tag_idx+i] = (quantized_brightness[i]);
+        vert_cache.brightness[batch_tag_idx+i] = scaled_brightness[i]; //(quantized_brightness[i]);
         vert_cache.rotv[batch_tag_idx+i] = s0[i];
         vert_cache.uv[batch_tag_idx+i] = vert_uvs[i];
     }
@@ -4015,7 +3859,8 @@ void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream
         );
     }
 }
-
+int vcache_misses;
+int vcache_hits;
 void submit_mesh_draw_call(mesh_draw_call* mdc) {
     const obj_mesh *m = mdc->mesh;
     matrix *model_to_view = &mdc->model_to_view;
@@ -4031,7 +3876,7 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
     while(tri < tri_count) {
         vcache_reset();
         int start_tri = tri;
-        while(vcache_rem() >= 3 && tri < tri_count && (tri - start_tri) < 16) {
+        while(vcache_rem() >= 3 && tri < tri_count && (tri - start_tri) < VCACHE_SIZE) {
             int idx = tri*3;
             i16 v0_idx = (i16)m->indexStream[idx+0];
             i16 v1_idx = (i16)m->indexStream[idx+1];
@@ -4039,14 +3884,23 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
             i32 v0_cache_idx = vcache_lookup(v0_idx);
             if(v0_cache_idx == -1) {
                 v0_cache_idx = vcache_insert_tag(v0_idx);
+                vcache_misses++;
+            } else {
+                vcache_hits++;
             }
             i32 v1_cache_idx = vcache_lookup(v1_idx);
             if(v1_cache_idx == -1) {
                 v1_cache_idx = vcache_insert_tag(v1_idx);
+                vcache_misses++;
+            } else {
+                vcache_hits++;
             }
             i32 v2_cache_idx = vcache_lookup(v2_idx);
             if(v2_cache_idx == -1) {
                 v2_cache_idx = vcache_insert_tag(v2_idx);
+                vcache_misses++;
+            } else {
+                vcache_hits++;
             }
             tris_to_shade[tri-start_tri].v0_cache_idx = (u8)v0_cache_idx;
             tris_to_shade[tri-start_tri].v1_cache_idx = (u8)v1_cache_idx;
@@ -4074,23 +3928,25 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
                 continue;
             }
             
-            vert2f *uv0 = &vert_cache.uv[v0_cache_idx];
-            vert2f *uv1 = &vert_cache.uv[v1_cache_idx];
-            vert2f *uv2 = &vert_cache.uv[v2_cache_idx];
-            u8 b0 = (u8)vert_cache.brightness[v0_cache_idx];
-            u8 b1 = (u8)vert_cache.brightness[v1_cache_idx];
-            u8 b2 = (u8)vert_cache.brightness[v2_cache_idx];
-
-
             if(triangle_backfacing(rotv0, rotv1, rotv2)) {
                 // do not submit backfacing triangles
                 continue;
             }
 
+            vert2f *uv0 = &vert_cache.uv[v0_cache_idx];
+            vert2f *uv1 = &vert_cache.uv[v1_cache_idx];
+            vert2f *uv2 = &vert_cache.uv[v2_cache_idx];
+
+            f32 b0 = vert_cache.brightness[v0_cache_idx];
+            f32 b1 = vert_cache.brightness[v1_cache_idx];
+            f32 b2 = vert_cache.brightness[v2_cache_idx];
+
+
             bin_triangle(
                 rotv0, rotv1, rotv2,
                 uv0, uv1, uv2,
-                b0, b1, b2, texture_id
+                b0, b1, b2, 
+                texture_id
             );
         }
     }
@@ -4159,7 +4015,7 @@ transform get_wall_transform(int i) {
     transform wall_trans = identity_transform();
     wall_trans.position.x = wall_offsets_x[i];
     wall_trans.position.z = wall_offsets_z[i];
-    wall_trans.rotation.y = wall_rots_y[i] - 0.05f;
+    wall_trans.rotation.y = wall_y_rots[i]; // - 0.05f;
     return wall_trans;
 }
 
@@ -4197,27 +4053,27 @@ f32 calc_hand_x_position(hand* h, int idx) {
 #define SELECTED_TILE_Y_POS 1.47f
 #define DISCARDING_TILE_Y_POS 2.0f
 #define UNSELECTED_TILE_Y_POS 0.455f
-f32 calc_hand_y_position(hand* h, int idx, int is_cur_player) {
+f32 calc_hand_y_position(hand* h, int idx) { //}, int is_cur_player) {
     f32 cur_player_height = (h->selected_tile_idx == idx ? SELECTED_TILE_Y_POS : UNSELECTED_TILE_Y_POS);
-    f32 non_cur_player_height = UNSELECTED_TILE_Y_POS;
-    return is_cur_player ? cur_player_height : non_cur_player_height;
+    //f32 non_cur_player_height = UNSELECTED_TILE_Y_POS;
+    return cur_player_height; //is_cur_player ? cur_player_height : non_cur_player_height;
 }
 
-vert3f calc_local_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player) {
+vert3f calc_local_hand_position(hand* h, int tile_in_hand_idx) {
     return (vert3f) {
         calc_hand_x_position(h, tile_in_hand_idx),
-        calc_hand_y_position(h, tile_in_hand_idx, is_cur_player),
+        calc_hand_y_position(h, tile_in_hand_idx),
         -2.0f
     };
 }
 
-vert3f calc_global_hand_position(hand* h, int tile_in_hand_idx, int is_cur_player, matrix* hand_to_world_matrix) {
+vert3f calc_global_hand_position(hand* h, int tile_in_hand_idx, matrix* hand_to_world_matrix) {
     (void)h;
-    vert3f local = calc_local_hand_position(h, tile_in_hand_idx, is_cur_player);
+    vert3f local = calc_local_hand_position(h, tile_in_hand_idx);
     return mat_mul_vert3(hand_to_world_matrix, &local);
 }
 
-vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, int is_cur_player, matrix *hand_to_world, matrix *world_to_hand, int tile_in_hand_idx) {
+vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, matrix *hand_to_world, matrix *world_to_hand, int tile_in_hand_idx) {
     /* 
         this function calculates global positions for in the wall and in the hand
         lerps between them
@@ -4228,10 +4084,10 @@ vert3f calc_animated_hand_tile_position(u32 cur_frame, wall *w, hand *h, int is_
     f32 anim_progress = CLAMP(((f32)(cur_frame - h->deal_frame_for_tiles[tile_in_hand_idx]) / (f32)get_frames_for_duration(TILE_DEAL_DURATION)), 0.0f, 1.0f);
     vert3f local;
     if(anim_progress >= 1.0f) {
-        local = calc_local_hand_position(h, tile_in_hand_idx, is_cur_player);
+        local = calc_local_hand_position(h, tile_in_hand_idx);
     } else {
         vert3f global_wall_position = calc_wall_tile_global_position(cur_frame, w, h->wall_index_for_tiles[tile_in_hand_idx]);
-        vert3f global_hand_position = calc_global_hand_position(h, tile_in_hand_idx, is_cur_player, hand_to_world);
+        vert3f global_hand_position = calc_global_hand_position(h, tile_in_hand_idx, hand_to_world);
 
 
         vert3f lerp_pos;
@@ -4282,12 +4138,11 @@ vert3f calc_local_discard_position(int discard_i) {
 vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix) {
     vert3f local = calc_local_discard_position(discard_i);
     return mat_mul_vert3(hand_to_world_matrix, &local);
-
 }
 
 void draw_hand(
     u32 cur_frame, wall* w, hand* h, 
-    int is_cur_player, int draw_wind_indicator,
+    int draw_wind_indicator,
     matrix* hand_to_view_matrix, matrix* hand_to_world_matrix) {
     (void)cur_frame; (void)w;
     mesh_draw_call draw_calls[14 + MAX_DISCARDS + MAX_OPEN_TILES + 1 + 40]; // one extra for wind indicator if necessary, plus 20 for tenbou sticks :)
@@ -4298,7 +4153,7 @@ void draw_hand(
 
     for(int i = 0; i <  h->num_closed_tiles; i++) {
 
-        vert3f local = calc_animated_hand_tile_position(cur_frame, w, h, is_cur_player, hand_to_world_matrix, &world_to_hand, i);
+        vert3f local = calc_animated_hand_tile_position(cur_frame, w, h, hand_to_world_matrix, &world_to_hand, i);
 
         transform tile_trans = identity_transform();
         tile_trans.position.x = local.x;
@@ -4441,40 +4296,46 @@ void draw_hand(
         };
         
 
-        // 1 10,000 stick (RED)
-        // 2 5,000 sticks (GOLD)
-        // 4 1,000 sticks (BLUE)
-        // ten 100 sticks (WHITE)
-        int tenbou_num[4] = {1, 2, 4, 10};
         tile_type tenbou_colors[4] = {RED_TENBOU, GOLD_TENBOU, BLUE_TENBOU, WHITE_TENBOU};
 
+        int cur_stack = 0;
+        // if we have say, 20 tenbou of one color, it needs two stacks
         for(int i = 0; i < 4; i++) {
-            f32 type_x_position = 8.0f - (f32)(6*i);
+
             transform tenbou_transform = identity_transform();
             tenbou_transform.scale = (vert3f){4.0f, 6.0f, 4.0f};
 
             tile_type color = tenbou_colors[i];
+            int num_tenbou = h->num_tenbou[i];
+            int num_stacks = (num_tenbou+9)/10;
+            for(int stack = 0; stack < num_stacks; stack++) {
+                f32 stack_x_position = 8.0f - (f32)(6*cur_stack);
+                cur_stack++;
+                int start_idx = stack*10;
+                int amount_in_this_stack = MIN(10, num_tenbou - start_idx);
+                for(int j = 0; j < amount_in_this_stack; j++) {
+                    f32 x_position = stack_x_position + stick_poses[j][0];
+                    f32 y_position = stick_poses[j][1];
+                    f32 z_position = 2.5f + stick_poses[j][2];
+                    f32 y_rot = stick_poses[j][0];
+                    tenbou_transform.position = (vert3f){x_position, y_position, z_position};
+                    tenbou_transform.rotation.y = y_rot;
 
-            for(int j = 0; j < tenbou_num[i]; j++) {
-                f32 x_position = type_x_position + stick_poses[j][0];
-                f32 y_position = stick_poses[j][1];
-                f32 z_position = 2.5f + stick_poses[j][2];
-                f32 y_rot = stick_poses[j][0];
-                tenbou_transform.position = (vert3f){x_position, y_position, z_position};
-                tenbou_transform.rotation.y = y_rot;
+                    matrix tenbou_mat = transform_to_matrix(&tenbou_transform);
+                    matrix tenbou_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tenbou_mat);
+                    matrix tenbou_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tenbou_mat);
+                    
 
-                matrix tenbou_mat = transform_to_matrix(&tenbou_transform);
-                matrix tenbou_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tenbou_mat);
-                matrix tenbou_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tenbou_mat);
-                
-
-                draw_calls[draw_idx].shdr = LIT_TEXTURED;
-                draw_calls[draw_idx].mesh = &tenbou_mesh;
-                draw_calls[draw_idx].bounds = &tile_bbox; // TODO: invalid but unused
-                draw_calls[draw_idx].texture = color;
-                draw_calls[draw_idx].model_to_view = tenbou_to_view_matrix;
-                draw_calls[draw_idx++].model_to_world = tenbou_to_world_matrix;
+                    draw_calls[draw_idx].shdr = LIT_TEXTURED;
+                    draw_calls[draw_idx].mesh = &tenbou_mesh;
+                    draw_calls[draw_idx].bounds = &tile_bbox; // TODO: invalid but unused
+                    draw_calls[draw_idx].texture = color;
+                    draw_calls[draw_idx].model_to_view = tenbou_to_view_matrix;
+                    draw_calls[draw_idx++].model_to_world = tenbou_to_world_matrix;
+                }
             }
+
+
         }
     }
 
@@ -4567,7 +4428,7 @@ void draw_riichi_game(game_state cur_state, u32 cur_frame, board* b, matrix* vie
         hand* this_hand = &game_board.hands[i];
         draw_hand(cur_frame, 
             &b->board_wall, this_hand, 
-            cur_player == i, (i == cur_dealer), // draw wind indicator
+            (i == cur_dealer), // draw wind indicator
             hand_matrixes[i][0], hand_matrixes[i][1]
         );
         for(int j = 0; j < this_hand->num_discards; j++) {
@@ -4582,91 +4443,6 @@ void draw_riichi_game(game_state cur_state, u32 cur_frame, board* b, matrix* vie
 
 
     draw_wall(cur_state, cur_frame, &b->board_wall, view_mat);
-
-}
-
-/* solitaire mahjong drawing*/
-
-int draw_row(board* b, int tiles_drawn, f32 sz, f32 sx, f32 sy, int num_tiles, matrix* view_mat) {
-    f32 tile_dx = (tile_bbox.max_z-tile_bbox.min_z) * 1.2f + .01f;
-    f32 tile_dz = (tile_bbox.max_x-tile_bbox.min_x) * 1.2f + .01f;
-    f32 tile_dy = (tile_bbox.max_y-tile_bbox.min_y) * 1.2f + .01f;
-    int tiles_to_draw = num_tiles;
-    int tiles_left = b->board_wall.rem - tiles_drawn;
-    if(tiles_left < tiles_to_draw) {
-        tiles_to_draw = tiles_left;
-    }
-    
-    f32 x = sx * tile_dx;
-    f32 y = sy * tile_dy;
-    f32 z = sz * tile_dz;
-    transform tile_trans = identity_transform();
-    mesh_draw_call tile_calls[20];
-    int num_meshes = 0;
-    for(int i = 0; i < tiles_to_draw; i++) {
-        tile_trans.position.x = x;
-        tile_trans.position.y = y;
-        tile_trans.position.z = z;
-        tile_trans.scale.x = 1.2f;
-        tile_trans.scale.y = 1.2f;
-        tile_trans.scale.z = 1.2f;
-
-        tile_trans.rotation.y = (f32)M_PI/2.0f;
-        matrix tile_mat = transform_to_matrix(&tile_trans);
-        matrix tile_to_view_matrix = mat_mul_mat(view_mat, &tile_mat);
-
-        tile_calls[num_meshes].mesh = &mahjong_tile_mesh;
-        tile_calls[num_meshes].bounds = &tile_bbox;
-        tile_calls[num_meshes].texture = (u8)(b->board_wall.tiles[i+tiles_drawn]);
-        tile_calls[num_meshes].model_to_view = tile_to_view_matrix;
-        tile_calls[num_meshes].model_to_world = tile_mat;
-        tile_calls[num_meshes++].shdr = LIT_TEXTURED;
-
-        z += tile_dz;
-    }
-    submit_draw_calls(tile_calls, num_meshes, FRUSTUM_CULL);
-    return tiles_drawn + tiles_to_draw;
-}
-
-void draw_board_solitaire(board* b, matrix* view_mat) {
-    // draw layer 0
-    int drew = 0;
-    drew = draw_row(b, drew, -5.5f, -3.5f, 1.0f, 12, view_mat);
-    drew = draw_row(b, drew, -3.5f, -2.5f, 1.0f, 8, view_mat);
-    drew = draw_row(b, drew, -4.5f, -1.5f, 1.0f, 10, view_mat);
-
-    drew = draw_row(b, drew, -6.5f, -0.0f, 1.0f, 1, view_mat);
-    drew = draw_row(b, drew, -5.5f, -0.5f, 1.0f, 12, view_mat);
-
-    drew = draw_row(b, drew, -5.5f,  0.5f, 1.0f, 12, view_mat);
-    drew = draw_row(b, drew, 6.5f, -0.0f, 1.0f, 2, view_mat);
-
-    drew = draw_row(b, drew, -4.5f,  1.5f, 1.0f, 10, view_mat);
-    drew = draw_row(b, drew, -3.5f,  2.5f, 1.0f, 8, view_mat);
-    drew = draw_row(b, drew, -5.5f,  3.5f, 1.0f, 12, view_mat);
-    
-
-    // layer 1    
-    drew = draw_row(b, drew, -2.5f, -2.5f, 2.0f, 6, view_mat);
-    drew = draw_row(b, drew, -2.5f, -1.5f, 2.0f, 6, view_mat);
-    drew = draw_row(b, drew, -2.5f, -0.5f, 2.0f, 6, view_mat);
-    drew = draw_row(b, drew, -2.5f,  0.5f, 2.0f, 6, view_mat);
-    drew = draw_row(b, drew, -2.5f,  1.5f, 2.0f, 6, view_mat);
-    drew = draw_row(b, drew, -2.5f,  2.5f, 2.0f, 6, view_mat);
-
-    // layer 2
-    drew = draw_row(b, drew, -1.0f, -1.0f, 3.0f, 3, view_mat);
-    drew = draw_row(b, drew, -1.0f,  0.0f, 3.0f, 3, view_mat);
-    // these need extra tiles
-    drew = draw_row(b, drew, -1.0f,  1.0f, 3.0f, 3, view_mat);
-    //drew = draw_row(b, drew, -1.5f,  1.5f, 3.0f, 3, view_mat);
-
-    // layer 3
-    drew = draw_row(b, drew, -0.5f,  -0.5f, 4.0f, 2, view_mat);
-    drew = draw_row(b, drew, -0.5f,   0.5f, 4.0f, 2, view_mat);
-
-    // layer 4
-    //drew = draw_row(b, drew,  0.0f,   0.0f, 5.0f, 1, view_mat);
 
 }
 
@@ -4727,23 +4503,56 @@ void draw_board(matrix* view_mat) {
 }
 
 void game_draw(ExotiqueInterface* ei) {
+    u64 cur_frame_ticks = ei->ticks;
 
-    matrix view_matrix = transform_to_view_matrix(&cam_view_trans);
+    u64 prev_ms_per_frame = ms_per_frame;
+    (void)prev_ms_per_frame;
+    ms_per_frame = cur_frame_ticks - prev_frame_ticks;    
+    prev_frame_ticks = cur_frame_ticks;
+    static int init;
+    if(frame > 2) {
+        if(!init) {
+            bench_frame_ms = ms_per_frame;
+        }
+        init = 1;
+    }
 
-    total_triangles = 0;
-    clear_tile_bins();
+
+    vcache_misses = 0;
+    vcache_hits = 0;
+
     
-    //if(ei->input->b) {
-    //    draw_board_solitaire(&game_board, &view_matrix);
-    //} else {
-        draw_riichi_game(cur_game_state, frame, &game_board, &view_matrix);
-    //}
+    total_triangles = 0;
+    static block whole_frame_block = ROOT_TIMED_BLOCK(whole_frame_block, "draw frame")
+        matrix view_matrix = transform_to_view_matrix(&cam_view_trans);
+        static block clear_tiles_block = START_TIMED_BLOCK(clear_tiles_block, "clear tiles", whole_frame_block)
+            clear_tile_bins();
+        END_TIMED_BLOCK(clear_tiles_block)
+        
+        static block riichi_block = START_TIMED_BLOCK(riichi_block, "riichi draw calls", whole_frame_block)
+            draw_riichi_game(cur_game_state, frame, &game_board, &view_matrix);
+        END_TIMED_BLOCK(riichi_block)
 
-    draw_board(&view_matrix);
-    rasterize_tiles(ei, zbuf);
+        static block board_block = START_TIMED_BLOCK(board_block, "board draw calls", whole_frame_block)
+            draw_board(&view_matrix);
+        END_TIMED_BLOCK(board_block)
+
+        static block raster_block = START_TIMED_BLOCK(raster_block, "rasterize tiles", whole_frame_block)
+            rasterize_tiles(ei, zbuf);
+        END_TIMED_BLOCK(raster_block)
+
+    END_TIMED_BLOCK(whole_frame_block)
+
+    if((frame & 63) == 0) {
+        //print_and_reset_root_block(&whole_frame_block);
+        //exotique_printf("total %.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
+    }
+    
+
     //exotique_printf("meshes %i\n", meshes_transformed);
     //exotique_printf("triangles transformed %i\n", vertexes_transformed);
     //exotique_printf("triangles rasterized %i\n", triangles_rasterized);
+    //exotique_printf("vcache misses %i, hits %i\n", vcache_misses, vcache_hits);
     meshes_transformed = 0;
     vertexes_transformed = 0;
     triangles_rasterized = 0;

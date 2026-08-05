@@ -540,7 +540,7 @@ sdl_load(GameManager* gm)
     exotique_panic(gm);
   }
 
-  if (!(sm->renderer = SDL_CreateRenderer(sm->window, -1, 0))) //SDL_RENDERER_PRESENTVSYNC)))
+  if (!(sm->renderer = SDL_CreateRenderer(sm->window, -1, SDL_RENDERER_PRESENTVSYNC)))
   {
     SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't create a 2D rendering context for a window: %s", SDL_GetError());
     exotique_panic(gm);
@@ -602,18 +602,36 @@ main(const int argc, const char* argv[])
   sdl_load(&g_game_manager);
 
   // Main loop
-  while (!g_game_manager.exit)
-  {
+  while (!g_game_manager.exit) {
+    Uint64 start =  SDL_GetPerformanceCounter();
+
     exotique_update(&g_game_manager, &g_exotique_interface);
-    //Uint64 frameStartTicks = SDL_GetTicks64();
+    Uint64 frame_start_ticks = SDL_GetPerformanceCounter();
     game_update(&g_exotique_interface);
-    //Uint64 frameMidTicks = SDL_GetTicks64();
+    Uint64 frame_mid_ticks = SDL_GetPerformanceCounter();
     game_draw(&g_exotique_interface);
-    //Uint64 frameEndTicks = SDL_GetTicks64();
-    //char title[256];
-    //sprintf(title, "%s U: %llums D: %llums", g_game_manager.name, frameMidTicks-frameStartTicks, frameEndTicks-frameMidTicks);
-    //SDL_SetWindowTitle(g_game_manager.screen_manager.window, title);
+    Uint64 frame_end_ticks = SDL_GetPerformanceCounter();
+    
+    char title[256];
+    float updateMS = (float)(frame_mid_ticks - frame_start_ticks) / (float)SDL_GetPerformanceFrequency() * 1000.0f;
+    float drawMS = (float)(frame_end_ticks - frame_mid_ticks) / (float)SDL_GetPerformanceFrequency() * 1000.0f;
+    float totalMS = (float)(frame_end_ticks - frame_start_ticks) / (float)SDL_GetPerformanceFrequency() * 1000.0f;
+    sprintf(title, "%s F: %.2fms U: %.2fms D: %.2fms", g_game_manager.name, (double)totalMS, (double)updateMS, (double)drawMS);
+    SDL_SetWindowTitle(g_game_manager.screen_manager.window, title);
     exotique_draw(&g_game_manager);
+
+
+  	Uint64 end = SDL_GetPerformanceCounter();
+
+  	float elapsedMS = (float)(end - start) / (float)SDL_GetPerformanceFrequency() * 1000.0f;
+
+	  // Cap to 60 FPS
+    uint32_t delay = (uint32_t)floor(16.666f - elapsedMS);
+    if(delay > 0 && delay <= 16) {
+      //exotique_printf("delaying %i\n", delay);
+  	  SDL_Delay(delay);
+    }
+   
   }
 
   exotique_cleanup(&g_game_manager);

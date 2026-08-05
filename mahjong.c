@@ -4,8 +4,8 @@
 #define OUTPUT_TILE_SIZE 64
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~(OUTPUT_TILE_SIZE-1)))
-#define OUTPUT_WIDTH TILE_ROUND(1920)
-#define OUTPUT_HEIGHT TILE_ROUND(1080)
+#define OUTPUT_WIDTH TILE_ROUND(1600)
+#define OUTPUT_HEIGHT TILE_ROUND(900)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -100,6 +100,10 @@ void block_add_child(block *parent, block *child) {
     parent->children[parent->num_children++] = child;
 }
 
+
+//    DATA TYPES, SCALAR AND VERTEX/VECTOR MATH
+
+
 typedef struct {
     f32 x,y;
 } vert2f;
@@ -120,11 +124,6 @@ typedef struct {
 #define M_PI_2 (M_PI/2.)
 #define M_PI_M_2 (M_PI*2.0)
 
-/* 
-
-    SCALAR AND VERTEX/VECTOR MATH
-
-*/
 int compare_f32(double f1, double f2) {
     double precision = 0.00000000000000000001;
     if ((f1 - precision) < f2) {
@@ -278,15 +277,13 @@ static inline int fast_ceil(f32 x) {
     return i + (i < x);
 }
 
-/*
 
-    MATRIXES AND TRANSFORMS
+//    MATRIXES AND TRANSFORMS
 
-*/
+
 typedef struct {
     float m[4][4];
 } matrix;
-
 
 typedef struct {
     vert3f position;
@@ -487,11 +484,11 @@ vert3f mat_mul_normal(const matrix *m, const vert3f *n) {
     return normalize(r);
 }
 
-/*
-
-    VECTORIZED/SIMD math
-
-*/
+//
+//
+//    VECTORIZED/SIMD math
+//
+//
 
 #define VEC_LANES 4
 
@@ -695,29 +692,6 @@ typedef struct {
 const f32 FAR_Z = 256.0f;
 const f32 NEAR_Z = 1.0f;
 
-int triangle_backfacing(vert3f *v0, vert3f *v1, vert3f *v2) {
-
-    // 28.4 fixed point
-    const i32 X0 = (i32)v1->x;
-    const i32 Y0 = (i32)v1->y;
-    const i32 X1 = (i32)v0->x;
-    const i32 Y1 = (i32)v0->y;
-    const i32 X2 = (i32)v2->x;
-    const i32 Y2 = (i32)v2->y;
-    //
-    // Edge deltas
-    //
-    const i32 dx01 = X0 - X1;
-    const i32 dy01 = Y0 - Y1;
-    const i32 dx20 = X2 - X0;
-    const i32 dy20 = Y2 - Y0;
-    //
-    // Triangle area
-    //
-    i32 area =(dx01 * dy20 - dy01 * dx20);
-    return (area <= 0);
-}
-
 #define DEFAULT_CAM_ROT_X 0.63f
 #define DEFAULT_CAM_ROT_Y 0.0f
 f32 camera_rot_y = DEFAULT_CAM_ROT_Y;
@@ -817,6 +791,15 @@ static inline i32_vec f32_vec_convert_i32(f32_vec a) {
     i32_vec res;
     for(int i = 0; i < 4; i++) { res[i] = (i32)a[i]; }
     return res;
+}
+
+static inline f32_vec f32_vec_clamp(f32_vec a, f32 min, f32 max) {
+    return (f32_vec){
+        CLAMP(a[0], min, max),
+        CLAMP(a[1], min, max),
+        CLAMP(a[2], min, max),
+        CLAMP(a[3], min, max),
+    };
 }
 
 static inline u8 i32_vec_extract_low_bits(const i32_vec a) {
@@ -1324,41 +1307,6 @@ int rasterize_triangle_2x2_quad_no_tmap(
 }
 
 
-transform cam_view_trans;
-
-vert3f orbit_camera_position(float yaw, float pitch, float radius)
-{
-    vert3f p;
-
-    float cp = cosf(pitch);
-    float sp = sinf(pitch);
-
-    float cy = cosf(yaw);
-    float sy = sinf(yaw);
-
-    p.x = sy * cp * radius;
-    p.y = sp * radius;
-    p.z = cy * cp * radius;
-
-    return p;
-}
-
-void look_at_yx(transform *cam, vert3f position, vert3f target)
-{
-    float dx = target.x - position.x;
-    float dy = target.y - position.y;
-    float dz = target.z - position.z;
-
-    cam->rotation.y = fast_atan2(dx, dz);
-
-    float horizontal = my_sqrt(dx * dx + dz * dz);
-
-    cam->rotation.x = -fast_atan2(dy, horizontal);
-
-    cam->position = position;
-}
-
-
 void clear_tile_bins() {
     for(i16 y = 0; y < TILES_HIGH; y++) {
         for(i16 x = 0; x < TILES_WIDE; x++) {
@@ -1548,35 +1496,6 @@ bbox get_mesh_bbox(const obj_mesh *m) {
     return mesh_bbox;
 }
 
-static u32 rotl(const u32 x, i32 k)
-{
-  return (x << k) | (x >> (32 - k));
-}
-
-/* Completely arbitrary seeds */
-static u32 s[4] = {0x27cb588d, 0x096379a9, 0xe81f5914, 0x2ee1c98c};
-
-u32 nextrand(void)
-{
-  const u32 result = rotl(s[0] + s[3], 7) + s[0];
-
-  const u32 t = s[1] << 9;
-
-  s[2] ^= s[0];
-  s[3] ^= s[1];
-  s[1] ^= s[2];
-  s[0] ^= s[3];
-
-  s[2] ^= t;
-
-  s[3] = rotl(s[3], 11);
-
-  return result;
-}
-
-u32 roll_die() {
-    return 1+(nextrand()%6);
-}
 
 #include "texture_one_man.h"
 #include "texture_two_man.h"
@@ -1683,6 +1602,13 @@ typedef enum {
     WIND_INDICATOR,
     NUM_ALL_TEXTURE_TYPES
 } tile_type;
+
+const char* tile_names[NUM_TILES] = {
+#define X(name, val, term, honor) #name,
+    TILE_LIST
+#undef X
+};
+
 
 int is_honor_tile[NUM_TILES] = {
 #define X(tile_name, sort_val, is_terminal, is_honor) is_honor,
@@ -2044,164 +1970,6 @@ void decompress_textures(ExotiqueInterface *ei) {
 
 }
 
-#define MAX_DISCARDS 17
-#define MAX_OPEN_TILES 16
-
-typedef struct {
-    int num_closed_tiles;
-    tile_type tiles[14];
-    u32 deal_frame_for_tiles[14];
-    int wall_index_for_tiles[14];
-    tile_type open_tiles[MAX_OPEN_TILES];
-    int open_tile_rotated[MAX_OPEN_TILES];
-    int num_open_tiles;
-    int selected_tile_idx;
-    tile_type discards[MAX_DISCARDS];
-    int num_discards;
-    u32 discard_frames[MAX_DISCARDS];
-    i32 discard_click_frames[MAX_DISCARDS];
-    int discard_from_hand_idx[MAX_DISCARDS];
-    int in_riichi;
-    int num_tenbou[4];
-} hand;
-
-#define TILES_IN_DECK 136
-#define TILE_SPAWN_POS_Y 20.0f
-
-#define TILE_FALL_DURATION .4f
-#define TILE_DEAL_DURATION .4f
-#define DISCARD_DURATION .4f
-#define SWITCH_PLAYER_DURATION 1.0f
-
-static u64 bench_frame_ms;
-
-u32 get_frames_for_duration(f32 duration) {
-    f32 total_ms = (duration * 1000.0f);
-    return (u32)(total_ms / (f32)bench_frame_ms);
-}
-
-typedef struct {
-    int rem;
-    u32 tile_fall_frames[TILES_IN_DECK];
-    i32 tile_click_frames[TILES_IN_DECK];
-    tile_type tiles[TILES_IN_DECK];
-    int split_distance;
-} wall;
-
-typedef struct {
-    wall board_wall;
-    hand hands[4];
-} board;
-
-wall init_empty_wall() {
-    wall d;
-    d.rem = 0;
-    
-    d.split_distance = 17 - (int)(roll_die() + roll_die());
-
-    return d;
-}
-
-hand init_hand() {
-    hand h;
-    h.num_closed_tiles = 0;
-    h.num_open_tiles = 0;
-    return h;
-}
-
-// 1 10,000 stick (RED)
-// 2 5,000 sticks (GOLD)
-// 4 1,000 sticks (BLUE)
-// ten 100 sticks (WHITE)
-hand init_empty_hand() {
-    hand h;
-    h.num_open_tiles = 0; 
-    h.num_closed_tiles = 0;
-    h.num_discards = 0;
-    h.selected_tile_idx = -1;
-    h.in_riichi = 0;
-    h.num_tenbou[0] = 1;
-    h.num_tenbou[1] = 2;
-    h.num_tenbou[2] = 4;
-    h.num_tenbou[3] = 10;
-
-    return h;
-}
-
-typedef enum {
-    STARTUP,
-    INITIAL_SHUFFLE_AND_SETUP,
-    DEALING,
-    IN_GAME,
-    NUM_GAME_STATES
-} game_state;
-
-void shuffle_deck(tile_type deck[TILES_IN_DECK]) {
-    int out = 0;
-    for(int i = 0; i < NUM_TILES; i++) {
-        if(i == FIVE_SOU_RED || i == FIVE_MAN_RED || i == FIVE_PIN_RED) {
-            deck[out-1] = i;
-            continue;
-        }
-        deck[out++] = i; deck[out++] = i; deck[out++] = i; deck[out++] = i; // 4 of each card type unless it's akadora
-    }
-
-    u32 j = TILES_IN_DECK-1;
-    for(u32 i = TILES_IN_DECK-1; i >= 1; i--) {
-        j = 1 + (nextrand() % i);
-        tile_type tmp = deck[i];
-        deck[i] = deck[j];
-        deck[j] = tmp;
-    }
-
-}
-
-typedef enum {
-    EAST_WIND,
-    SOUTH_WIND
-} game_wind;
-
-int next_deal_pos = 0; // 
-board game_board;
-game_state cur_game_state;
-
-u32 frame = 0;
-int deal_steps = 0;
-int cur_player = 0;
-tile_type shuffled_deck[TILES_IN_DECK];
-int switch_player_timer = -1;
-i32 draw_end_frame = 0;
-int cur_dealer = -1;
-
-game_wind cur_wind = EAST_WIND;
-
-void reset_game(ExotiqueInterface *ei) {
-    s[3] = s[2];
-    s[1] = s[0];
-    s[0] = (u32)ei->ticks;
-    cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
-    frame = 0;
-    deal_steps = 0;
-    cur_player = 0;
-    cur_dealer++;
-    if(cur_dealer == 4) {
-        cur_dealer = 0;
-        cur_wind = (cur_wind+1)%2;
-    }
-    switch_player_timer = -1;
-    draw_end_frame = 0;
-    
-    game_board.board_wall.rem = 0;
-
-    game_board.board_wall = init_empty_wall();
-    for(int i = 0; i < 4; i++) {
-        game_board.hands[i] = init_empty_hand();
-    }
-    // shuffle a second deck in memory
-    shuffle_deck(shuffled_deck);
-    next_deal_pos = 0;
-
-}
 
 void output_palette(ExotiqueInterface *ei) {
     // P6 binary PPM header
@@ -2239,1124 +2007,10 @@ void output_mixing_table(ExotiqueInterface *ei) {
     }
 }
 
-#include "pon_4b.h"
-#include "chii_4b.h"
-#include "tsumo.h"
-#include "riichi_4b.h"
-#include "tile_click_4b.h"
-#include "tsumo_4b.h"
-#include "ron_4b.h"
 
-typedef enum {
-    TILE_CLICK,
-    PON,
-    CHII,
-    RIICHI,
-    TSUMO,
-    RON,
-    NUM_SOUNDS
-} sound;
+//    DRAW CALLS, TILE FILLS, VERTEX SHADERS
 
-i16 decompressed_sound_buffer[NUM_SOUNDS][32768];
-typedef struct {
-    void *compressed_raw_data;
-    i16* decompressed_data;
-    u32 num_bytes;
-    u32 num_mono_samples;
-} sound_data;
-
-sound_data sounds[NUM_SOUNDS] = {
-    {
-        tile_click_4b_raw_data, decompressed_sound_buffer[0],
-        TILE_CLICK_NUM_BYTES, 0
-    },
-    {
-        pon_4b_raw_data, decompressed_sound_buffer[1],
-        PON_NUM_BYTES, 0
-    },
-    {
-        chii_4b_raw_data, decompressed_sound_buffer[2],
-        CHII_NUM_BYTES, 0
-    },
-    {
-        riichi_4b_raw_data, decompressed_sound_buffer[3],
-        RIICHI_NUM_BYTES, 0
-    },
-    {
-        tsumo_4b_raw_data, decompressed_sound_buffer[4],
-        TSUMO_NUM_BYTES, 0
-    },
-    {
-        ron_4b_raw_data, decompressed_sound_buffer[5],
-        RON_NUM_BYTES, 0
-    }
-};
-
-u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
-
-    static const int index_table[16] = {
-        -1,-1,-1,-1,
-        2, 4, 6, 8,
-        -1,-1,-1,-1,
-        2, 4, 6, 8
-    };
-
-    static const int step_table[89] = {
-           7,      8,     9,    10,    11,    12,    13,    14,
-          16,     17,    19,    21,    23,    25,    28,    31,
-          34,     37,    41,    45,    50,    55,    60,    66,
-          73,     80,    88,    97,   107,   118,   130,   143,
-         157,    173,   190,   209,   230,   253,   279,   307,
-         337,    371,   408,   449,   494,   544,   598,   658,
-         724,    796,   876,   963,  1060,  1166,  1282,  1411,
-        1552,   1707,  1878,  2066,  2272,  2499,  2749,  3024,
-        3327,   3660,  4026,  4428,  4871,  5358,  5894,  6484,
-        7132,   7845,  8630,  9493, 10442, 11487, 12635, 13899,
-        15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
-        32767
-    };
-
-    u32 num_blocks = num_bytes / 512;
-    i16 *out = output;
-    for(u32 blk = 0; blk < num_blocks; blk++) {
-
-
-        int predictor = (i16)(raw[0]|(raw[1]<<8));
-        raw += 2;
-        int step_index = *raw++;
-        raw++; // skip over reserved;
-        *out++ = (i16)predictor;
-        for(u32 byte_in_block = 0; byte_in_block < 508; byte_in_block++) {
-            u8 byte = *raw++;
-            // loop twice to output two samples for one byte
-            for(int i = 0; i < 2; i++) {
-                int code = (byte>>(4*i)) & 0xF;
-                int step = step_table[step_index];
-                int diff = step >> 3;
-
-                if (code & 1) diff += step >> 2;
-                if (code & 2) diff += step >> 1;
-                if (code & 4) diff += step;
-
-                if (code & 8) {
-                    predictor -= diff;
-                } else {
-                    predictor += diff;
-                }
-                predictor = CLAMP(predictor, -32768, 32767);
-                step_index += index_table[code];
-                step_index = CLAMP(step_index, 0, 88);
-                *out++ = (i16)predictor;
-            } 
-        }
-    }
-    return (u32)(out-output);
-}
-
-void decompress_sounds() {
-    for(int i = 0; i < NUM_SOUNDS; i++) {
-        sounds[i].num_mono_samples = decompress_adpcm(sounds[i].compressed_raw_data, decompressed_sound_buffer[i], sounds[i].num_bytes);
-        sounds[i].decompressed_data = decompressed_sound_buffer[i];
-    }
-}
-
-int num_active_sounds = 0;
-#define MAX_SOUNDS 64
-typedef struct {
-    sound voice;
-    f32 volume;
-    u32 playback_offset;
-    vert3f location;
-} active_sound;
-
-active_sound active_sounds[MAX_SOUNDS]; // contains the playback index of the sound?
-
-f32 buffer[4096];
-static volatile active_sound pending_sounds[MAX_SOUNDS];
-vert3f pending_sound_locations[MAX_SOUNDS];
-static volatile u32 write_pos = 0;  // written only by game thread
-static volatile u32 read_pos  = 0;  // written only by audio thread
-
-void add_sound(sound voice, f32 volume) { //}, vert3f location) {
-    u32 next = (write_pos + 1) & (MAX_SOUNDS - 1);
-    if(next == read_pos) {
-        return; // queue full, drop
-    }
-    pending_sounds[write_pos].voice = voice;
-    //pending_sounds[write_pos].location = location;
-    pending_sounds[write_pos].volume = volume;
-    pending_sounds[write_pos].playback_offset = 0;
-    write_pos = next;
-}
-
-static void drain_pending_sounds(void) {
-    while(read_pos != write_pos) {
-        if(num_active_sounds < MAX_SOUNDS) {
-            active_sounds[num_active_sounds++] = pending_sounds[read_pos];
-        }
-        read_pos = (read_pos + 1) & (MAX_SOUNDS - 1);
-    }
-}
-
-void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
-    (void)pInput;
-    (void)pDevice;
-
-    drain_pending_sounds();   // <-- only new line: pull in any clicks queued since last callback
-    i16* out = (i16*)pOutput;
-
-    for(u32 i = 0; i < frameCount; i++) {
-        buffer[i*2] = 0.0f;
-        buffer[i*2+1] = 0.0f;
-    }
-
-    // mix into buffer — unchanged
-    for(u32 i = 0; i < frameCount; i++) {
-        u32 bufferIdx = i*2;
-
-        for(int sound_idx = 0; sound_idx < num_active_sounds; sound_idx++) {
-        continue_without_increment:;
-            active_sound snd = active_sounds[sound_idx];
-            i16 *data = sounds[snd.voice].decompressed_data;
-            f32 sound_vol = snd.volume;
-            //vert3f view = mat_mul_vert3(&view_matrix, &snd.location);
-            f32 pan = 0.0f; //CLAMP(view.x/fabsf(view.z), -1.0f, 1.0f);
-            
-            if(pan < 0.0f) { 
-                pan = -1.0f; 
-            } else if (pan > 0.0f) { 
-                pan = 1.0f; 
-            } else {
-                pan = 0.0f;
-            }
-            f32 left  = 0.5f - pan * 0.5f;
-            f32 right = 0.5f + pan * 0.5f;
-            u32 playback_offset = snd.playback_offset;
-            u32 num_smples = sounds[snd.voice].num_mono_samples;
-            
-
-            if(playback_offset >= num_smples) {
-                num_active_sounds--;
-                if(sound_idx == num_active_sounds) {
-                    // this WAS the last element — nothing to swap in, don't reprocess
-                    continue;
-                }
-                active_sounds[sound_idx] = active_sounds[num_active_sounds];
-                goto continue_without_increment;
-            }
-                    
-            buffer[bufferIdx]   += (f32)data[playback_offset]   * sound_vol * left;
-            buffer[bufferIdx+1] += (f32)data[playback_offset++] * sound_vol * right;
-            active_sounds[sound_idx].playback_offset = playback_offset;
-        }
-    }
-
-    for(u32 i = 0; i < frameCount; i++) {
-        *out++ = (i16)CLAMP(buffer[i*2],   -32768.0f, 32767.0f);
-        *out++ = (i16)CLAMP(buffer[i*2+1], -32768.0f, 32767.0f);
-    }
-}
-
-void stop_device_callback(ma_device* pDevice) {
-    (void)pDevice;
-}
-ma_device_config ma_config;
-ma_device sound_device;
-
-void game_load(ExotiqueInterface* ei) {
-    cur_game_state = STARTUP;
-    cur_dealer = -1;
-    num_active_sounds = 0;
-    
-    ma_config = ma_device_config_init(ma_device_type_playback);
-
-    ma_config.playback.format   = ma_format_s16;   // Set to ma_format_unknown to use the device's native format.
-    ma_config.playback.channels = 2;               // Set to 0 to use the device's native channel count.
-    ma_config.sampleRate        = 22050;           // Set to 0 to use the device's native sample rate.
-    ma_config.dataCallback      = &data_callback;   // This function will be called when miniaudio needs more data.
-    ma_config.stopCallback      = &stop_device_callback;
-    ma_config.performanceProfile = ma_performance_profile_low_latency;
-    ma_config.noClip = MA_TRUE;
-    ma_config.noPreSilencedOutputBuffer = MA_TRUE;
-    ma_config.periodSizeInFrames = 16;
-    
-    ma_result dev_init_res = ma_device_init(NULL_PTR, &ma_config, &sound_device);
-    if (dev_init_res != MA_SUCCESS) {
-        exotique_printf("miniaudio failed to init %i\n", dev_init_res);
-        return;  // Failed to initialize the device.
-    }
-    
-    ma_result dev_start_res = ma_device_start(&sound_device);     // The device is sleeping by default so you'll need to start it manually.
-    if(dev_start_res != MA_SUCCESS) {
-        exotique_printf("miniaudio failed to init %i\n", dev_start_res);
-        return;
-    }
-    
-
-    int i;
-    int last_used_pal_idx = 0;
-
-    // load lighting palette into the first 1+(NUM_SHADES)*(NUM_BASE_COLORS-1) palette slots.
-    // one slot is used for black, the others get NUM_SHADES variants.
-    for(int shade = 0; shade < NUM_SHADES; shade++) {
-        int base = 1 + shade*(NUM_BASE_COLORS-1);
-        f32 scale = lerp(1.0f/(f32)NUM_SHADES, (f32)NUM_SHADES/(f32)NUM_SHADES, (f32)shade/(f32)NUM_SHADES);
-        for(i = 0; i < NUM_BASE_COLORS; i++) {
-            if(i == 0) {
-                // if the color is black, always point to the same palette index
-                ei->palette[0] = 0x000000FF;
-                light_remap_table[shade][i] = 0;
-            } else {
-                //int base = i*32;
-                u32 rgba = (palette[i]<<8)|0xFF; 
-                u8 br = (u8)(rgba >> 24);
-                u8 bg = (u8)(rgba >> 16);
-                u8 bb = (u8)(rgba >> 8);
-                f32 r = ((f32)br)/255.0f;
-                f32 g = ((f32)bg)/255.0f;
-                f32 b = ((f32)bb)/255.0f;
-                // shade=0 => 1/32
-                // shade31 => 32/32
-
-                f32 scaled_r = r * scale;
-                f32 scaled_g = g * scale;
-                f32 scaled_b = b * scale;
-                u32 byte_r = (u32)CLAMP(scaled_r*255.0f, 0.0f, 255.0f);
-                u32 byte_g = (u32)CLAMP(scaled_g*255.0f, 0.0f, 255.0f);
-                u32 byte_b = (u32)CLAMP(scaled_b*255.0f, 0.0f, 255.0f);
-                last_used_pal_idx = base+i;
-                ei->palette[base+i] = (byte_r<<24)|(byte_g<<16)|(byte_b<<8)|0xFF;
-                light_remap_table[shade][i] = (u8)(base+i);
-            }
-        }
-    }
-
-
-    // load background texture entries into palette
-    int num_bkgd_pal_entries = sizeof(palette_background)/sizeof(u32);
-
-    for(i = 0; i < num_bkgd_pal_entries; i++) {
-        u32 pal_entry = (palette_background[i]<<8)|0xFF;
-        ei->palette[last_used_pal_idx+i+1] = pal_entry;
-    }
-
-
-
-    int free_slot = last_used_pal_idx+1+num_bkgd_pal_entries;
-    ei->palette[free_slot] = 0xC45766FF;
-    
-    for(int shade = 0; shade < NUM_SHADES; shade++) {
-        for(int p = 0; p < 256; p++) {
-            vert3f rgba = rgba_to_f32_rgb(ei->palette[p]);
-            f32 scale = lerp(1.0f/(f32)NUM_SHADES, (f32)NUM_SHADES/(f32)NUM_SHADES, (f32)shade/(f32)NUM_SHADES);
-            rgba = scale_vert3(rgba, scale);
-            full_light_remap_table[shade][p] = closest_overall_color_idx(ei, rgba);
-        }
-    }
-    for(i = 0; i < 256; i++) {
-        vert3f c1 = rgba_to_f32_rgb(ei->palette[i]);
-        for(int j = 0; j < 256; j++) {
-            if(i == j) {
-                mix_table[(i<<8)|j] = (u8)i;
-            } else {
-                vert3f c2 = rgba_to_f32_rgb(ei->palette[j]);
-                vert3f avg = scale_vert3(add_vert3(c1, c2), 0.5f);
-                mix_table[(i<<8)|j] = closest_overall_color_idx(
-                    ei, avg
-                );
-            }
-        }
-    }
-    //output_mixing_table(ei);
-    //output_palette(ei);
-    decompress_sounds();
-    decompress_textures(ei);
-
-    texture_board[0] = light_remap_table[NUM_SHADES-1][GREEN];
-    
-    clear_tile_bins();
-
-    tile_bbox = get_mesh_bbox(&mahjong_tile_mesh);
-    board_bbox = get_mesh_bbox(&board_mesh);
-}
-
-vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx);
-
-void step_shuffle_and_setup(u32 cur_frame, wall* w) {
-    if((cur_frame&7) != 7) {
-        return;
-    }
-    if(w->rem == TILES_IN_DECK) {
-        if(w->tile_fall_frames[w->rem-1]+get_frames_for_duration(TILE_FALL_DURATION) <= cur_frame) {
-            //if(inp->a) {
-                cur_game_state = DEALING;
-            //}
-        }
-    } else {
-        w->tile_fall_frames[w->rem] = cur_frame;
-        w->tile_click_frames[w->rem] = (i32)cur_frame + (i32)get_frames_for_duration(TILE_FALL_DURATION) - (i32)get_frames_for_duration(0.2f);
-        w->tiles[w->rem++] = shuffled_deck[next_deal_pos++];// nextrand()%NUM_TILES;
-    }
-    for(int i = 0; i < w->rem; i++) {
-        if((i32)cur_frame >= w->tile_click_frames[i] && w->tile_click_frames[i] != -1) {
-            
-            add_sound(
-                TILE_CLICK,
-                0.085f
-                //calc_wall_tile_global_position(
-                //    cur_frame, w, i
-                //)
-            );
-
-            w->tile_click_frames[i] = -1;
-        }
-    }
-}
-
-
-#define ACTIONS             \
-    X(MOVE_SELECTED_LEFT)   \
-    X(MOVE_SELECTED_RIGHT)  \
-    X(SORT_HAND)            \
-    X(ATTEMPT_CALL)         \
-    X(ATTEMPT_DRAW)         \
-    X(ATTEMPT_DISCARD)      \
-    X(ATTEMPT_RIICHI)
-
-typedef enum {
-#define X(a) a,
-    ACTIONS
-#undef X
-} player_action_type;
-
-const char* action_names[] = {
-#define X(a) #a,
-    ACTIONS
-#undef X
-};
-
-typedef struct {
-    int player_num;
-    player_action_type cmd;
-} player_action;
-
-player_action make_player_action(int player_num, player_action_type cmd) {
-    return (player_action){player_num, cmd};
-}
-
-#define MAX_PLAYER_EVENTS 128
-player_action action_queue[MAX_PLAYER_EVENTS];
-int queue_head = 0;
-int queue_tail = 0;
-
-// 0-0 -> no events
-// 0-1 -> 1 event
-// 0-2 -> 2 events
-// 0-3 -> 3 events
-// 0-4 -> 4 events
-
-int queue_full() {
-    return (queue_tail - queue_head) == MAX_PLAYER_EVENTS;
-}
-int queue_empty() {
-    return (queue_tail - queue_head) == 0;
-}
-player_action queue_peek() {
-    return action_queue[queue_tail&(MAX_PLAYER_EVENTS-1)];
-}
-
-void exit(int);
-
-player_action queue_pop() {
-    if(queue_empty()) {
-        exotique_printf("ACTION QUEUE UNDERFLOW!\n");
-        exit(1);
-    }
-    player_action act = queue_peek();
-    queue_tail++;
-    return act;
-}
-
-void queue_push(player_action act) {
-    if(queue_full()) {
-        exotique_printf("ACTION QUEUE OVERFLOW!\n");
-        exit(1);
-    }
-    action_queue[queue_head&(MAX_PLAYER_EVENTS-1)] = act;
-    queue_head++;
-}
-
-void sort_hand(hand* h) {
-    for(int i = 0; i < h->num_closed_tiles; i++) {
-        int biggest_tile = h->tiles[i];
-
-        for(int j = i+1; j < h->num_closed_tiles; j++) {
-            int cur_tile = h->tiles[j];
-            if(tile_sort_val[cur_tile] < tile_sort_val[biggest_tile]) {
-                h->tiles[i] = cur_tile;
-                h->tiles[j] = biggest_tile;
-                biggest_tile = cur_tile;
-            }
-        }
-    }
-}
-
-void step_deal(u32 cur_frame) {
-    // start with east
-    if((cur_frame & 31) != 0) {
-        return;
-    }
-    int hand_index = deal_steps & 0x3;
-    hand* this_hand = &game_board.hands[hand_index];
-
-    int cur_num_tiles = this_hand->num_closed_tiles;
-
-    int cur_deal_count = 1;
-    if(deal_steps < 12) {
-        cur_deal_count = 4;
-    }
-    for(int i = 0; i < cur_deal_count; i++) {
-        this_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
-        this_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
-        this_hand->tiles[cur_num_tiles++] = game_board.board_wall.tiles[game_board.board_wall.rem];
-    }
-    this_hand->num_closed_tiles = cur_num_tiles;
-    this_hand->selected_tile_idx = cur_num_tiles-1;
-    deal_steps++;
-    if(deal_steps == 17) {
-        cur_game_state = IN_GAME;
-        switch_player_timer = -1;
-    }
-}
-
-int paused = 0;
-int last_start_pushed = 0;
-int last_select_pushed = 0;
-int last_a_pushed = 0, last_b_pushed = 0;
-int last_left_pushed = 0, last_right_pushed = 0;
-
-int last_x_pushed = 0, last_y_pushed = 0;
-f32 prev_cam_radius;
-int zoom;
-
-tile_type last_discard;
-int last_discard_player;
-
-void discard_current_tile(int player, u32 cur_frame) {
-    hand* cur_player_hand = &game_board.hands[player];
-
-    int selected_tile_idx = cur_player_hand->selected_tile_idx;
-    cur_player_hand->discards[cur_player_hand->num_discards] = cur_player_hand->tiles[selected_tile_idx];
-    last_discard = cur_player_hand->tiles[selected_tile_idx];
-    last_discard_player = player;
-
-    cur_player_hand->discard_frames[cur_player_hand->num_discards] = cur_frame;
-    cur_player_hand->discard_click_frames[cur_player_hand->num_discards] = (i32)cur_frame + (i32)get_frames_for_duration(DISCARD_DURATION) - (i32)get_frames_for_duration(0.06f);
-    cur_player_hand->discard_from_hand_idx[cur_player_hand->num_discards++] = selected_tile_idx;
-
-    for(int i = cur_player_hand->selected_tile_idx; i < cur_player_hand->num_closed_tiles-1; i++) {
-        cur_player_hand->tiles[i] = cur_player_hand->tiles[i+1];
-    }
-    cur_player_hand->num_closed_tiles--;
-    sort_hand(cur_player_hand);
-}
-
-u32 draw_next_tile(u32 cur_frame, int player) {
-    hand* cur_player_hand = &game_board.hands[player];
-    int cur_num_tiles = cur_player_hand->num_closed_tiles++;
-    cur_player_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
-    cur_player_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
-    cur_player_hand->tiles[cur_num_tiles] = game_board.board_wall.tiles[game_board.board_wall.rem];
-    cur_player_hand->selected_tile_idx = cur_num_tiles;
-    return cur_frame + get_frames_for_duration(TILE_DEAL_DURATION);
-}
-
-typedef enum {
-    UNMOVED,
-    MOVED,
-} ai_state;
-
-#define AI_PLAYER_SPEED 0.192f
-
-tile_type player_winds[4] = {
-    EAST, NORTH, WEST, SOUTH 
-};
-
-tile_type round_wind = EAST;
-
-int count_tile_in_hand(hand* h, tile_type search_tile) {
-    int count = 0;
-    for(int i = 0; i < h->num_closed_tiles; i++) {
-        count += (h->tiles[i] == search_tile ? 1 : 0);
-    }
-    return count;
-}
-
-int find_index_of_first_tile_in_hand(hand* h, tile_type search_tile) {
-    for(int i = 0; i < h->num_closed_tiles; i++) {
-        if(h->tiles[i] == search_tile) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int get_best_discard(int player, hand* h) {
-    // first discard winds
-    // TODO: fix for rotating winds :)
-    tile_type seat_wind = player_winds[player];
-    
-    int winds_in_hand[4];
-    for(int i = 0; i < 4; i++) {
-        winds_in_hand[i] = count_tile_in_hand(h, player_winds[i]);
-    }
-
-    // check for single non-seat non-round wind
-    for(int i = 0; i < 4; i++) {
-        if(player_winds[i] == round_wind || player_winds[i] == seat_wind) {
-            continue;
-        }
-        if(winds_in_hand[i] == 1) {
-            // discard non-helpful wind first
-            int idx = find_index_of_first_tile_in_hand(h, player_winds[i]);
-            if(idx == -1) {
-                exotique_printf("BUG IN TILE DISCARD PRIORITIZATION, FOUND WIND TILE BUT DOESNT EXIST?\n");
-            }
-            return idx;
-        }
-    }
-    tile_type dragons[3] = { RED_DRAGON, GREEN_DRAGON, WHITE_DRAGON };
-    for(int i = 0; i < 3; i++) {
-        if(count_tile_in_hand(h, dragons[i]) == 1) {
-            int idx = find_index_of_first_tile_in_hand(h, dragons[i]);
-            if(idx == -1) {
-                exotique_printf("BUG IN TILE DISCARD PRIORITIZATION, FOUND WIND TILE BUT DOESNT EXIST?\n");
-            }
-            return idx;
-        }
-    }
-
-    // search for useless terminals
-    for(int i = 0; i < h->num_closed_tiles; i++) {
-        tile_type ttile = h->tiles[i];
-        if(ttile == ONE_PIN || ttile == ONE_MAN  || ttile == ONE_SOU) {
-            if(count_tile_in_hand(h, ttile+1) == 0 && count_tile_in_hand(h, ttile+2) == 0) {
-                return i;
-            }
-        }
-        if(ttile == NINE_PIN || ttile == NINE_MAN || ttile == NINE_SOU) {
-            if(count_tile_in_hand(h, ttile-1) == 0 && count_tile_in_hand(h, ttile-2) == 0) {
-                return i;
-            }
-        }
-    }
-
-    if(h->num_closed_tiles <= 2) {
-        return 0;
-    }
-    return h->num_closed_tiles-2;
-}
-
-
-u32 ai_player_next_move_frames[4] = {0, 24, 36, 52};
-ai_state ai_player_states[4] = {UNMOVED, UNMOVED, UNMOVED, UNMOVED};
-
-void reset_ai_player_state(int idx, u32 cur_frame) {
-    ai_player_next_move_frames[idx] = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
-    ai_player_states[idx] = UNMOVED;
-}
-
-void run_ai_player(int player, hand* h, u32 cur_frame, int this_player_turn) {
-    // we know the hand is sorted
-    // just drop the last tile before the one we just drew lol
-    if(cur_frame > ai_player_next_move_frames[player]) {
-        ai_player_next_move_frames[player] = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
-        int best_discard = get_best_discard(player, h);
-        if(this_player_turn && h->selected_tile_idx == best_discard) {
-            if(h->num_closed_tiles + h->num_open_tiles == 14) {
-                if(cur_frame > (u32)draw_end_frame) {
-                    queue_push(make_player_action(player, ATTEMPT_DISCARD));
-                }
-            } else {
-                queue_push(make_player_action(player, ATTEMPT_DRAW));   
-            }
-        } else {
-            int right = (best_discard + h->num_closed_tiles - h->selected_tile_idx) % h->num_closed_tiles;
-            int left = (h->selected_tile_idx + h->num_closed_tiles - best_discard) % h->num_closed_tiles;
-            if(left < right) {
-                queue_push(make_player_action(player, MOVE_SELECTED_LEFT));
-            } else if(right < left) {
-                queue_push(make_player_action(player, MOVE_SELECTED_RIGHT));
-            }
-        }
-    }
-}
-
-f32 wall_offsets_x[4] = {17.0f, 0.0f, -17.0f, 0.0f};
-f32 wall_offsets_z[4] = {0.0f, 17.0f, 0.0, -17.0f};
-f32 wall_y_rots[4] = {(f32)M_PI * 0.5f, 0.0f, -(f32)M_PI * 0.5f, (f32)M_PI};
-
-static u64 ms_per_frame;
-static u64 prev_frame_ticks = 0;  
-
-vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix);
-
-sound call_sounds[5] = {
-    PON, 
-    CHII, 
-    //RON
-};
-#define NUM_CALL_SOUNDS (sizeof(call_sounds)/sizeof(call_sounds[0]))
-
-typedef enum {
-    PON_CALL = 0,
-    CHII_CALL = 1,
-    RON_CALL = 2,
-    NO_CALL
-} call_type;
-
-void copy_tile_index_to_open(hand* h, int idx) {
-    tile_type copy_tile = h->tiles[idx];
-    h->open_tiles[h->num_open_tiles] = copy_tile;
-    h->open_tile_rotated[h->num_open_tiles++] = 0;
-    for(int i = idx; i < h->num_closed_tiles-1; i++) {
-        h->tiles[i] = h->tiles[i+1];
-    }
-    h->num_closed_tiles--;
-    exotique_printf("copied tile idx %i to open tiles, now %i closed_tiles and %i open tiles\n", idx, h->num_closed_tiles, h->num_open_tiles);
-}
-
-call_type attempt_call(board *b, int player) {
-
-    hand* prev_hand = &b->hands[last_discard_player];
-    hand* cur_hand = &b->hands[player];
-    tile_type prev_discard = prev_hand->discards[prev_hand->num_discards-1];
-
-    // check for sequence
-    int got_ll = 0;
-    int ll_index = -1;
-    int got_l = 0;
-    int l_index = -1;
-    int got_r = 0;
-    int r_index = -1;
-    int got_rr = 0;
-    int rr_index = -1;
-    int pon_cnt = 1;
-    int pon_index1 = -1;
-    int pon_index2 = -1;
-    for(int i = 0; i < cur_hand->num_closed_tiles; i++) {
-        tile_type til = cur_hand->tiles[i];
-        if(tile_sort_val[til] == tile_sort_val[prev_discard]-1) {
-            got_l = 1;
-            l_index = i;
-        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]-2) {
-            got_ll = 1;
-            ll_index = i;
-        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]+1) {
-            got_r = 1;
-            r_index = i;
-        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]+2) {
-            got_rr = 1;
-            rr_index = i;
-        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]) {
-            if(pon_cnt == 1) {
-                pon_index1 = i;
-            } else {
-                pon_index2 = i;
-            }
-            pon_cnt++;
-        }
-    }
-
-    if(pon_cnt >= 3) {
-        copy_tile_index_to_open(cur_hand, pon_index1);
-        if(pon_index1 < pon_index2) { pon_index2--; }
-        copy_tile_index_to_open(cur_hand, pon_index2);
-        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
-        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
-        prev_hand->num_discards--;
-        return PON_CALL;
-    }
-
-    if(got_ll && got_l) {
-        copy_tile_index_to_open(cur_hand, ll_index);
-        if(ll_index < l_index) { l_index--; }
-        copy_tile_index_to_open(cur_hand, l_index);
-        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
-        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
-        prev_hand->num_discards--;
-        return CHII_CALL;
-    }
-    if(got_l && got_r) {
-        copy_tile_index_to_open(cur_hand, l_index);
-        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
-        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
-        prev_hand->num_discards--;
-        if(ll_index < r_index) { r_index--; }
-        copy_tile_index_to_open(cur_hand, r_index);
-        return CHII_CALL;
-    }
-    if(got_r && got_rr) {
-        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
-        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
-        prev_hand->num_discards--;
-        if(r_index < rr_index) { rr_index--; }
-        copy_tile_index_to_open(cur_hand, r_index);
-        copy_tile_index_to_open(cur_hand, rr_index);
-        return CHII_CALL;
-    }
-
-
-    return NO_CALL;
-}
-
-void rotate_last_three_open_tiles(hand *h) {
-    tile_type tmp_tile = h->open_tiles[h->num_open_tiles-3];
-    int tmp_rot = h->open_tile_rotated[h->num_open_tiles-3];
-    h->open_tiles[h->num_open_tiles-3] = h->open_tiles[h->num_open_tiles-2];
-    h->open_tile_rotated[h->num_open_tiles-3] = h->open_tile_rotated[h->num_open_tiles-2];
-    h->open_tiles[h->num_open_tiles-2] = h->open_tiles[h->num_open_tiles-1];
-    h->open_tile_rotated[h->num_open_tiles-2] = h->open_tile_rotated[h->num_open_tiles-1];
-    h->open_tiles[h->num_open_tiles-1] = tmp_tile;
-    h->open_tile_rotated[h->num_open_tiles-1] = tmp_rot;
-}
-
-void sort_last_three_open_tiles_based_on_player_order(hand* h, int player) {
-    int dist = last_discard_player - player;
-    while(!h->open_tile_rotated[h->num_open_tiles-dist]) {
-        rotate_last_three_open_tiles(h);
-    }
-}
-
-u32 is_unused(int idx, u32 unused_bmp) {
-    return (unused_bmp & (u32)(1 << idx));
-}
-
-int can_partition_into_melds(tile_type hand_tiles[13], u32 unused_bmp) {
-    if(unused_bmp == 0) {
-        return 1; // we've removed all the tiles
-    }
-
-    int smallest_tile_idx = -1;
-    int next_tile_idx = -1;
-    int next_next_tile_idx = -1;
-    for(int i = 0; i < 13; i++) {
-        if(!is_unused(i, unused_bmp)) {
-            continue;
-        }
-        if(smallest_tile_idx != -1 && next_tile_idx != -1) {
-            next_next_tile_idx = i;
-            break;
-        } else if(smallest_tile_idx != -1) {
-            next_tile_idx = i;
-        } else {
-            smallest_tile_idx = i;
-        }
-    }
-    if(smallest_tile_idx == -1) {
-        // shouldn't ever happen
-        return 0;
-    }
-
-    tile_type til = hand_tiles[smallest_tile_idx];
-
-    if(next_next_tile_idx != -1) {
-        // check for triplet and try
-        tile_type nxt = hand_tiles[next_tile_idx];
-        tile_type nnxt = hand_tiles[next_next_tile_idx];
-
-        if(nxt == nnxt && til == nxt) {
-            u32 take_triplet_bmp = unused_bmp;
-            take_triplet_bmp &= (u32)(~smallest_tile_idx);
-            take_triplet_bmp &= (u32)(~next_tile_idx);
-            take_triplet_bmp &= (u32)(~next_next_tile_idx);
-
-            if(can_partition_into_melds(hand_tiles, take_triplet_bmp)) {
-                return 1;
-            }
-        }
-
-        if(til+1 == nxt && nxt+1 == nnxt) {
-            // take this as well 
-            u32 take_sequence_bmp = unused_bmp;
-            take_sequence_bmp &= (u32)(~smallest_tile_idx);
-            take_sequence_bmp &= (u32)(~next_tile_idx);
-            take_sequence_bmp &= (u32)(~next_next_tile_idx);
-
-            if(can_partition_into_melds(hand_tiles, take_sequence_bmp)) {
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
-int in_tenpai(tile_type hand_tiles[13]) {
-    for(int i = 0; i < 13; i++) {
-        for(int j = i+1; j < 13; j++) {
-            if(hand_tiles[i] == hand_tiles[j]) {
-                u32 unused_bmp = 0x1FFF;
-                unused_bmp &= (u32)~(1 << i);
-                unused_bmp &= (u32)~(1 << j);
-                if(can_partition_into_melds(hand_tiles, unused_bmp)) {
-                    return 1;
-                }
-            }
-        }
-    }
-    return 0;
-}
-
-int attempt_riichi(int player) {
-
-    hand* cur_hand = &game_board.hands[player];
-
-    // if the player has opened their hand, cannot riichi
-    if(cur_hand->num_open_tiles > 0) {
-        return 0;
-    }
-    
-    if(cur_hand->in_riichi) {
-        return 0;
-    }
-
-
-    if(in_tenpai(cur_hand->tiles)) {
-        add_sound(RIICHI, 0.125f);
-        cur_hand->in_riichi = 1;
-        return 1;
-    }
-    return 0;
-}
-
-
-
-void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
-
-
-    int held_y = ei->input->y;
-    int held_x = ei->input->x;
-    int held_a = ei->input->a;
-    int held_b = ei->input->b;
-    int pushed_y = held_y && !last_y_pushed;
-    int pushed_x = held_x && !last_x_pushed;
-    int pushed_a = held_a && !last_a_pushed;
-    int pushed_b = held_b && !last_b_pushed;
-    
-
-    int switching = (switch_player_timer != -1);
-    if(switching) {
-        switch_player_timer--;
-        if(switch_player_timer == 0) {
-            cur_player += 1;
-            cur_player &= 3;
-            draw_end_frame = -1;
-
-            switch_player_timer = -1;
-        }
-    }
-    if(pushed_y) {
-        //sort_hand(cur_player_hand);
-        queue_push(make_player_action(0, SORT_HAND));
-    }
-
-
-    // you can call IF
-    // the cur player is not not the actual human player
-    // OR
-    // you haven't started drawing yet
-    if(pushed_x && last_discard_player != 0 && (cur_player != 0 || (draw_end_frame == -1))) {
-        // allow a call if either the 
-        queue_push(make_player_action(cur_player, ATTEMPT_CALL));        
-    }
-
-
-    if(cur_player == 0) {
-
-        if(ei->input->left && !last_left_pushed) {
-            queue_push(make_player_action(cur_player, MOVE_SELECTED_LEFT));
-        } else if (ei->input->right && !last_right_pushed) {
-            queue_push(make_player_action(cur_player, MOVE_SELECTED_RIGHT));
-        }
-
-        if(pushed_a) {
-            queue_push(make_player_action(cur_player, ATTEMPT_DRAW));
-        }
-        if(pushed_b) {
-            queue_push(make_player_action(cur_player, ATTEMPT_DISCARD));
-        }
-        if (pushed_y) {
-            queue_push(make_player_action(cur_player, ATTEMPT_RIICHI));
-        }
-    } else {
-    }
-    for(int i = 1; i < 4; i++) {
-        run_ai_player(i, &game_board.hands[i], cur_frame, (cur_player == i));
-    }
-
-    //process_action_queue();
-    while(!queue_empty()) {
-        player_action action = queue_pop();
-        exotique_printf("got action %s from player %i\n", action_names[action.cmd], action.player_num);
-        int this_player = action.player_num;
-
-        
-        int draw_not_started = draw_end_frame == -1;
-        int draw_started = !draw_not_started;
-        int this_players_turn = cur_player == this_player;
-
-        // if switching, we can do a call, but nothing else
-        int can_draw = !switching && this_players_turn && draw_not_started;
-        int can_discard = !switching && this_players_turn && cur_frame >= (u32)draw_end_frame && draw_started;
-
-
-        hand *player_hand = &game_board.hands[action.player_num];
-
-        switch(action.cmd) {
-            case MOVE_SELECTED_LEFT:
-                player_hand->selected_tile_idx--;
-                if(player_hand->selected_tile_idx < 0) {
-                    player_hand->selected_tile_idx = player_hand->num_closed_tiles-1;
-                }            
-                add_sound(
-                    TILE_CLICK,
-                    0.085f
-                    //cam_pos
-                );
-                break;
-            case MOVE_SELECTED_RIGHT:
-                player_hand->selected_tile_idx++;
-                if (player_hand->selected_tile_idx >= player_hand->num_closed_tiles) {
-                    player_hand->selected_tile_idx = 0;
-                }            
-                add_sound(
-                    TILE_CLICK,
-                    0.085f
-                    //cam_pos
-                );
-                break;
-            case ATTEMPT_DRAW:
-                exotique_printf("can draw %i, switching %i, this players turn %i, draw_not_started %i, draw_end_frame %i\n", can_draw, switching, this_players_turn, draw_not_started, draw_end_frame);
-                if(can_draw) {
-                    draw_end_frame = (i32)draw_next_tile(cur_frame, cur_player);
-                }
-                break;
-            case ATTEMPT_DISCARD:
-                if(can_discard) {
-                    discard_current_tile(cur_player, cur_frame);
-                    switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
-                    reset_ai_player_state(1, cur_frame);
-                    reset_ai_player_state(2, cur_frame);
-                    reset_ai_player_state(3, cur_frame);
-                }
-                break;
-            case SORT_HAND:
-                sort_hand(player_hand);
-                break;
-            case ATTEMPT_CALL: do {
-                    // you can if
-                    // the last discard WASNT YOU
-                    // and either
-                    // the current player ISNT YOU
-                    // OR
-                    // it IS YOU, but you haven't drawn yet
-                    if(last_discard_player != this_player && (cur_player != this_player || (draw_end_frame == -1))) {
-                        call_type can_call = attempt_call(&game_board, this_player);
-                        if(can_call != NO_CALL) {
-                            add_sound(
-                                call_sounds[can_call],
-                                0.125f
-                                //location
-                            );
-                            sort_last_three_open_tiles_based_on_player_order(player_hand, this_player);
-                            cur_player = this_player;
-                            switch_player_timer = -1;
-                            // bail out so that the player switch code can run before we continue to process events here 
-                            return;
-                        }
-                    }
-                } while(0);
-                break;
-            case ATTEMPT_RIICHI: 
-                if(can_discard && attempt_riichi(this_player)) {
-                    discard_current_tile(this_player, cur_frame);
-                    switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
-                    reset_ai_player_state(1, cur_frame);
-                    reset_ai_player_state(2, cur_frame);
-                    reset_ai_player_state(3, cur_frame);
-                }
-                break;
-            default:
-                exotique_printf("Unhandled event type\n");
-                break;
-        }
-    }
-}
-
-void game_update(ExotiqueInterface* ei) {
-
-
-    int cur_start_pushed = ei->input->start;
-    int cur_select_pushed = ei->input->select;
-    //if(cur_start_pushed && !last_start_pushed) {
-    //    paused = !paused;
-    //}
-
-    last_start_pushed = cur_start_pushed;
-
-    f32 abs_cam_rot_y = wall_y_rots[0];
-
-    camera_rot_x = CLAMP(camera_rot_x, 0.0f, 1.568f);
-    f32 use_camera_rot_x = camera_rot_x; //(ei->input->x ? 1.568f : camera_rot_x);
-    //f32 rot_x_portion = camera_rot_x/1.0f;
-    f32 lerped_cam_dist = camera_radius; //lerp(camera_radius, camera_radius_top, use_camera_rot_x);
-    //f32 abs_cam_rot_y = (f32)((cur_player+1)%4) * 1.57f + camera_rot_y;
-
-    vert3f cam_pos = orbit_camera_position(abs_cam_rot_y, use_camera_rot_x, lerped_cam_dist);
-    look_at_yx(&cam_view_trans, cam_pos, (vert3f){0.0f,0.0f,0.0f});
-
-    vert3f forward = {0, 0, -1};
-
-    matrix rx = rotation_x_matrix(.95f);
-    matrix ry = rotation_y_matrix(cam_view_trans.rotation.y);
-    matrix rot = mat_mul_mat(&ry, &rx); // inverse of your view rotation
-
-    light = normalize(mat_mul_vert3(&rot, &forward));
-    
-    //if(paused) {
-    //    return;
-    //}
-
-    if(cur_select_pushed && !last_select_pushed) {
-        reset_game(ei);
-    }
-    switch(cur_game_state) {
-        case STARTUP:
-            break;
-        case INITIAL_SHUFFLE_AND_SETUP:
-            step_shuffle_and_setup(frame, &game_board.board_wall);
-            break;
-        case DEALING:
-            step_deal(frame);
-            break;
-        case IN_GAME:
-            run_game(ei, frame);
-            break;
-        default:
-        case NUM_GAME_STATES:
-            break;
-    }
-    
-    frame++;
-    last_select_pushed = cur_select_pushed;
-    last_left_pushed = ei->input->left;
-    last_right_pushed = ei->input->right;
-    last_x_pushed = ei->input->x;
-    last_y_pushed = ei->input->y;
-    last_a_pushed = ei->input->a;
-    last_b_pushed = ei->input->b;
-}
-
+int got_board_min_max_coords = 0;
 f32 board_min_y, board_max_y;
 f32 board_top_min_x, board_top_max_x;
 f32 board_bot_min_x, board_bot_max_x;
@@ -3775,15 +2429,6 @@ void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, con
     vert_cache.uv[cache_tag_idx] = in_vert->uv;
 }
 
-static inline f32_vec f32_vec_clamp(f32_vec a, f32 min, f32 max) {
-    return (f32_vec){
-        CLAMP(a[0], min, max),
-        CLAMP(a[1], min, max),
-        CLAMP(a[2], min, max),
-        CLAMP(a[3], min, max),
-    };
-}
-
 void process_vertex_batch(const int batch_tag_idx, 
     const f32_vec vert_poses_soa[3], 
     const vert2f vert_uvs[4], 
@@ -3859,6 +2504,30 @@ void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream
         );
     }
 }
+
+int triangle_backfacing(vert3f *v0, vert3f *v1, vert3f *v2) {
+
+    // 28.4 fixed point
+    const i32 X0 = (i32)v1->x;
+    const i32 Y0 = (i32)v1->y;
+    const i32 X1 = (i32)v0->x;
+    const i32 Y1 = (i32)v0->y;
+    const i32 X2 = (i32)v2->x;
+    const i32 Y2 = (i32)v2->y;
+    //
+    // Edge deltas
+    //
+    const i32 dx01 = X0 - X1;
+    const i32 dy01 = Y0 - Y1;
+    const i32 dx20 = X2 - X0;
+    const i32 dy20 = Y2 - Y0;
+    //
+    // Triangle area
+    //
+    i32 area =(dx01 * dy20 - dy01 * dx20);
+    return (area <= 0);
+}
+
 int vcache_misses;
 int vcache_hits;
 void submit_mesh_draw_call(mesh_draw_call* mdc) {
@@ -3972,6 +2641,366 @@ void submit_draw_calls(mesh_draw_call *list, int num_meshes, culling_mode frustu
     }
 }
 
+
+//    SOUND EFFECTS
+
+
+#include "pon_4b.h"
+#include "chii_4b.h"
+#include "tsumo.h"
+#include "riichi_4b.h"
+#include "tile_click_4b.h"
+#include "tsumo_4b.h"
+#include "ron_4b.h"
+
+typedef enum {
+    TILE_CLICK,
+    PON,
+    CHII,
+    RIICHI,
+    TSUMO,
+    RON,
+    NUM_SOUNDS
+} sound;
+
+i16 decompressed_sound_buffer[NUM_SOUNDS][32768];
+typedef struct {
+    void *compressed_raw_data;
+    i16* decompressed_data;
+    u32 num_bytes;
+    u32 num_mono_samples;
+} sound_data;
+
+sound_data sounds[NUM_SOUNDS] = {
+    {
+        tile_click_4b_raw_data, decompressed_sound_buffer[0],
+        TILE_CLICK_NUM_BYTES, 0
+    },
+    {
+        pon_4b_raw_data, decompressed_sound_buffer[1],
+        PON_NUM_BYTES, 0
+    },
+    {
+        chii_4b_raw_data, decompressed_sound_buffer[2],
+        CHII_NUM_BYTES, 0
+    },
+    {
+        riichi_4b_raw_data, decompressed_sound_buffer[3],
+        RIICHI_NUM_BYTES, 0
+    },
+    {
+        tsumo_4b_raw_data, decompressed_sound_buffer[4],
+        TSUMO_NUM_BYTES, 0
+    },
+    {
+        ron_4b_raw_data, decompressed_sound_buffer[5],
+        RON_NUM_BYTES, 0
+    }
+};
+
+u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
+
+    static const int index_table[16] = {
+        -1,-1,-1,-1,
+        2, 4, 6, 8,
+        -1,-1,-1,-1,
+        2, 4, 6, 8
+    };
+
+    static const int step_table[89] = {
+           7,      8,     9,    10,    11,    12,    13,    14,
+          16,     17,    19,    21,    23,    25,    28,    31,
+          34,     37,    41,    45,    50,    55,    60,    66,
+          73,     80,    88,    97,   107,   118,   130,   143,
+         157,    173,   190,   209,   230,   253,   279,   307,
+         337,    371,   408,   449,   494,   544,   598,   658,
+         724,    796,   876,   963,  1060,  1166,  1282,  1411,
+        1552,   1707,  1878,  2066,  2272,  2499,  2749,  3024,
+        3327,   3660,  4026,  4428,  4871,  5358,  5894,  6484,
+        7132,   7845,  8630,  9493, 10442, 11487, 12635, 13899,
+        15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
+        32767
+    };
+
+    u32 num_blocks = num_bytes / 512;
+    i16 *out = output;
+    for(u32 blk = 0; blk < num_blocks; blk++) {
+
+
+        int predictor = (i16)(raw[0]|(raw[1]<<8));
+        raw += 2;
+        int step_index = *raw++;
+        raw++; // skip over reserved;
+        *out++ = (i16)predictor;
+        for(u32 byte_in_block = 0; byte_in_block < 508; byte_in_block++) {
+            u8 byte = *raw++;
+            // loop twice to output two samples for one byte
+            for(int i = 0; i < 2; i++) {
+                int code = (byte>>(4*i)) & 0xF;
+                int step = step_table[step_index];
+                int diff = step >> 3;
+
+                if (code & 1) diff += step >> 2;
+                if (code & 2) diff += step >> 1;
+                if (code & 4) diff += step;
+
+                if (code & 8) {
+                    predictor -= diff;
+                } else {
+                    predictor += diff;
+                }
+                predictor = CLAMP(predictor, -32768, 32767);
+                step_index += index_table[code];
+                step_index = CLAMP(step_index, 0, 88);
+                *out++ = (i16)predictor;
+            } 
+        }
+    }
+    return (u32)(out-output);
+}
+
+void decompress_sounds() {
+    for(int i = 0; i < NUM_SOUNDS; i++) {
+        sounds[i].num_mono_samples = decompress_adpcm(sounds[i].compressed_raw_data, decompressed_sound_buffer[i], sounds[i].num_bytes);
+        sounds[i].decompressed_data = decompressed_sound_buffer[i];
+    }
+}
+
+int num_active_sounds = 0;
+#define MAX_SOUNDS 64
+typedef struct {
+    sound voice;
+    f32 volume;
+    u32 playback_offset;
+    vert3f location;
+} active_sound;
+
+active_sound active_sounds[MAX_SOUNDS]; // contains the playback index of the sound?
+
+f32 buffer[4096];
+static volatile active_sound pending_sounds[MAX_SOUNDS];
+vert3f pending_sound_locations[MAX_SOUNDS];
+static volatile u32 write_pos = 0;  // written only by game thread
+static volatile u32 read_pos  = 0;  // written only by audio thread
+
+void add_sound(sound voice, f32 volume) { //}, vert3f location) {
+    u32 next = (write_pos + 1) & (MAX_SOUNDS - 1);
+    if(next == read_pos) {
+        return; // queue full, drop
+    }
+    pending_sounds[write_pos].voice = voice;
+    //pending_sounds[write_pos].location = location;
+    pending_sounds[write_pos].volume = volume;
+    pending_sounds[write_pos].playback_offset = 0;
+    write_pos = next;
+}
+
+static void drain_pending_sounds(void) {
+    while(read_pos != write_pos) {
+        if(num_active_sounds < MAX_SOUNDS) {
+            active_sounds[num_active_sounds++] = pending_sounds[read_pos];
+        }
+        read_pos = (read_pos + 1) & (MAX_SOUNDS - 1);
+    }
+}
+
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
+    (void)pInput;
+    (void)pDevice;
+
+    drain_pending_sounds();   // <-- only new line: pull in any clicks queued since last callback
+    i16* out = (i16*)pOutput;
+
+    for(u32 i = 0; i < frameCount; i++) {
+        buffer[i*2] = 0.0f;
+        buffer[i*2+1] = 0.0f;
+    }
+
+    // mix into buffer — unchanged
+    for(u32 i = 0; i < frameCount; i++) {
+        u32 bufferIdx = i*2;
+
+        for(int sound_idx = 0; sound_idx < num_active_sounds; sound_idx++) {
+        continue_without_increment:;
+            active_sound snd = active_sounds[sound_idx];
+            i16 *data = sounds[snd.voice].decompressed_data;
+            f32 sound_vol = snd.volume;
+            //vert3f view = mat_mul_vert3(&view_matrix, &snd.location);
+            f32 pan = 0.0f; //CLAMP(view.x/fabsf(view.z), -1.0f, 1.0f);
+            
+            if(pan < 0.0f) { 
+                pan = -1.0f; 
+            } else if (pan > 0.0f) { 
+                pan = 1.0f; 
+            } else {
+                pan = 0.0f;
+            }
+            f32 left  = 0.5f - pan * 0.5f;
+            f32 right = 0.5f + pan * 0.5f;
+            u32 playback_offset = snd.playback_offset;
+            u32 num_smples = sounds[snd.voice].num_mono_samples;
+            
+
+            if(playback_offset >= num_smples) {
+                num_active_sounds--;
+                if(sound_idx == num_active_sounds) {
+                    // this WAS the last element — nothing to swap in, don't reprocess
+                    continue;
+                }
+                active_sounds[sound_idx] = active_sounds[num_active_sounds];
+                goto continue_without_increment;
+            }
+                    
+            buffer[bufferIdx]   += (f32)data[playback_offset]   * sound_vol * left;
+            buffer[bufferIdx+1] += (f32)data[playback_offset++] * sound_vol * right;
+            active_sounds[sound_idx].playback_offset = playback_offset;
+        }
+    }
+
+    for(u32 i = 0; i < frameCount; i++) {
+        *out++ = (i16)CLAMP(buffer[i*2],   -32768.0f, 32767.0f);
+        *out++ = (i16)CLAMP(buffer[i*2+1], -32768.0f, 32767.0f);
+    }
+}
+
+void stop_device_callback(ma_device* pDevice) {
+    (void)pDevice;
+}
+ma_device_config ma_config;
+ma_device sound_device;
+
+
+// WORLD AND HAND DRAWING/TRANSFORMS
+
+#define MAX_DISCARDS 17
+#define MAX_OPEN_TILES 16
+#define TILES_IN_DECK 136
+#define TILE_SPAWN_POS_Y 20.0f
+
+#define TILE_FALL_DURATION .2f
+#define TILE_DEAL_DURATION .4f
+#define DISCARD_DURATION .4f
+#define SWITCH_PLAYER_DURATION 1.0f
+
+typedef struct {
+    int num_closed_tiles;
+    tile_type tiles[14];
+    u32 deal_frame_for_tiles[14];
+    int wall_index_for_tiles[14];
+    tile_type open_tiles[MAX_OPEN_TILES];
+    int open_tile_rotated[MAX_OPEN_TILES];
+    int num_open_tiles;
+    int selected_tile_idx;
+    tile_type discards[MAX_DISCARDS];
+    int num_discards;
+    u32 discard_frames[MAX_DISCARDS];
+    i32 discard_click_frames[MAX_DISCARDS];
+    int discard_from_hand_idx[MAX_DISCARDS];
+    int in_riichi;
+    int num_tenbou[4];
+} hand;
+
+typedef struct {
+    int rem;
+    u32 tile_fall_frames[TILES_IN_DECK];
+    i32 tile_click_frames[TILES_IN_DECK];
+    tile_type tiles[TILES_IN_DECK];
+    int split_distance;
+} wall;
+
+
+
+static u32 rotl(const u32 x, i32 k)
+{
+  return (x << k) | (x >> (32 - k));
+}
+
+/* Completely arbitrary seeds */
+static u32 s[4] = {0x27cb588d, 0x096379a9, 0xe81f5914, 0x2ee1c98c};
+
+u32 nextrand(void)
+{
+  const u32 result = rotl(s[0] + s[3], 7) + s[0];
+
+  const u32 t = s[1] << 9;
+
+  s[2] ^= s[0];
+  s[3] ^= s[1];
+  s[1] ^= s[2];
+  s[0] ^= s[3];
+
+  s[2] ^= t;
+
+  s[3] = rotl(s[3], 11);
+
+  return result;
+}
+
+u32 roll_die() {
+    return 1+(nextrand()%6);
+}
+
+typedef struct {
+    wall board_wall;
+    hand hands[4];
+} board;
+
+typedef enum {
+    STARTUP,
+    INITIAL_SHUFFLE_AND_SETUP,
+    DEALING,
+    IN_GAME,
+    NUM_GAME_STATES
+} game_state;
+
+typedef enum {
+    EAST_WIND = 0,
+    SOUTH_WIND = 1
+} game_wind;
+
+const tile_type game_wind_to_tile_wind[] = {
+    EAST, SOUTH
+};
+
+int next_deal_pos = 0; // 
+board game_board;
+game_state cur_game_state;
+
+u32 frame = 0;
+int deal_steps = 0;
+int cur_player = 0;
+tile_type shuffled_deck[TILES_IN_DECK];
+int switch_player_timer = -1;
+i32 draw_end_frame = 0;
+int cur_dealer = -1;
+
+tile_type last_discard;
+int last_discard_player = -1;
+
+typedef struct {
+    game_wind cur_wind;
+} game_data_t;
+
+game_data_t game_data;
+
+#define TILE_SCALE 1.0f
+#define WALL_TILE_SPACING 1.63f
+#define HAND_TILE_SPACING 2.0f
+#define SELECTED_TILE_Y_POS 1.47f
+#define DISCARDING_TILE_Y_POS 2.0f
+#define UNSELECTED_TILE_Y_POS 0.455f
+
+const f32 wall_offsets_x[4] = {17.0f, 0.0f, -17.0f, 0.0f};
+const f32 wall_offsets_z[4] = {0.0f, 17.0f, 0.0, -17.0f};
+const f32 wall_y_rots[4] = {(f32)M_PI * 0.5f, 0.0f, -(f32)M_PI * 0.5f, (f32)M_PI};
+
+static u64 bench_frame_ms;
+
+u32 get_frames_for_duration(f32 duration) {
+    f32 total_ms = (duration * 1000.0f);
+    return (u32)(total_ms / (f32)16);
+}
+
 transform identity_transform(void) {
     return (transform){
         .scale =    {1.0f, 1.0f, 1.0f},
@@ -3980,15 +3009,13 @@ transform identity_transform(void) {
     };
 }
 
-#define TILE_SCALE 1.0f
-
-const f32 wall_tile_spacing = 1.63f;
+vert3f calc_global_discard_position(int discard_i, matrix* hand_to_world_matrix);
 
 f32 calc_wall_tile_x_position(int row_on_wall) {
 
-    f32 wall_length = (f32)(16 * wall_tile_spacing);
+    f32 wall_length = (f32)(16 * WALL_TILE_SPACING);
     f32 half = wall_length / 2.0f;
-    f32 row_x_offset = (f32)row_on_wall * -wall_tile_spacing;
+    f32 row_x_offset = (f32)row_on_wall * -WALL_TILE_SPACING;
 
     f32 x_position = half + row_x_offset;
     
@@ -4037,12 +3064,10 @@ vert3f calc_wall_tile_global_position(u32 cur_frame, wall* w, int tot_tile_idx) 
     return mat_mul_vert3(&wall_matrix, &local_pos);
 }
 
-const f32 hand_tile_spacing = 2.0f;
-
 f32 calc_hand_x_position(hand* h, int idx) {
-    f32 whole_hand_width = (f32)(13 * hand_tile_spacing);
+    f32 whole_hand_width = (f32)(13 * HAND_TILE_SPACING);
     f32 half_width = whole_hand_width / 2.0f;
-    f32 normal = half_width - hand_tile_spacing*(f32)idx;
+    f32 normal = half_width - HAND_TILE_SPACING*(f32)idx;
     if(idx == h->num_closed_tiles) {
         return normal - 1.0f;
     } else {
@@ -4050,9 +3075,6 @@ f32 calc_hand_x_position(hand* h, int idx) {
     }
 }
 
-#define SELECTED_TILE_Y_POS 1.47f
-#define DISCARDING_TILE_Y_POS 2.0f
-#define UNSELECTED_TILE_Y_POS 0.455f
 f32 calc_hand_y_position(hand* h, int idx) { //}, int is_cur_player) {
     f32 cur_player_height = (h->selected_tile_idx == idx ? SELECTED_TILE_Y_POS : UNSELECTED_TILE_Y_POS);
     //f32 non_cur_player_height = UNSELECTED_TILE_Y_POS;
@@ -4272,7 +3294,7 @@ void draw_hand(
         transform wind_indicator_trans = identity_transform();
         wind_indicator_trans.position.x = -25.0f;
         wind_indicator_trans.rotation.y = (f32)M_PI;
-        wind_indicator_trans.rotation.z = cur_wind == EAST_WIND ? 0.0f : (f32)M_PI; //(f32)M_PI; //(f32)cur_frame/160.0f;//(f32)M_PI;
+        wind_indicator_trans.rotation.z = game_data.cur_wind == EAST_WIND ? 0.0f : (f32)M_PI; 
 
         wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
         matrix wind_indicator_to_hand_mat = transform_to_matrix(&wind_indicator_trans);
@@ -4344,16 +3366,12 @@ void draw_hand(
 
 void draw_wall(game_state cur_state, u32 cur_frame, wall *w, matrix *view_mat) {
 
-
     mesh_draw_call draw_calls[34*4];
 
     int draw_idx = 0;
 
     matrix wall_matrixes[4];
     matrix wall_view_matrixes[4];
-
-
-
 
     for(int i = 0; i < 4; i++) {
 
@@ -4469,8 +3487,10 @@ void draw_board(matrix* view_mat) {
     draw_board_call.mesh = &board_sides;
     
 
-    if(1) {
+    if(!got_board_min_max_coords) {
         vert3f board_verts[8];
+        got_board_min_max_coords = 1;
+
         project_bounding_box(&board_bbox, &board_to_view_matrix, board_verts);
         f32 min_y = board_verts[0].y, max_y = board_verts[0].y;
         for(int i = 0; i < 8; i++) {
@@ -4496,13 +3516,19 @@ void draw_board(matrix* view_mat) {
         board_top_max_x = top_max_x;
         board_bot_min_x = bot_min_x-2.0f;
         board_bot_max_x = bot_max_x+2.0f;
-    } else {
     }
+
     submit_draw_calls(&draw_board_call, 1, FRUSTUM_CULL);
 
 }
 
+
+transform cam_view_trans;
+static u64 ms_per_frame;
+static u64 prev_frame_ticks = 0;  
+
 void game_draw(ExotiqueInterface* ei) {
+
     u64 cur_frame_ticks = ei->ticks;
 
     u64 prev_ms_per_frame = ms_per_frame;
@@ -4510,8 +3536,9 @@ void game_draw(ExotiqueInterface* ei) {
     ms_per_frame = cur_frame_ticks - prev_frame_ticks;    
     prev_frame_ticks = cur_frame_ticks;
     static int init;
-    if(frame > 2) {
+    if(frame > 10) {
         if(!init) {
+            exotique_printf("setting bench ms to %llu\n", ms_per_frame);
             bench_frame_ms = ms_per_frame;
         }
         init = 1;
@@ -4545,7 +3572,7 @@ void game_draw(ExotiqueInterface* ei) {
 
     if((frame & 63) == 0) {
         //print_and_reset_root_block(&whole_frame_block);
-        //exotique_printf("total %.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
+        exotique_printf("total %.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
     }
     
 
@@ -4556,4 +3583,1025 @@ void game_draw(ExotiqueInterface* ei) {
     meshes_transformed = 0;
     vertexes_transformed = 0;
     triangles_rasterized = 0;
+}
+
+
+//    GAME LOGIC
+
+wall init_empty_wall() {
+    wall d;
+    d.rem = 0;
+    
+    d.split_distance = 17 - (int)(roll_die() + roll_die());
+
+    return d;
+}
+
+hand init_hand() {
+    hand h;
+    h.num_closed_tiles = 0;
+    h.num_open_tiles = 0;
+    return h;
+}
+
+// 1 10,000 stick (RED)
+// 2 5,000 sticks (GOLD)
+// 4 1,000 sticks (BLUE)
+// ten 100 sticks (WHITE)
+hand init_empty_hand() {
+    hand h;
+    h.num_open_tiles = 0; 
+    h.num_closed_tiles = 0;
+    h.num_discards = 0;
+    h.selected_tile_idx = -1;
+    h.in_riichi = 0;
+    h.num_tenbou[0] = 1;
+    h.num_tenbou[1] = 2;
+    h.num_tenbou[2] = 4;
+    h.num_tenbou[3] = 10;
+
+    return h;
+}
+
+void shuffle_deck(tile_type deck[TILES_IN_DECK]) {
+    int out = 0;
+    for(int i = 0; i < NUM_TILES; i++) {
+        if(i == FIVE_SOU_RED || i == FIVE_MAN_RED || i == FIVE_PIN_RED) {
+            deck[out-1] = i;
+            continue;
+        }
+        deck[out++] = i; deck[out++] = i; deck[out++] = i; deck[out++] = i; // 4 of each card type unless it's akadora
+    }
+
+    u32 j = TILES_IN_DECK-1;
+    for(u32 i = TILES_IN_DECK-1; i >= 1; i--) {
+        j = 1 + (nextrand() % i);
+        tile_type tmp = deck[i];
+        deck[i] = deck[j];
+        deck[j] = tmp;
+    }
+
+}
+
+void reset_game(ExotiqueInterface *ei) {
+    game_data.cur_wind = EAST_WIND;
+    s[3] = s[2];
+    s[1] = s[0];
+    s[0] = (u32)ei->ticks;
+    cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
+    frame = 0;
+    deal_steps = 0;
+    cur_player = 0;
+    cur_dealer++;
+    if(cur_dealer == 4) {
+        cur_dealer = 0;
+        game_data.cur_wind = (game_data.cur_wind+1)%2;
+    }
+    switch_player_timer = -1;
+    draw_end_frame = 0;
+    
+    game_board.board_wall.rem = 0;
+
+    game_board.board_wall = init_empty_wall();
+    for(int i = 0; i < 4; i++) {
+        game_board.hands[i] = init_empty_hand();
+    }
+    // shuffle a second deck in memory
+    shuffle_deck(shuffled_deck);
+    next_deal_pos = 0;
+    last_discard_player = -1;
+}
+
+
+void game_load(ExotiqueInterface* ei) {
+    cur_game_state = STARTUP;
+    cur_dealer = -1;
+    num_active_sounds = 0;
+    
+    ma_config = ma_device_config_init(ma_device_type_playback);
+
+    ma_config.playback.format   = ma_format_s16;   // Set to ma_format_unknown to use the device's native format.
+    ma_config.playback.channels = 2;               // Set to 0 to use the device's native channel count.
+    ma_config.sampleRate        = 22050;           // Set to 0 to use the device's native sample rate.
+    ma_config.dataCallback      = &data_callback;   // This function will be called when miniaudio needs more data.
+    ma_config.stopCallback      = &stop_device_callback;
+    ma_config.performanceProfile = ma_performance_profile_low_latency;
+    ma_config.noClip = MA_TRUE;
+    ma_config.noPreSilencedOutputBuffer = MA_TRUE;
+    ma_config.periodSizeInFrames = 16;
+    
+    ma_result dev_init_res = ma_device_init(NULL_PTR, &ma_config, &sound_device);
+    if (dev_init_res != MA_SUCCESS) {
+        exotique_printf("miniaudio failed to init %i\n", dev_init_res);
+        return;  // Failed to initialize the device.
+    }
+    
+    ma_result dev_start_res = ma_device_start(&sound_device);     // The device is sleeping by default so you'll need to start it manually.
+    if(dev_start_res != MA_SUCCESS) {
+        exotique_printf("miniaudio failed to init %i\n", dev_start_res);
+        return;
+    }
+    
+
+    int i;
+    int last_used_pal_idx = 0;
+
+    // load lighting palette into the first 1+(NUM_SHADES)*(NUM_BASE_COLORS-1) palette slots.
+    // one slot is used for black, the others get NUM_SHADES variants.
+    for(int shade = 0; shade < NUM_SHADES; shade++) {
+        int base = 1 + shade*(NUM_BASE_COLORS-1);
+        f32 scale = lerp(1.0f/(f32)NUM_SHADES, (f32)NUM_SHADES/(f32)NUM_SHADES, (f32)shade/(f32)NUM_SHADES);
+        for(i = 0; i < NUM_BASE_COLORS; i++) {
+            if(i == 0) {
+                // if the color is black, always point to the same palette index
+                ei->palette[0] = 0x000000FF;
+                light_remap_table[shade][i] = 0;
+            } else {
+                //int base = i*32;
+                u32 rgba = (palette[i]<<8)|0xFF; 
+                u8 br = (u8)(rgba >> 24);
+                u8 bg = (u8)(rgba >> 16);
+                u8 bb = (u8)(rgba >> 8);
+                f32 r = ((f32)br)/255.0f;
+                f32 g = ((f32)bg)/255.0f;
+                f32 b = ((f32)bb)/255.0f;
+                // shade=0 => 1/32
+                // shade31 => 32/32
+
+                f32 scaled_r = r * scale;
+                f32 scaled_g = g * scale;
+                f32 scaled_b = b * scale;
+                u32 byte_r = (u32)CLAMP(scaled_r*255.0f, 0.0f, 255.0f);
+                u32 byte_g = (u32)CLAMP(scaled_g*255.0f, 0.0f, 255.0f);
+                u32 byte_b = (u32)CLAMP(scaled_b*255.0f, 0.0f, 255.0f);
+                last_used_pal_idx = base+i;
+                ei->palette[base+i] = (byte_r<<24)|(byte_g<<16)|(byte_b<<8)|0xFF;
+                light_remap_table[shade][i] = (u8)(base+i);
+            }
+        }
+    }
+
+
+    // load background texture entries into palette
+    int num_bkgd_pal_entries = sizeof(palette_background)/sizeof(u32);
+
+    for(i = 0; i < num_bkgd_pal_entries; i++) {
+        u32 pal_entry = (palette_background[i]<<8)|0xFF;
+        ei->palette[last_used_pal_idx+i+1] = pal_entry;
+    }
+
+
+
+    int free_slot = last_used_pal_idx+1+num_bkgd_pal_entries;
+    ei->palette[free_slot] = 0xC45766FF;
+    
+    for(int shade = 0; shade < NUM_SHADES; shade++) {
+        for(int p = 0; p < 256; p++) {
+            vert3f rgba = rgba_to_f32_rgb(ei->palette[p]);
+            f32 scale = lerp(1.0f/(f32)NUM_SHADES, (f32)NUM_SHADES/(f32)NUM_SHADES, (f32)shade/(f32)NUM_SHADES);
+            rgba = scale_vert3(rgba, scale);
+            full_light_remap_table[shade][p] = closest_overall_color_idx(ei, rgba);
+        }
+    }
+    for(i = 0; i < 256; i++) {
+        vert3f c1 = rgba_to_f32_rgb(ei->palette[i]);
+        for(int j = 0; j < 256; j++) {
+            if(i == j) {
+                mix_table[(i<<8)|j] = (u8)i;
+            } else {
+                vert3f c2 = rgba_to_f32_rgb(ei->palette[j]);
+                vert3f avg = scale_vert3(add_vert3(c1, c2), 0.5f);
+                mix_table[(i<<8)|j] = closest_overall_color_idx(
+                    ei, avg
+                );
+            }
+        }
+    }
+    //output_mixing_table(ei);
+    //output_palette(ei);
+    decompress_sounds();
+    decompress_textures(ei);
+
+    texture_board[0] = light_remap_table[NUM_SHADES-1][GREEN];
+    
+    clear_tile_bins();
+
+    tile_bbox = get_mesh_bbox(&mahjong_tile_mesh);
+    board_bbox = get_mesh_bbox(&board_mesh);
+}
+
+
+void step_shuffle_and_setup(u32 cur_frame, wall* w) {
+    if((cur_frame&3) != 3) {
+        return;
+    }
+    if(w->rem == TILES_IN_DECK) {
+        if(w->tile_fall_frames[w->rem-1]+get_frames_for_duration(TILE_FALL_DURATION) <= cur_frame) {
+            cur_game_state = DEALING;
+        }
+    } else {
+        w->tile_fall_frames[w->rem] = cur_frame;
+        w->tile_click_frames[w->rem] = (i32)cur_frame + (i32)get_frames_for_duration(TILE_FALL_DURATION) - (i32)get_frames_for_duration(0.2f);
+        w->tiles[w->rem++] = shuffled_deck[next_deal_pos++];// nextrand()%NUM_TILES;
+    }
+    for(int i = 0; i < w->rem; i++) {
+        if((i32)cur_frame >= w->tile_click_frames[i] && w->tile_click_frames[i] != -1) {
+            
+            add_sound(
+                TILE_CLICK,
+                0.085f
+            );
+
+            w->tile_click_frames[i] = -1;
+        }
+    }
+}
+
+
+#define ACTIONS             \
+    X(MOVE_SELECTED_LEFT)   \
+    X(MOVE_SELECTED_RIGHT)  \
+    X(SORT_HAND)            \
+    X(ATTEMPT_CALL)         \
+    X(ATTEMPT_DRAW)         \
+    X(ATTEMPT_DISCARD)      \
+    X(ATTEMPT_RIICHI)
+
+typedef enum {
+#define X(a) a,
+    ACTIONS
+#undef X
+} player_action_type;
+
+const char* action_names[] = {
+#define X(a) #a,
+    ACTIONS
+#undef X
+};
+
+typedef struct {
+    int player_num;
+    player_action_type cmd;
+} player_action;
+
+player_action make_player_action(int player_num, player_action_type cmd) {
+    return (player_action){player_num, cmd};
+}
+
+#define MAX_PLAYER_EVENTS 128
+player_action action_queue[MAX_PLAYER_EVENTS];
+int queue_head = 0;
+int queue_tail = 0;
+
+// 0-0 -> no events
+// 0-1 -> 1 event
+// 0-2 -> 2 events
+// 0-3 -> 3 events
+// 0-4 -> 4 events
+
+int queue_full() {
+    return (queue_tail - queue_head) == MAX_PLAYER_EVENTS;
+}
+int queue_empty() {
+    return (queue_tail - queue_head) == 0;
+}
+player_action queue_peek() {
+    return action_queue[queue_tail&(MAX_PLAYER_EVENTS-1)];
+}
+
+void exit(int);
+
+player_action queue_pop() {
+    if(queue_empty()) {
+        exotique_printf("ACTION QUEUE UNDERFLOW!\n");
+        exit(1);
+    }
+    player_action act = queue_peek();
+    queue_tail++;
+    return act;
+}
+
+void queue_push(player_action act) {
+    if(queue_full()) {
+        exotique_printf("ACTION QUEUE OVERFLOW!\n");
+        exit(1);
+    }
+    action_queue[queue_head&(MAX_PLAYER_EVENTS-1)] = act;
+    queue_head++;
+}
+
+void sort_hand(hand* h) {
+    for(int i = 0; i < h->num_closed_tiles; i++) {
+        int biggest_tile = h->tiles[i];
+
+        for(int j = i+1; j < h->num_closed_tiles; j++) {
+            int cur_tile = h->tiles[j];
+            if(tile_sort_val[cur_tile] < tile_sort_val[biggest_tile]) {
+                h->tiles[i] = cur_tile;
+                h->tiles[j] = biggest_tile;
+                biggest_tile = cur_tile;
+            }
+        }
+    }
+}
+
+void step_deal(u32 cur_frame) {
+    // start with east
+    if((cur_frame & 31) != 0) {
+        return;
+    }
+    int hand_index = deal_steps & 0x3;
+    hand* this_hand = &game_board.hands[hand_index];
+
+    int cur_num_tiles = this_hand->num_closed_tiles;
+
+    int cur_deal_count = 1;
+    if(deal_steps < 12) {
+        cur_deal_count = 4;
+    }
+    for(int i = 0; i < cur_deal_count; i++) {
+        this_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
+        this_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
+        this_hand->tiles[cur_num_tiles++] = game_board.board_wall.tiles[game_board.board_wall.rem];
+    }
+    this_hand->num_closed_tiles = cur_num_tiles;
+    this_hand->selected_tile_idx = cur_num_tiles-1;
+    deal_steps++;
+    if(deal_steps == 17) {
+        cur_game_state = IN_GAME;
+        switch_player_timer = -1;
+    }
+}
+
+int last_start_pushed = 0;
+int last_select_pushed = 0;
+int last_a_pushed = 0, last_b_pushed = 0;
+int last_left_pushed = 0, last_right_pushed = 0;
+int last_x_pushed = 0, last_y_pushed = 0;
+
+void discard_current_tile(int player, u32 cur_frame) {
+    hand* cur_player_hand = &game_board.hands[player];
+
+    int selected_tile_idx = cur_player_hand->selected_tile_idx;
+    cur_player_hand->discards[cur_player_hand->num_discards] = cur_player_hand->tiles[selected_tile_idx];
+    last_discard = cur_player_hand->tiles[selected_tile_idx];
+    last_discard_player = player;
+
+    cur_player_hand->discard_frames[cur_player_hand->num_discards] = cur_frame;
+    cur_player_hand->discard_click_frames[cur_player_hand->num_discards] = (i32)cur_frame + (i32)get_frames_for_duration(DISCARD_DURATION) - (i32)get_frames_for_duration(0.06f);
+    cur_player_hand->discard_from_hand_idx[cur_player_hand->num_discards++] = selected_tile_idx;
+
+    for(int i = cur_player_hand->selected_tile_idx; i < cur_player_hand->num_closed_tiles-1; i++) {
+        cur_player_hand->tiles[i] = cur_player_hand->tiles[i+1];
+    }
+    cur_player_hand->num_closed_tiles--;
+    sort_hand(cur_player_hand);
+}
+
+u32 draw_next_tile(u32 cur_frame, int player) {
+    hand* cur_player_hand = &game_board.hands[player];
+    int cur_num_tiles = cur_player_hand->num_closed_tiles++;
+    cur_player_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
+    cur_player_hand->wall_index_for_tiles[cur_num_tiles] = --game_board.board_wall.rem;
+    cur_player_hand->tiles[cur_num_tiles] = game_board.board_wall.tiles[game_board.board_wall.rem];
+    cur_player_hand->selected_tile_idx = cur_num_tiles;
+    return cur_frame + get_frames_for_duration(TILE_DEAL_DURATION);
+}
+
+typedef enum {
+    UNMOVED,
+    MOVED,
+} ai_state;
+
+#define AI_PLAYER_SPEED 0.192f
+
+tile_type player_winds[4] = {
+    EAST, NORTH, WEST, SOUTH 
+};
+
+int count_tile_in_hand(hand* h, tile_type search_tile) {
+    int count = 0;
+    for(int i = 0; i < h->num_closed_tiles; i++) {
+        count += (h->tiles[i] == search_tile ? 1 : 0);
+    }
+    return count;
+}
+
+int find_index_of_first_tile_in_hand(hand* h, tile_type search_tile) {
+    for(int i = 0; i < h->num_closed_tiles; i++) {
+        if(h->tiles[i] == search_tile) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int get_best_discard(int player, hand* h) {
+    // first discard winds
+    // TODO: fix for rotating winds :)
+    tile_type round_wind = game_wind_to_tile_wind[game_data.cur_wind];
+    tile_type seat_wind = player_winds[player];
+    
+    int winds_in_hand[4];
+    for(int i = 0; i < 4; i++) {
+        winds_in_hand[i] = count_tile_in_hand(h, player_winds[i]);
+    }
+
+    // check for single non-seat non-round wind
+    for(int i = 0; i < 4; i++) {
+        if(player_winds[i] == round_wind || player_winds[i] == seat_wind) {
+            continue;
+        }
+        if(winds_in_hand[i] == 1) {
+            // discard non-helpful wind first
+            int idx = find_index_of_first_tile_in_hand(h, player_winds[i]);
+            if(idx == -1) {
+                exotique_printf("BUG IN TILE DISCARD PRIORITIZATION, FOUND WIND TILE BUT DOESNT EXIST?\n");
+            }
+            return idx;
+        }
+    }
+    tile_type dragons[3] = { RED_DRAGON, GREEN_DRAGON, WHITE_DRAGON };
+    for(int i = 0; i < 3; i++) {
+        if(count_tile_in_hand(h, dragons[i]) == 1) {
+            int idx = find_index_of_first_tile_in_hand(h, dragons[i]);
+            if(idx == -1) {
+                exotique_printf("BUG IN TILE DISCARD PRIORITIZATION, FOUND WIND TILE BUT DOESNT EXIST?\n");
+            }
+            return idx;
+        }
+    }
+
+    // search for useless terminals
+    for(int i = 0; i < h->num_closed_tiles; i++) {
+        tile_type ttile = h->tiles[i];
+        if(ttile == ONE_PIN || ttile == ONE_MAN  || ttile == ONE_SOU) {
+            if(count_tile_in_hand(h, ttile+1) == 0 && count_tile_in_hand(h, ttile+2) == 0) {
+                return i;
+            }
+        }
+        if(ttile == NINE_PIN || ttile == NINE_MAN || ttile == NINE_SOU) {
+            if(count_tile_in_hand(h, ttile-1) == 0 && count_tile_in_hand(h, ttile-2) == 0) {
+                return i;
+            }
+        }
+    }
+
+    if(h->num_closed_tiles <= 2) {
+        return 0;
+    }
+    return h->num_closed_tiles-2;
+}
+
+typedef enum {
+    HUMAN,
+    CONSERVATIVE_AI,
+    AGGRESSIVE_AI,
+    CHAOTIC_AI
+} player_type;
+
+u32 ai_player_next_move_frames[4] = {0, 24, 36, 52};
+ai_state ai_player_states[4] = {UNMOVED, UNMOVED, UNMOVED, UNMOVED};
+player_type player_types[4] = {HUMAN, AGGRESSIVE_AI, CHAOTIC_AI, CONSERVATIVE_AI};
+
+void reset_ai_player_state(int idx, u32 cur_frame) {
+    ai_player_next_move_frames[idx] = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
+    ai_player_states[idx] = UNMOVED;
+}
+
+void run_ai_player(int player, hand* h, u32 cur_frame, int this_player_turn) {
+    // we know the hand is sorted
+    player_type ai_type = player_types[player];
+    // just drop the last tile before the one we just drew lol
+    if(cur_frame > ai_player_next_move_frames[player]) {
+
+        // aggressive AI is funny because it doesn't even prepare for it's discard
+        // it always tries to call first :)
+        // only it it's the AI's turn does it move it's selected tile around
+        if(!this_player_turn && ai_type == AGGRESSIVE_AI) {
+            queue_push(make_player_action(player, ATTEMPT_CALL));
+            return;
+        }
+
+
+        ai_player_next_move_frames[player] = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
+        int best_discard = get_best_discard(player, h);
+        if(this_player_turn && h->selected_tile_idx == best_discard) {
+            if(h->num_closed_tiles + h->num_open_tiles == 14) {
+                if(cur_frame > (u32)draw_end_frame) {
+                    queue_push(make_player_action(player, ATTEMPT_DISCARD));
+                }
+            } else {
+                queue_push(make_player_action(player, ATTEMPT_DRAW));   
+            }
+        } else {
+            int right = (best_discard + h->num_closed_tiles - h->selected_tile_idx) % h->num_closed_tiles;
+            int left = (h->selected_tile_idx + h->num_closed_tiles - best_discard) % h->num_closed_tiles;
+            if(left < right) {
+                queue_push(make_player_action(player, MOVE_SELECTED_LEFT));
+            } else if(right < left) {
+                queue_push(make_player_action(player, MOVE_SELECTED_RIGHT));
+            }
+        }
+    }
+}
+
+sound call_sounds[5] = {
+    PON, 
+    CHII, 
+    //RON
+};
+#define NUM_CALL_SOUNDS (sizeof(call_sounds)/sizeof(call_sounds[0]))
+
+typedef enum {
+    PON_CALL = 0,
+    CHII_CALL = 1,
+    RON_CALL = 2,
+    NO_CALL
+} call_type;
+
+void copy_tile_index_to_open(hand* h, int idx) {
+    tile_type copy_tile = h->tiles[idx];
+    h->open_tiles[h->num_open_tiles] = copy_tile;
+    h->open_tile_rotated[h->num_open_tiles++] = 0;
+    for(int i = idx; i < h->num_closed_tiles-1; i++) {
+        h->tiles[i] = h->tiles[i+1];
+    }
+    h->num_closed_tiles--;
+    exotique_printf("copied tile idx %i to open tiles, now %i closed_tiles and %i open tiles\n", idx, h->num_closed_tiles, h->num_open_tiles);
+}
+
+call_type attempt_call(board *b, int player) {
+
+    hand* prev_hand = &b->hands[last_discard_player];
+    hand* cur_hand = &b->hands[player];
+    tile_type prev_discard = prev_hand->discards[prev_hand->num_discards-1];
+
+    // check for sequence
+    int got_ll = 0;
+    int ll_index = -1;
+    int got_l = 0;
+    int l_index = -1;
+    int got_r = 0;
+    int r_index = -1;
+    int got_rr = 0;
+    int rr_index = -1;
+    int pon_cnt = 1;
+    int pon_index1 = -1;
+    int pon_index2 = -1;
+    for(int i = 0; i < cur_hand->num_closed_tiles; i++) {
+        tile_type til = cur_hand->tiles[i];
+        if(tile_sort_val[til] == tile_sort_val[prev_discard]-1) {
+            got_l = 1;
+            l_index = i;
+        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]-2) {
+            got_ll = 1;
+            ll_index = i;
+        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]+1) {
+            got_r = 1;
+            r_index = i;
+        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]+2) {
+            got_rr = 1;
+            rr_index = i;
+        } else if (tile_sort_val[til] == tile_sort_val[prev_discard]) {
+            if(pon_cnt == 1) {
+                pon_index1 = i;
+            } else {
+                pon_index2 = i;
+            }
+            pon_cnt++;
+        }
+    }
+
+    if(pon_cnt >= 3) {
+        exotique_printf("Can PON %s to complete\n", tile_names[prev_discard]);
+        copy_tile_index_to_open(cur_hand, pon_index1);
+        if(pon_index1 < pon_index2) { pon_index2--; }
+        copy_tile_index_to_open(cur_hand, pon_index2);
+        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
+        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
+        prev_hand->num_discards--;
+        return PON_CALL;
+    }
+
+    if(got_ll && got_l) {
+        exotique_printf("Can CHII %s to complete %s %s\n", 
+            tile_names[prev_discard], 
+            tile_names[cur_hand->tiles[ll_index]], tile_names[cur_hand->tiles[l_index]]);
+        if(ll_index < l_index) { l_index--; }
+        copy_tile_index_to_open(cur_hand, ll_index);
+        copy_tile_index_to_open(cur_hand, l_index);
+        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
+        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
+        prev_hand->num_discards--;
+        return CHII_CALL;
+    }
+    if(got_l && got_r) {
+        exotique_printf("Can CHII %s to complete %s %s\n", 
+            tile_names[prev_discard], 
+            tile_names[cur_hand->tiles[l_index]], tile_names[cur_hand->tiles[r_index]]);
+        copy_tile_index_to_open(cur_hand, l_index);
+        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
+        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
+        prev_hand->num_discards--;
+        if(ll_index < r_index) { r_index--; }
+        copy_tile_index_to_open(cur_hand, r_index);
+        return CHII_CALL;
+    }
+    if(got_r && got_rr) {
+        exotique_printf("Can CALL %s to complete %s %s\n", 
+            tile_names[prev_discard], 
+            tile_names[cur_hand->tiles[r_index]], tile_names[cur_hand->tiles[rr_index]]);
+        cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
+        cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
+        prev_hand->num_discards--;
+        if(r_index < rr_index) { rr_index--; }
+        copy_tile_index_to_open(cur_hand, r_index);
+        copy_tile_index_to_open(cur_hand, rr_index);
+        return CHII_CALL;
+    }
+
+
+    return NO_CALL;
+}
+
+
+// player 3 calling player 0 is like player 0 calling player 1, (0-3)%4 => 1
+// player 2 calling player 1 is like player 0 calling player 3, (1-2)%4 => 3
+
+// use mod_positive to wrap around
+int get_index_to_move_called_tile_to(int caller, int callee) {
+    return 3 - mod_positive(callee-caller,4);
+}
+
+void rotate_last_three_open_tiles(hand *h) {
+    tile_type tmp_tile = h->open_tiles[h->num_open_tiles-3];
+    int tmp_rot = h->open_tile_rotated[h->num_open_tiles-3];
+    h->open_tiles[h->num_open_tiles-3] = h->open_tiles[h->num_open_tiles-2];
+    h->open_tile_rotated[h->num_open_tiles-3] = h->open_tile_rotated[h->num_open_tiles-2];
+    h->open_tiles[h->num_open_tiles-2] = h->open_tiles[h->num_open_tiles-1];
+    h->open_tile_rotated[h->num_open_tiles-2] = h->open_tile_rotated[h->num_open_tiles-1];
+    h->open_tiles[h->num_open_tiles-1] = tmp_tile;
+    h->open_tile_rotated[h->num_open_tiles-1] = tmp_rot;
+}
+
+void sort_last_three_open_tiles_based_on_player_order(hand* h, int caller, int callee) {
+    int dst_idx = get_index_to_move_called_tile_to(caller, callee) + h->num_open_tiles - 3;
+    while(!h->open_tile_rotated[dst_idx]) {
+        // rotate everything
+        rotate_last_three_open_tiles(h);
+    }
+}
+
+u32 is_unused(int idx, u32 unused_bmp) {
+    return (unused_bmp & (u32)(1 << idx));
+}
+
+int can_partition_into_melds(tile_type hand_tiles[13], u32 unused_bmp) {
+    if(unused_bmp == 0) {
+        return 1; // we've removed all the tiles
+    }
+
+    int smallest_tile_idx = -1;
+    int next_tile_idx = -1;
+    int next_next_tile_idx = -1;
+    for(int i = 0; i < 13; i++) {
+        if(!is_unused(i, unused_bmp)) {
+            continue;
+        }
+        if(smallest_tile_idx != -1 && next_tile_idx != -1) {
+            next_next_tile_idx = i;
+            break;
+        } else if(smallest_tile_idx != -1) {
+            next_tile_idx = i;
+        } else {
+            smallest_tile_idx = i;
+        }
+    }
+    if(smallest_tile_idx == -1) {
+        // shouldn't ever happen
+        return 0;
+    }
+
+    tile_type til = hand_tiles[smallest_tile_idx];
+
+    if(next_next_tile_idx != -1) {
+        // check for triplet and try
+        tile_type nxt = hand_tiles[next_tile_idx];
+        tile_type nnxt = hand_tiles[next_next_tile_idx];
+
+        if(nxt == nnxt && til == nxt) {
+            u32 take_triplet_bmp = unused_bmp;
+            take_triplet_bmp &= (u32)(~smallest_tile_idx);
+            take_triplet_bmp &= (u32)(~next_tile_idx);
+            take_triplet_bmp &= (u32)(~next_next_tile_idx);
+
+            if(can_partition_into_melds(hand_tiles, take_triplet_bmp)) {
+                return 1;
+            }
+        }
+
+        if(til+1 == nxt && nxt+1 == nnxt) {
+            // take this as well 
+            u32 take_sequence_bmp = unused_bmp;
+            take_sequence_bmp &= (u32)(~smallest_tile_idx);
+            take_sequence_bmp &= (u32)(~next_tile_idx);
+            take_sequence_bmp &= (u32)(~next_next_tile_idx);
+
+            if(can_partition_into_melds(hand_tiles, take_sequence_bmp)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+int in_tenpai(tile_type hand_tiles[13]) {
+    for(int i = 0; i < 13; i++) {
+        for(int j = i+1; j < 13; j++) {
+            if(hand_tiles[i] == hand_tiles[j]) {
+                u32 unused_bmp = 0x1FFF;
+                unused_bmp &= (u32)~(1 << i);
+                unused_bmp &= (u32)~(1 << j);
+                if(can_partition_into_melds(hand_tiles, unused_bmp)) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+int attempt_riichi(int player) {
+
+    hand* cur_hand = &game_board.hands[player];
+
+    // if the player has opened their hand, cannot riichi
+    if(cur_hand->num_open_tiles > 0) {
+        return 0;
+    }
+    
+    if(cur_hand->in_riichi) {
+        return 0;
+    }
+
+
+    if(in_tenpai(cur_hand->tiles)) {
+        add_sound(RIICHI, 0.125f);
+        cur_hand->in_riichi = 1;
+        return 1;
+    }
+    return 0;
+}
+
+void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
+
+    int human_player = 0;
+    int held_y = ei->input->y;
+    int held_x = ei->input->x;
+    int held_a = ei->input->a;
+    int held_b = ei->input->b;
+    int pushed_y = held_y && !last_y_pushed;
+    int pushed_x = held_x && !last_x_pushed;
+    int pushed_a = held_a && !last_a_pushed;
+    int pushed_b = held_b && !last_b_pushed;
+    
+
+    int switching = (switch_player_timer != -1);
+    if(switching) {
+        switch_player_timer--;
+        if(switch_player_timer == 0) {
+            cur_player += 1;
+            cur_player &= 3;
+            draw_end_frame = -1;
+
+            switch_player_timer = -1;
+        }
+    }
+    if(pushed_y) {
+        //sort_hand(cur_player_hand);
+        queue_push(make_player_action(human_player, SORT_HAND));
+    }
+
+
+    if(pushed_x) {
+        // allow a call if either the 
+        queue_push(make_player_action(human_player, ATTEMPT_CALL));        
+    }
+
+
+    //if(cur_player == 0) {
+        if(ei->input->left && !last_left_pushed) {
+            queue_push(make_player_action(human_player, MOVE_SELECTED_LEFT));
+        } else if (ei->input->right && !last_right_pushed) {
+            queue_push(make_player_action(human_player, MOVE_SELECTED_RIGHT));
+        }
+
+        if(pushed_a) {
+            queue_push(make_player_action(human_player, ATTEMPT_DRAW));
+        }
+        if(pushed_b) {
+            queue_push(make_player_action(human_player, ATTEMPT_DISCARD));
+        }
+        if (pushed_y) {
+            queue_push(make_player_action(human_player, ATTEMPT_RIICHI));
+        }
+    //}
+
+    for(int i = 0; i < 4; i++) {
+        if(player_types[i] != HUMAN) {
+            run_ai_player(i, &game_board.hands[i], cur_frame, (cur_player == i));
+        }
+    }
+
+    //process_action_queue();
+    while(!queue_empty()) {
+        player_action action = queue_pop();
+        exotique_printf("got action %s from player %i\n", action_names[action.cmd], action.player_num);
+        int this_player = action.player_num;
+
+        
+        int draw_not_started = draw_end_frame == -1;
+        int draw_started = !draw_not_started;
+        int this_players_turn = cur_player == this_player;
+
+        // if switching, we can do a call, but nothing else
+        int can_draw = !switching && this_players_turn && draw_not_started;
+        int can_discard = !switching && this_players_turn && cur_frame >= (u32)draw_end_frame && draw_started;
+
+
+        hand *player_hand = &game_board.hands[action.player_num];
+
+        switch(action.cmd) {
+            case MOVE_SELECTED_LEFT:
+                player_hand->selected_tile_idx--;
+                if(player_hand->selected_tile_idx < 0) {
+                    player_hand->selected_tile_idx = player_hand->num_closed_tiles-1;
+                }            
+                add_sound(
+                    TILE_CLICK,
+                    0.085f
+                    //cam_pos
+                );
+                break;
+            case MOVE_SELECTED_RIGHT:
+                player_hand->selected_tile_idx++;
+                if (player_hand->selected_tile_idx >= player_hand->num_closed_tiles) {
+                    player_hand->selected_tile_idx = 0;
+                }            
+                add_sound(
+                    TILE_CLICK,
+                    0.085f
+                    //cam_pos
+                );
+                break;
+            case ATTEMPT_DRAW:
+                exotique_printf("can draw %i, switching %i, this players turn %i, draw_not_started %i, draw_end_frame %i\n", can_draw, switching, this_players_turn, draw_not_started, draw_end_frame);
+                if(can_draw) {
+                    draw_end_frame = (i32)draw_next_tile(cur_frame, cur_player);
+                }
+                break;
+            case ATTEMPT_DISCARD:
+                if(can_discard) {
+                    discard_current_tile(cur_player, cur_frame);
+                    switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
+                    for(int i = 0; i < 4; i++) {
+                        if(player_types[i] != HUMAN) {
+                            reset_ai_player_state(i, cur_frame);
+                        }
+                    }
+                }
+                break;
+            case SORT_HAND:
+                sort_hand(player_hand);
+                break;
+            case ATTEMPT_CALL: do {
+                    // you can if
+                    // the last discard WASNT YOU
+                    // and either
+                    // the current player ISNT YOU
+                    // OR
+                    // it IS YOU, but you haven't drawn yet
+                    if(last_discard_player != -1 && last_discard_player != this_player && (cur_player != this_player || (draw_end_frame == -1))) {
+                        call_type can_call = attempt_call(&game_board, this_player);
+                        if(can_call != NO_CALL) {
+                            add_sound(
+                                call_sounds[can_call],
+                                0.125f
+                                //location
+                            );
+                            sort_last_three_open_tiles_based_on_player_order(player_hand, this_player, last_discard_player);
+                            exotique_printf("switching to player %i\n", this_player);
+                            cur_player = this_player;
+                            switch_player_timer = -1;
+                            // bail out so that the player switch code can run before we continue to process events here 
+                            return;
+                        }
+                    }
+                } while(0);
+                break;
+            case ATTEMPT_RIICHI: 
+                if(can_discard && attempt_riichi(this_player)) {
+                    discard_current_tile(this_player, cur_frame);
+                    switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
+                    for(int i = 0; i < 4; i++) {
+                        if(player_types[i] != HUMAN) {
+                            reset_ai_player_state(i, cur_frame);
+                        }
+                    }
+                }
+                break;
+            default:
+                exotique_printf("Unhandled event type\n");
+                break;
+        }
+    }
+}
+
+vert3f orbit_camera_position(float yaw, float pitch, float radius)
+{
+    vert3f p;
+
+    float cp = cosf(pitch);
+    float sp = sinf(pitch);
+
+    float cy = cosf(yaw);
+    float sy = sinf(yaw);
+
+    p.x = sy * cp * radius;
+    p.y = sp * radius;
+    p.z = cy * cp * radius;
+
+    return p;
+}
+
+void look_at_yx(transform *cam, vert3f position, vert3f target)
+{
+    float dx = target.x - position.x;
+    float dy = target.y - position.y;
+    float dz = target.z - position.z;
+
+    cam->rotation.y = fast_atan2(dx, dz);
+
+    float horizontal = my_sqrt(dx * dx + dz * dz);
+
+    cam->rotation.x = -fast_atan2(dy, horizontal);
+
+    cam->position = position;
+}
+
+void game_update(ExotiqueInterface* ei) {
+
+
+    int cur_start_pushed = ei->input->start;
+    int cur_select_pushed = ei->input->select;
+
+    last_start_pushed = cur_start_pushed;
+
+    f32 abs_cam_rot_y = wall_y_rots[0];
+
+    camera_rot_x = CLAMP(camera_rot_x, 0.0f, 1.568f);
+    f32 use_camera_rot_x = camera_rot_x;
+    f32 lerped_cam_dist = camera_radius;
+
+    vert3f cam_pos = orbit_camera_position(abs_cam_rot_y, use_camera_rot_x, lerped_cam_dist);
+    look_at_yx(&cam_view_trans, cam_pos, (vert3f){0.0f,0.0f,0.0f});
+
+    vert3f forward = {0, 0, -1};
+
+    matrix rx = rotation_x_matrix(.95f);
+    matrix ry = rotation_y_matrix(cam_view_trans.rotation.y);
+    matrix rot = mat_mul_mat(&ry, &rx); // inverse of your view rotation
+
+    light = normalize(mat_mul_vert3(&rot, &forward));
+    
+
+    if(cur_select_pushed && !last_select_pushed) {
+        reset_game(ei);
+    }
+    switch(cur_game_state) {
+        case STARTUP:
+            break;
+        case INITIAL_SHUFFLE_AND_SETUP:
+            step_shuffle_and_setup(frame, &game_board.board_wall);
+            break;
+        case DEALING:
+            step_deal(frame);
+            break;
+        case IN_GAME:
+            run_game(ei, frame);
+            break;
+        default:
+        case NUM_GAME_STATES:
+            break;
+    }
+    
+    frame++;
+    last_select_pushed = cur_select_pushed;
+    last_left_pushed = ei->input->left;
+    last_right_pushed = ei->input->right;
+    last_x_pushed = ei->input->x;
+    last_y_pushed = ei->input->y;
+    last_a_pushed = ei->input->a;
+    last_b_pushed = ei->input->b;
 }

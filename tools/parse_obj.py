@@ -1,3 +1,16 @@
+from collections import deque, defaultdict
+import time
+from contextlib import contextmanager
+
+@contextmanager
+def code_timer(block_name="Code block"):
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        end = time.perf_counter()
+        print(f"[{block_name}] took {end - start:.6f} seconds")
+
 def parse_face(f):
     return tuple(int(s) for s in f.split("/"))
 
@@ -5,66 +18,75 @@ def parse_face(f):
 # let's say a 16 vertex cache
 def sort_faces(verts, faces, vert_cache_size):
 
-    res = []
-    #faces = faces[1:]
+    vertex_faces = defaultdict(list)
+    for face_idx, face in enumerate(faces):
+        for v in face:
+            vertex_faces[v].append(face_idx)
 
+    vertex_cache = deque()
+    vertex_set = set()
 
-    vertex_cache = []
     def add_face_to_cache(face):
-        (v0, v1, v2) = face 
+        for v in face:
+            if v in vertex_set:
+                continue
 
-        def find_or_add(vidx):
-            nonlocal vertex_cache
-            for idx in vertex_cache:
-                if idx == vidx:
-                    return
-            # otherwise, pop first element, shift left, and place at end of cache
             if len(vertex_cache) == vert_cache_size:
-                vertex_cache.pop()
-            vertex_cache = [vidx] + vertex_cache
+                old = vertex_cache.pop()
+                vertex_set.remove(old)
 
-
-        find_or_add(v0)
-        find_or_add(v1)
-        find_or_add(v2)
+            vertex_cache.appendleft(v)
+            vertex_set.add(v)
 
     def count_verts_in_cache(face):
-        (v0, v1, v2) = face
-        count = 0
-        for idx in vertex_cache:
-            if idx == v0 or idx == v1 or idx == v2:
-                count += 1
-        return count   
+        return (
+            (face[0] in vertex_set) +
+            (face[1] in vertex_set) +
+            (face[2] in vertex_set)
+        )
 
+    res = []
+    used = bytearray(len(faces))
+    next_unused = 0
 
-    res = [faces[0]]
-    add_face_to_cache(faces[0])
-    faces = faces[1:]
+    # Start
+    picked_idx = 0
 
-    cache_hits = 0
-    cache_misses = 0
-    while len(faces):
-        best_res = None
-        best_res_face = None
+    while len(res) < len(faces):
+        picked_face = faces[picked_idx]
+        #if len(res)%1000 == 0:
+        #    print("{}".format(len(res)*100/len(faces)))
 
-        for face_idx,face in enumerate(faces):
-            verts_in_cache = count_verts_in_cache(face)
-            if best_res is None or verts_in_cache > best_res:
-                best_res_face = face_idx
-                best_res = verts_in_cache
-        
-        picked_face = faces.pop(best_res_face)
         res.append(picked_face)
-        cache_hits += best_res 
-        cache_misses += (3 - best_res)
+        used[picked_idx] = 1
         add_face_to_cache(picked_face)
 
+        # Build candidates from current cache contents
+        candidates = set()
+        for v in vertex_set:
+            candidates.update(vertex_faces[v])
 
+        candidates = [i for i in candidates if not used[i]]
 
+        if candidates:
+            #print("fast search over {} candidates".format(len(candidates)))
+            picked_idx = max(
+                candidates,
+                key=lambda i: count_verts_in_cache(faces[i])
+            )
+        else:
+            # find next unused face
+            #for i, done in enumerate(used):
+            #    if not done:
+            #        picked_idx = i
+            #        break
+            start = next_unused
+            while used[next_unused] and len(res) < len(faces):
+                next_unused += 1
+            end = next_unused
+            picked_idx = next_unused         
+            #print("full search over {} candidates".format(end-start))
 
-    #print("hits: {}, misses: {}".format(cache_hits, cache_misses))
-    #print("hit rate {}".format(cache_hits/(len(res)*3)))
-    #exit(1)
     return verts, res
 
 def parse(file):
@@ -74,58 +96,45 @@ def parse(file):
     faces = []
     
     unique_verts = {}
-    output_norms = []
-    output_uvs = []
     output_verts = []
 
-    mirror_uv = 00
 
-    uv_adjust_lookup = {
-        "chrome": (729/1024,520/1024),
-        "mirrors": (729/1024,520/1024),
-        "black_chrome": (333/1024, 605/1024),
-        "black_plastic": (861/1024, 422/1024)
-    }
-
-    current_material = None
     with open(file) as f:
         for line in f.readlines():
+            #if idx % 100 == 0:
+            #    print("{}".format(idx))
             stripped = line.strip()
             if len(stripped) == 0 or stripped[0] == '#':
                 continue
             elif stripped.find("usemtl") == 0:
-                current_material = stripped.split("usemtl ")[1]
                 continue
             elif stripped.find("v ") == 0:
                 verts.append(tuple(float(s) for s in stripped.split(" ")[1:]))
-
             elif stripped.find("vn ") == 0:
                 vert_norms.append(tuple(float(s) for s in stripped.split(" ")[1:]))
             elif stripped.find("vt ") == 0:
                 vert_uvs.append(tuple(float(s) for s in stripped.split(" ")[1:]))
             elif stripped.find("f ") == 0:
-                adjust_uvs = False 
-                if current_material in ["hondaF", "hondaR", "spdglass"]:
-                    continue
-                if current_material in ["black_plastic", "black_chrome", "chrome", "mirrors"]:
-                    adjust_uvs = True 
-                    adjusted_uv = uv_adjust_lookup[current_material]
+               
                 vert_combos = stripped.split(" ")[1:]
                 this_face_verts = []
                 
                 for vert_combo in vert_combos:
-                    
-                    unique_vert = tuple(int(i) for i in vert_combo.split("/"))
+                    unique_vert = tuple(int(i) if i != '' else 0 for i in vert_combo.split("/"))
                     if unique_vert in unique_verts:
                         vert_idx = unique_verts[unique_vert]
                     else:
                         vert_idx = len(unique_verts)
                         unique_verts[unique_vert] = vert_idx
-                        output_verts.append(
-                            (verts[unique_vert[0]-1],
-                             adjusted_uv if adjust_uvs else vert_uvs[unique_vert[1]-1],
-                             vert_norms[unique_vert[2]-1])
-                        )
+
+                        (vidx, uvidx, nidx) = unique_vert
+                        rv = verts[vidx-1]
+                        ruv = (0.5, 0.5)#(0.333,0.216)
+                        if len(vert_uvs) > 0:
+                            ruv = vert_uvs[uvidx-1]
+                        rn = vert_norms[nidx-1]
+
+                        output_verts.append((rv, ruv, rn))
                         
                     this_face_verts.append(vert_idx)
                 if len(this_face_verts) == 4:

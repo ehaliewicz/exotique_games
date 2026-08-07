@@ -4,8 +4,8 @@
 #define OUTPUT_TILE_SIZE 64
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~(OUTPUT_TILE_SIZE-1)))
-#define OUTPUT_WIDTH TILE_ROUND(1280)
-#define OUTPUT_HEIGHT TILE_ROUND(720)
+#define OUTPUT_WIDTH TILE_ROUND(1920)
+#define OUTPUT_HEIGHT TILE_ROUND(1080)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -630,7 +630,7 @@ typedef struct {
     u8 mip_level_or_color; 
 } transformed_tri;
 
-#define MAX_TILE_TRIS 1024
+#define MAX_TILE_TRIS 16384
 typedef struct {
     i16 start_x; i16 start_y;
     u32 num_tex_triangles, num_solid_triangles;
@@ -2023,7 +2023,7 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
 
     f32_vec inv_far_vec_flt = broadcast_f32_vec(1.0f/FAR_Z);
     u16_vec inv_far_vec = encode_float_inv_z_vec(inv_far_vec_flt);
-    u32 board_col_idx = light_remap_table[9][GREEN];
+    u32 board_col_idx = light_remap_table[7][GREEN];
     board_col_idx |= (board_col_idx<<8);
     board_col_idx |= (board_col_idx<<16);
 
@@ -2132,7 +2132,8 @@ void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
     f32 right_dx_per_dy = (board_bot_max_x - board_top_max_x) / (board_max_y-board_min_y);
 
 
-    u8 board_col_idx = light_remap_table[9][GREEN];
+    u32 board_col_idx = light_remap_table[7][GREEN];
+
 
     for(int y = 0; y < RENDER_TILE_SIZE; y+=2) {
         int global_y = (base_y + y);
@@ -2359,7 +2360,7 @@ typedef struct {
 tri_cache_idxs tris_to_shade[VCACHE_SIZE];
 
 vert_cache_soa vert_cache;
-i16 vert_cache_tags[VCACHE_SIZE];
+i16 vert_cache_tags[VCACHE_SIZE+3]; // an extra 3 slots so we can be optimistic :)
 int vcache_idx;
 void vcache_reset() {
     vcache_idx = 0;
@@ -2537,32 +2538,49 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
     while(tri < tri_count) {
         vcache_reset();
         int start_tri = tri;
-        while(vcache_rem() >= 3 && tri < tri_count && (tri - start_tri) < VCACHE_SIZE) {
+        //
+        while(tri < tri_count && (tri - start_tri) < VCACHE_SIZE) {
             int idx = tri*3;
             i16 v0_idx = (i16)m->indexStream[idx+0];
             i16 v1_idx = (i16)m->indexStream[idx+1];
             i16 v2_idx = (i16)m->indexStream[idx+2];
             i32 v0_cache_idx = vcache_lookup(v0_idx);
+            int needed_vcache_slots = 0;
             if(v0_cache_idx == -1) {
-                v0_cache_idx = vcache_insert_tag(v0_idx);
                 vcache_misses++;
+                needed_vcache_slots++;
             } else {
                 vcache_hits++;
             }
             i32 v1_cache_idx = vcache_lookup(v1_idx);
             if(v1_cache_idx == -1) {
-                v1_cache_idx = vcache_insert_tag(v1_idx);
                 vcache_misses++;
+                needed_vcache_slots++;
             } else {
                 vcache_hits++;
             }
             i32 v2_cache_idx = vcache_lookup(v2_idx);
             if(v2_cache_idx == -1) {
-                v2_cache_idx = vcache_insert_tag(v2_idx);
                 vcache_misses++;
+                needed_vcache_slots++;
             } else {
                 vcache_hits++;
             }
+
+            if(needed_vcache_slots > vcache_rem()) {
+                break;
+            }
+
+            if(v0_cache_idx == -1) {
+                v0_cache_idx = vcache_insert_tag(v0_idx);
+            }
+            if(v1_cache_idx == -1) {
+                v1_cache_idx = vcache_insert_tag(v1_idx);
+            }
+            if(v2_cache_idx == -1) {
+                v2_cache_idx = vcache_insert_tag(v2_idx);
+            }
+
             tris_to_shade[tri-start_tri].v0_cache_idx = (u8)v0_cache_idx;
             tris_to_shade[tri-start_tri].v1_cache_idx = (u8)v1_cache_idx;
             tris_to_shade[tri-start_tri].v2_cache_idx = (u8)v2_cache_idx;
@@ -3607,6 +3625,8 @@ transform cam_view_trans;
 static u64 ms_per_frame;
 static u64 prev_frame_ticks = 0;  
 
+#include "mesh_dragon.h"
+
 void game_draw(ExotiqueInterface* ei) {
 
     u64 cur_frame_ticks = ei->ticks;
@@ -3617,7 +3637,7 @@ void game_draw(ExotiqueInterface* ei) {
     prev_frame_ticks = cur_frame_ticks;
     static int init;
     if(!init) {
-        exotique_printf("setting bench ms to %llu\n", 33);
+        //exotique_printf("setting bench ms to %llu\n", 33);
         bench_frame_ms = 33;
         init = 1;
     }
@@ -3640,25 +3660,44 @@ void game_draw(ExotiqueInterface* ei) {
             draw_board(&view_matrix);
         END_TIMED_BLOCK(board_block)
 
+        
+        transform dragon_transform = identity_transform();
+        dragon_transform.position.y = 1.0f;
+        dragon_transform.scale = (vert3f){40.0f, 40.0f, 40.0f};
+        dragon_transform.rotation.y = (f32)game_data.frame/1024.0f;
+        matrix dragon_world_matrix = transform_to_matrix(&dragon_transform);
+        matrix dragon_view_matrix = mat_mul_mat(&view_matrix, &dragon_world_matrix);
+
+        static block dragon_block = START_TIMED_BLOCK(dragon_block, "dragon", whole_frame_block)
+        mesh_draw_call dragon_dc;
+        dragon_dc.mesh = &dragon_decimated_mesh;
+        dragon_dc.bounds = NULL;
+        dragon_dc.texture = GREEN_DRAGON;
+        dragon_dc.model_to_view = dragon_view_matrix;
+        dragon_dc.model_to_world = dragon_world_matrix;
+        dragon_dc.shdr = LIT_TEXTURED;
+        //submit_mesh_draw_call(&dragon_dc);
+        END_TIMED_BLOCK(dragon_block)
+
         static block raster_block = START_TIMED_BLOCK(raster_block, "rasterize tiles", whole_frame_block)
             rasterize_tiles(ei, zbuf);
         END_TIMED_BLOCK(raster_block)
 
 
-        //draw_text()
+
 
     END_TIMED_BLOCK(whole_frame_block)
 
     if((game_data.frame & 31) == 0) {
-        //print_and_reset_root_block(&whole_frame_block);
+        print_and_reset_root_block(&whole_frame_block);
         exotique_printf("total %.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
+        exotique_printf("vcache misses %i, hits %i %.2f\n", vcache_misses, vcache_hits, (double)vcache_misses*100.0/(double)(vcache_misses+vcache_hits));
     }
     
 
     //exotique_printf("meshes %i\n", meshes_transformed);
     //exotique_printf("triangles transformed %i\n", vertexes_transformed);
     //exotique_printf("triangles rasterized %i\n", triangles_rasterized);
-    //exotique_printf("vcache misses %i, hits %i\n", vcache_misses, vcache_hits);
     meshes_transformed = 0;
     vertexes_transformed = 0;
     triangles_rasterized = 0;
@@ -3713,21 +3752,6 @@ void shuffle_deck(wall *game_wall) {
         deck[i] = deck[j];
         deck[j] = tmp;
     }
-    exotique_printf("after shuffling seeds %i %i %i %i\n",
-        game_data.seeds[0],
-        game_data.seeds[1],
-        game_data.seeds[2],
-        game_data.seeds[3]
-    );
-    for(int i = 0; i < TILES_IN_DECK; i += 4) {
-        
-        exotique_printf(" %s %s %s %s\n",
-            tile_names[deck[i+0]],
-            tile_names[deck[i+1]],
-            tile_names[deck[i+2]],
-            tile_names[deck[i+3]]
-        );
-    }
 }
 
 void init_seeds(ExotiqueInterface *ei) {
@@ -3737,12 +3761,6 @@ void init_seeds(ExotiqueInterface *ei) {
 }
 
 void reset_game() {
-    exotique_printf("seeds %i %i %i %i\n",
-        game_data.seeds[0],
-        game_data.seeds[1],
-        game_data.seeds[2],
-        game_data.seeds[3]
-    );
     game_data.cur_wind = EAST_WIND;
     game_data.cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     game_data.frame = 0;
@@ -4059,7 +4077,6 @@ void copy_queue_entries(int *out_num_entries, player_action *out_queue) {
         cur_tail++;
     }
     *out_num_entries = num_entries;
-    exotique_printf("Copied %i entries from queue\n", num_entries);
 }
 
 
@@ -4154,7 +4171,6 @@ void client_wait_for_actions_from_server() {
     memcpy(&actions, data_buf+1, sizeof(action_queue_pkt));
     for(int i = 0; i < actions.num_events; i++) {
         if(actions.action_queue[i].player_num == human_player) {
-            //exotique_printf("Skipping received action from US\n");
             continue;
         }
         queue_push(actions.action_queue[i]);
@@ -4164,7 +4180,6 @@ void client_wait_for_actions_from_server() {
 void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {    
     char* server_address = NULL;
     for(int i = 1; i < argc; i++) {
-        exotique_printf("arg: %s\n", argv[i]);
         if((strcmp(argv[i], "--host") == 0) || (strcmp(argv[i], "-h") == 0)) {
             is_host = 1;
         }
@@ -4325,7 +4340,7 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     decompress_sounds();
     decompress_textures(ei);
 
-    texture_board[0] = light_remap_table[NUM_SHADES-1][GREEN];
+    texture_board[0] = light_remap_table[NUM_SHADES/2-1][GREEN];
     
     clear_tile_bins();
 
@@ -4355,7 +4370,6 @@ void step_shuffle_and_setup(u32 cur_frame, wall* w) {
                 0.085f
             );
 
-            //w->tile_fall_frames[i] = 0;
         }
     }
 }
@@ -4394,7 +4408,6 @@ void step_deal(u32 cur_frame) {
         this_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
         this_hand->wall_index_for_tiles[cur_num_tiles] = --game_data.wall_rem;
         this_hand->tiles[cur_num_tiles++] = board_wall.tiles[game_data.wall_rem];
-        exotique_printf("dealt %s to player %i\n", tile_names[this_hand->tiles[cur_num_tiles-1]], hand_index);
     }
     this_hand->num_closed_tiles = cur_num_tiles;
     this_hand->selected_tile_idx = (i8)(cur_num_tiles-1);
@@ -4607,7 +4620,7 @@ void copy_tile_index_to_open(hand* h, int idx) {
         h->tiles[i] = h->tiles[i+1];
     }
     h->num_closed_tiles--;
-    exotique_printf("copied tile idx %i to open tiles, now %i closed_tiles and %i open tiles\n", idx, h->num_closed_tiles, h->num_open_tiles);
+    //exotique_printf("copied tile idx %i to open tiles, now %i closed_tiles and %i open tiles\n", idx, h->num_closed_tiles, h->num_open_tiles);
 }
 
 call_type attempt_call(int player) {
@@ -4647,7 +4660,7 @@ call_type attempt_call(int player) {
     int pon_cnt = (pon_index1 != 1 ? 1 : 0) + (pon_index2 != 1 ? 1 : 0);
 
     if(pon_cnt >= 3) {
-        exotique_printf("Can PON %s to complete\n", tile_names[prev_discard]);
+        //exotique_printf("Can PON %s to complete\n", tile_names[prev_discard]);
         copy_tile_index_to_open(cur_hand, pon_index1);
         if(pon_index1 < pon_index2) { pon_index2--; }
         copy_tile_index_to_open(cur_hand, pon_index2);
@@ -4658,9 +4671,9 @@ call_type attempt_call(int player) {
     }
 
     if(got_ll && got_l) {
-        exotique_printf("Can CHII %s to complete %s %s\n", 
-            tile_names[prev_discard], 
-            tile_names[cur_hand->tiles[ll_index]], tile_names[cur_hand->tiles[l_index]]);
+        //exotique_printf("Can CHII %s to complete %s %s\n", 
+        //    tile_names[prev_discard], 
+        //    tile_names[cur_hand->tiles[ll_index]], tile_names[cur_hand->tiles[l_index]]);
         if(ll_index < l_index) { l_index--; }
         copy_tile_index_to_open(cur_hand, ll_index);
         copy_tile_index_to_open(cur_hand, l_index);
@@ -4670,9 +4683,9 @@ call_type attempt_call(int player) {
         return CHII_CALL;
     }
     if(got_l && got_r) {
-        exotique_printf("Can CHII %s to complete %s %s\n", 
-            tile_names[prev_discard], 
-            tile_names[cur_hand->tiles[l_index]], tile_names[cur_hand->tiles[r_index]]);
+        //exotique_printf("Can CHII %s to complete %s %s\n", 
+        //    tile_names[prev_discard], 
+        //    tile_names[cur_hand->tiles[l_index]], tile_names[cur_hand->tiles[r_index]]);
         copy_tile_index_to_open(cur_hand, l_index);
         cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
         cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
@@ -4682,9 +4695,9 @@ call_type attempt_call(int player) {
         return CHII_CALL;
     }
     if(got_r && got_rr) {
-        exotique_printf("Can CALL %s to complete %s %s\n", 
-            tile_names[prev_discard], 
-            tile_names[cur_hand->tiles[r_index]], tile_names[cur_hand->tiles[rr_index]]);
+        //exotique_printf("Can CALL %s to complete %s %s\n", 
+        //    tile_names[prev_discard], 
+        //    tile_names[cur_hand->tiles[r_index]], tile_names[cur_hand->tiles[rr_index]]);
         cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
         cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;
         prev_hand->num_discards--;
@@ -4900,17 +4913,13 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
         client_wait_for_actions_from_server();
     }
 
-    //process_action_queue();
     while(!queue_empty()) {
         player_action action = queue_pop();
         if(action.cmd != NO_ACTION) {
-            exotique_printf("got action %s from player %i\n", action_names[action.cmd], action.player_num);
+            //exotique_printf("got action %s from player %i\n", action_names[action.cmd], action.player_num);
         }
         i8 this_player = action.player_num;
 
-        if(this_player == 1 && action.cmd != NO_ACTION) {
-            exotique_printf("got action from client..\n");
-        }
         
         int draw_not_started = game_data.draw_end_frame == -1;
         int draw_started = !draw_not_started;
@@ -4980,7 +4989,7 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
                             );
                             sort_last_three_open_tiles_based_on_player_order(player_hand, this_player, game_data.last_discard_player);
                             fixup_selected_idx(&game_data.hands[this_player]);
-                            exotique_printf("switching to player %i\n", this_player);
+                            //exotique_printf("switching to player %i\n", this_player);
 
                             game_data.cur_player = this_player;
                             game_data.switch_player_timer = -1;
@@ -5002,7 +5011,7 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
                 }
                 break;
             default:
-                exotique_printf("Unhandled event type\n");
+                exotique_printf("Unhandled event type %i\n", action.cmd);
                 break;
         }
     }

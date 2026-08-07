@@ -3676,7 +3676,7 @@ void game_draw(ExotiqueInterface* ei) {
         dragon_dc.model_to_view = dragon_view_matrix;
         dragon_dc.model_to_world = dragon_world_matrix;
         dragon_dc.shdr = LIT_TEXTURED;
-        //submit_mesh_draw_call(&dragon_dc);
+        submit_mesh_draw_call(&dragon_dc);
         END_TIMED_BLOCK(dragon_block)
 
         static block raster_block = START_TIMED_BLOCK(raster_block, "rasterize tiles", whole_frame_block)
@@ -3691,7 +3691,7 @@ void game_draw(ExotiqueInterface* ei) {
     if((game_data.frame & 31) == 0) {
         print_and_reset_root_block(&whole_frame_block);
         exotique_printf("total %.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
-        exotique_printf("vcache misses %i, hits %i %.2f\n", vcache_misses, vcache_hits, (double)vcache_misses*100.0/(double)(vcache_misses+vcache_hits));
+        exotique_printf("vcache misses %i, hits %i %.2f\n", vcache_misses, vcache_hits, (double)vcache_hits*100.0/(double)(vcache_misses+vcache_hits));
     }
     
 
@@ -3867,7 +3867,7 @@ typedef enum __attribute__((packed)) {
     X(ATTEMPT_CALL)         \
     X(ATTEMPT_DRAW)         \
     X(ATTEMPT_DISCARD)      \
-    X(ATTEMPT_RIICHI)
+    X(ATTEMPT_RIICHI_OR_WIN)
 
 typedef enum __attribute__((packed)) {
 #define X(a) a,
@@ -4600,15 +4600,19 @@ void run_ai_player(i8 player, hand* h, u32 cur_frame, int this_player_turn) {
 
 sound call_sounds[5] = {
     PON, 
-    CHII, 
-    //RON
+    CHII,
+    RIICHI,
+    TSUMO,
+    RON
 };
 #define NUM_CALL_SOUNDS (sizeof(call_sounds)/sizeof(call_sounds[0]))
 
 typedef enum {
     PON_CALL = 0,
     CHII_CALL = 1,
-    RON_CALL = 2,
+    RIICHI_CALL = 2,
+    TSUMO_CALL = 3,
+    RON_CALL = 4,
     NO_CALL
 } call_type;
 
@@ -4809,11 +4813,29 @@ int is_winning_hand(tile_type hand_tiles[14]) {
     return 0;
 }
 
-int in_tenpai(tile_type hand_tiles[14]) {
-    tile_type tmp[14];
-    for(int t = 0; t < 14; t++) {
-        tmp[t] = hand_tiles[t];
+void copy_hand_tiles_to_tmp(hand* h, tile_type tmp[14]) {
+    for(int t = 0; t < h->num_closed_tiles; t++) {
+        tmp[t] = h->tiles[t];
     }
+    for(int t = 0; t < h->num_open_tiles; t++) {
+        tmp[h->num_closed_tiles+t] = h->open_tiles[t];
+    }
+}
+
+int is_win(hand* h) {
+    
+    tile_type tmp[14];
+    copy_hand_tiles_to_tmp(h, tmp);
+    return is_winning_hand(tmp);
+
+}
+
+int in_tenpai(hand* h) {
+
+    tile_type tmp[14];
+    copy_hand_tiles_to_tmp(h, tmp);
+
+
     for(int discard = 0; discard < 14; discard++) {
 
         // copy into a temporary hand
@@ -4844,9 +4866,7 @@ int attempt_riichi(int player) {
     }
 
 
-    if(in_tenpai(cur_hand->tiles)) {
-        add_sound(RIICHI, 0.125f);
-        cur_hand->in_riichi = 1;
+    if(in_tenpai(cur_hand)) {
         return 1;
     }
     return 0;
@@ -4894,7 +4914,7 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
     } else if(pushed_b) {
         queue_push(make_player_action(human_player, ATTEMPT_DISCARD));
     } else if (pushed_y) {
-        queue_push(make_player_action(human_player, ATTEMPT_RIICHI));
+        queue_push(make_player_action(human_player, ATTEMPT_RIICHI_OR_WIN));
     }
 
 
@@ -4979,7 +4999,10 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
                     // the current player ISNT YOU
                     // OR
                     // it IS YOU, but you haven't drawn yet
-                    if(game_data.last_discard_player != -1 && game_data.last_discard_player != this_player && (game_data.cur_player != this_player || (game_data.draw_end_frame == -1))) {
+
+                    // but you can ONLY CALL A TILE IF ITS STILL THAT PERSON'S TURN.
+                    // ONCE IT SWITCHES OVER TO THE NEXT PLAYER, ITS LOST
+                    if(game_data.last_discard_player != -1 && game_data.last_discard_player != this_player && game_data.last_discard_player == game_data.cur_player && (game_data.cur_player != this_player || (game_data.draw_end_frame == -1))) {
                         call_type can_call = attempt_call(this_player);
                         if(can_call != NO_CALL) {
                             add_sound(
@@ -4999,13 +5022,23 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
                     }
                 } while(0);
                 break;
-            case ATTEMPT_RIICHI: 
-                if(can_discard && attempt_riichi(this_player)) {
-                    discard_current_tile(this_player, cur_frame);
-                    game_data.switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
-                    for(int i = 0; i < 4; i++) {
-                        if(game_data.player_types[i] != HUMAN) {
-                            reset_ai_player_state(i, cur_frame);
+            case ATTEMPT_RIICHI_OR_WIN: 
+                if(can_discard) {
+                    if(is_win(player_hand)) {
+                        add_sound(
+                            TSUMO,
+                            0.25f
+                        );
+                    } else if (attempt_riichi(this_player)) {
+                        
+                        player_hand->in_riichi = 1;
+                        add_sound(RIICHI, 0.125f);
+                        discard_current_tile(this_player, cur_frame);
+                        game_data.switch_player_timer = (int)get_frames_for_duration(SWITCH_PLAYER_DURATION);
+                        for(int i = 0; i < 4; i++) {
+                            if(game_data.player_types[i] != HUMAN) {
+                                reset_ai_player_state(i, cur_frame);
+                            }
                         }
                     }
                 }

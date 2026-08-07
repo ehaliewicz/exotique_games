@@ -17,26 +17,9 @@ def parse_face(f):
 
 # let's say a 16 vertex cache
 def sort_faces(verts, faces, vert_cache_size):
+    #print("sorting faces")
 
-    vertex_faces = defaultdict(list)
-    for face_idx, face in enumerate(faces):
-        for v in face:
-            vertex_faces[v].append(face_idx)
-
-    vertex_cache = deque()
     vertex_set = set()
-
-    def add_face_to_cache(face):
-        for v in face:
-            if v in vertex_set:
-                continue
-
-            if len(vertex_cache) == vert_cache_size:
-                old = vertex_cache.pop()
-                vertex_set.remove(old)
-
-            vertex_cache.appendleft(v)
-            vertex_set.add(v)
 
     def count_verts_in_cache(face):
         return (
@@ -45,50 +28,56 @@ def sort_faces(verts, faces, vert_cache_size):
             (face[2] in vertex_set)
         )
 
+    def new_verts_needed(face):
+        return 3 - count_verts_in_cache(face)
+
+    def add_face_to_cache(face):
+        for v in face:
+            vertex_set.add(v)
+
     res = []
-    used = bytearray(len(faces))
-    next_unused = 0
 
-    # Start
-    picked_idx = 0
+    remaining = list(faces)
 
-    while len(res) < len(faces):
-        picked_face = faces[picked_idx]
-        #if len(res)%1000 == 0:
-        #    print("{}".format(len(res)*100/len(faces)))
+    while remaining:
+        vertex_set.clear()
 
-        res.append(picked_face)
-        used[picked_idx] = 1
-        add_face_to_cache(picked_face)
+        batch_faces = []
 
-        # Build candidates from current cache contents
-        candidates = set()
-        for v in vertex_set:
-            candidates.update(vertex_faces[v])
+        while len(batch_faces) < 16 and remaining:
+            best_idx = -1
+            best_score = -1
 
-        candidates = [i for i in candidates if not used[i]]
+            # Global search
+            for i, face in enumerate(remaining):
+                score = count_verts_in_cache(face)
 
-        if candidates:
-            #print("fast search over {} candidates".format(len(candidates)))
-            picked_idx = max(
-                candidates,
-                key=lambda i: count_verts_in_cache(faces[i])
-            )
-        else:
-            # find next unused face
-            #for i, done in enumerate(used):
-            #    if not done:
-            #        picked_idx = i
-            #        break
-            start = next_unused
-            while used[next_unused] and len(res) < len(faces):
-                next_unused += 1
-            end = next_unused
-            picked_idx = next_unused         
-            #print("full search over {} candidates".format(end-start))
+                if score > best_score:
+                    best_score = score
+                    best_idx = i
+
+            face = remaining[best_idx]
+
+            # Does it fit the C batch cache?
+            needed = new_verts_needed(face)
+
+            if len(vertex_set) + needed > vert_cache_size:
+                break
+
+            # Accept triangle
+            batch_faces.append(face)
+            add_face_to_cache(face)
+
+            remaining[best_idx] = remaining[-1]
+            remaining.pop()
+
+        res.extend(batch_faces)
+
+        # If we somehow got stuck (bad vertex limit)
+        if not batch_faces and remaining:
+            res.append(remaining.pop())
 
     return verts, res
-
 def parse(file):
     verts = []
     vert_norms = []
@@ -162,7 +151,7 @@ def format_double(tup):
 import sys
 if __name__ == '__main__':
     obj_name = sys.argv[1]
-    vert_cache_size = 4 #sys.argv[2]
+    vert_cache_size = 16 #sys.argv[2]
     verts, faces = parse("./assets/models/{}.obj".format(obj_name))
     verts, faces = sort_faces(verts, faces, vert_cache_size)
 

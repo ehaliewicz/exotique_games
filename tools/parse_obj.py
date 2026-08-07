@@ -154,7 +154,7 @@ import sys
 if __name__ == '__main__':
     obj_name = sys.argv[1]
     vert_cache_size = 4 #sys.argv[2]
-    verts, faces = parse("./models/{}.obj".format(obj_name))
+    verts, faces = parse("./assets/models/{}.obj".format(obj_name))
     verts, faces = sort_faces(verts, faces, vert_cache_size)
 
     print("#ifndef {}_mesh_h".format(obj_name))

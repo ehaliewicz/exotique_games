@@ -4,8 +4,8 @@
 #define OUTPUT_TILE_SIZE 64
 #define RENDER_TILE_SIZE (2*OUTPUT_TILE_SIZE)
 #define TILE_ROUND(x) ((x+OUTPUT_TILE_SIZE-1)&(~(OUTPUT_TILE_SIZE-1)))
-#define OUTPUT_WIDTH TILE_ROUND(1600)
-#define OUTPUT_HEIGHT TILE_ROUND(900)
+#define OUTPUT_WIDTH TILE_ROUND(1280)
+#define OUTPUT_HEIGHT TILE_ROUND(720)
 #define RENDER_WIDTH (2*OUTPUT_WIDTH)
 #define RENDER_HEIGHT (2*OUTPUT_HEIGHT)
 const int kScreenWidth = OUTPUT_WIDTH;
@@ -616,18 +616,8 @@ void mat_mul_normal_batch(const matrix *m, const f32_vec norm_comp_soa[3], f32_v
     //}
 }
 
-typedef struct {
-    int active_edges;
-    i32 cvals[3];
-    i32 dxvals[3];
-    i32 dyvals[3];
 
-    //i32 c0, c1, c2;
-    //i32 dx0, dy0, dx1, dy1, dx2, dy2;
-
-    //i32 c01, c12, c20;
-    //i32 dx01, dy01, dx12, dy12, dx20, dy20;
-} edge_prep;
+// RENDERING
 
 #define MAX_GLOBAL_TRIS 1000000
 typedef struct {
@@ -2646,7 +2636,6 @@ void submit_draw_calls(mesh_draw_call *list, int num_meshes, culling_mode frustu
 
 //    SOUND EFFECTS
 
-
 #include "pon_4b.h"
 #include "chii_4b.h"
 #include "tsumo.h"
@@ -2894,7 +2883,7 @@ typedef struct __attribute__((packed)) {
     tile_type discards[MAX_DISCARDS];
     u32 discard_frames[MAX_DISCARDS];
     i8 discard_from_hand_idx[MAX_DISCARDS];
-    i8 num_tenbou[4];
+    int score;
     i8 num_open_tiles;
     i8 selected_tile_idx;
     i8 num_discards;
@@ -2960,7 +2949,6 @@ typedef struct __attribute__((packed)) {
 wall board_wall = { 0 };
 
 
-/* Completely arbitrary seeds */
 game_data_t game_data = { 
     // random seeds
     {0x27cb588d, 0x096379a9, 0xe81f5914, 0x2ee1c98c}, 
@@ -3402,6 +3390,16 @@ void draw_hand(
         
 
         tile_type tenbou_colors[4] = {RED_TENBOU, GOLD_TENBOU, BLUE_TENBOU, WHITE_TENBOU};
+        int num_tenbou[4] = {0,0,0,0}; // 1x10,000 2x5000 (20000) 4x1000 (4000) 10x100 (1000)
+        int tenbou_vals[4] = {10000, 5000, 1000, 100};
+        int score = h->score;
+
+        for(int i = 0; i < 4; i++) {
+            while(score >= tenbou_vals[i]) {
+                num_tenbou[i] += 1;
+                score -= tenbou_vals[i];
+            }
+        }
 
         int cur_stack = 0;
         // if we have say, 20 tenbou of one color, it needs two stacks
@@ -3411,13 +3409,15 @@ void draw_hand(
             tenbou_transform.scale = (vert3f){4.0f, 6.0f, 4.0f};
 
             tile_type color = tenbou_colors[i];
-            int num_tenbou = h->num_tenbou[i];
-            int num_stacks = (num_tenbou+9)/10;
+
+            int num_ten = num_tenbou[i];
+
+            int num_stacks = (num_ten+9)/10;
             for(int stack = 0; stack < num_stacks; stack++) {
                 f32 stack_x_position = 8.0f - (f32)(6*cur_stack);
                 cur_stack++;
                 int start_idx = stack*10;
-                int amount_in_this_stack = MIN(10, num_tenbou - start_idx);
+                int amount_in_this_stack = MIN(10, num_ten - start_idx);
                 for(int j = 0; j < amount_in_this_stack; j++) {
                     f32 x_position = stack_x_position + stick_poses[j][0];
                     f32 y_position = stick_poses[j][1];
@@ -3603,7 +3603,6 @@ void draw_board(matrix* view_mat) {
 
 }
 
-
 transform cam_view_trans;
 static u64 ms_per_frame;
 static u64 prev_frame_ticks = 0;  
@@ -3645,6 +3644,9 @@ void game_draw(ExotiqueInterface* ei) {
             rasterize_tiles(ei, zbuf);
         END_TIMED_BLOCK(raster_block)
 
+
+        //draw_text()
+
     END_TIMED_BLOCK(whole_frame_block)
 
     if((game_data.frame & 31) == 0) {
@@ -3661,7 +3663,6 @@ void game_draw(ExotiqueInterface* ei) {
     vertexes_transformed = 0;
     triangles_rasterized = 0;
 }
-
 
 //    GAME LOGIC
 
@@ -3689,10 +3690,7 @@ hand init_empty_hand() {
     h.num_discards = 0;
     h.selected_tile_idx = -1;
     h.in_riichi = 0;
-    h.num_tenbou[0] = 1;
-    h.num_tenbou[1] = 2;
-    h.num_tenbou[2] = 4;
-    h.num_tenbou[3] = 10;
+    h.score = 25000;
 
     return h;
 }
@@ -3715,6 +3713,21 @@ void shuffle_deck(wall *game_wall) {
         deck[i] = deck[j];
         deck[j] = tmp;
     }
+    exotique_printf("after shuffling seeds %i %i %i %i\n",
+        game_data.seeds[0],
+        game_data.seeds[1],
+        game_data.seeds[2],
+        game_data.seeds[3]
+    );
+    for(int i = 0; i < TILES_IN_DECK; i += 4) {
+        
+        exotique_printf(" %s %s %s %s\n",
+            tile_names[deck[i+0]],
+            tile_names[deck[i+1]],
+            tile_names[deck[i+2]],
+            tile_names[deck[i+3]]
+        );
+    }
 }
 
 void init_seeds(ExotiqueInterface *ei) {
@@ -3724,6 +3737,12 @@ void init_seeds(ExotiqueInterface *ei) {
 }
 
 void reset_game() {
+    exotique_printf("seeds %i %i %i %i\n",
+        game_data.seeds[0],
+        game_data.seeds[1],
+        game_data.seeds[2],
+        game_data.seeds[3]
+    );
     game_data.cur_wind = EAST_WIND;
     game_data.cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     game_data.frame = 0;
@@ -3745,6 +3764,9 @@ void reset_game() {
     }
     // shuffle a second deck in memory
     shuffle_deck(&board_wall);
+
+
+
     game_data.next_deal_pos = 0;
     game_data.last_discard_player = -1;
 }
@@ -3795,7 +3817,7 @@ void server_get_connection() {
         if(game_data.player_types[i] == NETWORK_HUMAN) {
             int already_used = 0;
             for(int j = 0; j < MAX_CLIENTS; j++) {
-                if(client_info[i].sock && client_info[i].player_num == i) {
+                if(client_info[j].sock && client_info[j].player_num == i) {
                     already_used = 1;
                     break;
                 }
@@ -3849,7 +3871,6 @@ player_action make_player_action(i8 player_num, player_action_type cmd) {
     return (player_action){player_num, cmd};
 }
 
-
 typedef struct {
     player_action actions[3];
 } action_from_other_clients;
@@ -3883,8 +3904,7 @@ void setup_host(int num_clients) {
         exit(1);
     }
     SDLNet_ResolveHost(&server_ip, NULL, JONG_PORT);
-    exotique_printf("Server IP: %x, %d\n", server_ip.host, server_ip.port);
-
+    exotique_printf("Server IP: %x, %d\n", server_ip.host, SDLNet_Read16(&server_ip.port));
     serv_sock = SDLNet_TCP_Open(&server_ip);
     if ( serv_sock == NULL ) {
         exotique_printf("Couldn't create server socket: %s\n",SDLNet_GetError());
@@ -3893,7 +3913,7 @@ void setup_host(int num_clients) {
     SDLNet_TCP_AddSocket(socket_set, serv_sock);
 
     // wait until clients connect
-    exotique_printf("Waiting for clients to connect\n");
+    exotique_printf("Waiting for clients to connect to port %i\n", JONG_PORT);
 
     while(1) {
         SDLNet_CheckSockets(socket_set, ~0);
@@ -4031,6 +4051,9 @@ void queue_push(player_action act) {
 void copy_queue_entries(int *out_num_entries, player_action *out_queue) {
     int cur_tail = queue_tail;
     int num_entries = 0;
+    if(queue_size() == 0) {
+        return;
+    }
     while(cur_tail != queue_head) {
         out_queue[num_entries++] = action_queue[cur_tail&(MAX_PLAYER_EVENTS-1)];
         cur_tail++;
@@ -4093,7 +4116,6 @@ void server_send_actions_to_players() {
     }
 }
 
-
 void client_send_input_to_server() {
     char data_buf[1+sizeof(player_action)];
     data_buf[0] = INPUT_FROM_CLIENT;
@@ -4141,7 +4163,7 @@ void client_wait_for_actions_from_server() {
 
 void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {    
     char* server_address = NULL;
-    for(int i = 0; i < argc; i++) {
+    for(int i = 1; i < argc; i++) {
         exotique_printf("arg: %s\n", argv[i]);
         if((strcmp(argv[i], "--host") == 0) || (strcmp(argv[i], "-h") == 0)) {
             is_host = 1;
@@ -4150,7 +4172,7 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
             is_client = 1;
             if(argc > i+1) {
                 // next arg is address and port
-                server_address = argv[i+1];
+                server_address = (char*)argv[i+1];
             }
         }
     }
@@ -4181,7 +4203,7 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
         }
     } else {
         exotique_printf("Running in host mode with zero clients\n");
-        is_host = 0;
+        is_host = 1;
         num_clients = 0;
     }
 
@@ -4312,7 +4334,6 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
 
 }
 
-
 void step_shuffle_and_setup(u32 cur_frame, wall* w) {
     //if((cur_frame&3) != 1) {
     //    return;
@@ -4338,8 +4359,6 @@ void step_shuffle_and_setup(u32 cur_frame, wall* w) {
         }
     }
 }
-
-
 
 void sort_hand(hand* h) {
     for(int i = 0; i < h->num_closed_tiles; i++) {
@@ -4375,6 +4394,7 @@ void step_deal(u32 cur_frame) {
         this_hand->deal_frame_for_tiles[cur_num_tiles] = cur_frame;
         this_hand->wall_index_for_tiles[cur_num_tiles] = --game_data.wall_rem;
         this_hand->tiles[cur_num_tiles++] = board_wall.tiles[game_data.wall_rem];
+        exotique_printf("dealt %s to player %i\n", tile_names[this_hand->tiles[cur_num_tiles-1]], hand_index);
     }
     this_hand->num_closed_tiles = cur_num_tiles;
     this_hand->selected_tile_idx = (i8)(cur_num_tiles-1);
@@ -4398,11 +4418,14 @@ void step_deal(u32 cur_frame) {
         //game_data.hands[0].tiles[13] = ONE_SOU;
 
         game_data.switch_player_timer = -1;
+        
+        for(int i = 0; i < 4; i++) {
+            sort_hand(&game_data.hands[i]);
+        }
     }
 }
 
-int last_start_pushed = 0;
-int last_select_pushed = 0;
+int last_start_pushed = 0, last_select_pushed = 0;
 int last_a_pushed = 0, last_b_pushed = 0;
 int last_left_pushed = 0, last_right_pushed = 0;
 int last_x_pushed = 0, last_y_pushed = 0;
@@ -4416,7 +4439,6 @@ void discard_current_tile(i8 player, u32 cur_frame) {
     game_data.last_discard_player = player;
 
     cur_player_hand->discard_frames[cur_player_hand->num_discards] = cur_frame;
-    //cur_player_hand->discard_click_frames[cur_player_hand->num_discards] = (i32)cur_frame + (i32)get_frames_for_duration(DISCARD_DURATION) - (i32)get_frames_for_duration(0.06f);
     cur_player_hand->discard_from_hand_idx[cur_player_hand->num_discards++] = selected_tile_idx;
 
     for(int i = cur_player_hand->selected_tile_idx; i < cur_player_hand->num_closed_tiles-1; i++) {
@@ -4516,7 +4538,6 @@ int get_best_discard(int player, hand* h) {
     return h->num_closed_tiles-2;
 }
 
-
 void reset_ai_player_state(int idx, u32 cur_frame) {
     game_data.ai_player_next_move_frames[idx] = cur_frame + get_frames_for_duration(AI_PLAYER_SPEED);
 }
@@ -4596,17 +4617,11 @@ call_type attempt_call(int player) {
     tile_type prev_discard = prev_hand->discards[prev_hand->num_discards-1];
 
     // check for sequence
-    int got_ll = 0;
-    int ll_index = -1;
-    int got_l = 0;
-    int l_index = -1;
-    int got_r = 0;
-    int r_index = -1;
-    int got_rr = 0;
-    int rr_index = -1;
-    int pon_cnt = 1;
-    int pon_index1 = -1;
-    int pon_index2 = -1;
+    int got_ll = 0, ll_index = -1;
+    int got_l = 0, l_index = -1;
+    int got_r = 0, r_index = -1;
+    int got_rr = 0, rr_index = -1;
+    int pon_index1 = -1, pon_index2 = -1;
     for(int i = 0; i < cur_hand->num_closed_tiles; i++) {
         tile_type til = cur_hand->tiles[i];
         if(tile_sort_val[til] == tile_sort_val[prev_discard]-1) {
@@ -4622,14 +4637,14 @@ call_type attempt_call(int player) {
             got_rr = 1;
             rr_index = i;
         } else if (tile_sort_val[til] == tile_sort_val[prev_discard]) {
-            if(pon_cnt == 1) {
+            if(pon_index1 == -1) {
                 pon_index1 = i;
             } else {
                 pon_index2 = i;
             }
-            pon_cnt++;
         }
     }
+    int pon_cnt = (pon_index1 != 1 ? 1 : 0) + (pon_index2 != 1 ? 1 : 0);
 
     if(pon_cnt >= 3) {
         exotique_printf("Can PON %s to complete\n", tile_names[prev_discard]);
@@ -4683,7 +4698,6 @@ call_type attempt_call(int player) {
     return NO_CALL;
 }
 
-
 // player 3 calling player 0 is like player 0 calling player 1, (0-3)%4 => 1
 // player 2 calling player 1 is like player 0 calling player 3, (1-2)%4 => 3
 
@@ -4691,7 +4705,6 @@ call_type attempt_call(int player) {
 int get_index_to_move_called_tile_to(int caller, int callee) {
     return 3 - mod_positive(callee-caller,4);
 }
-
 
 void rotate_last_three_open_tiles(hand *h) {
     tile_type tmp_tile = h->open_tiles[h->num_open_tiles-3];
@@ -4845,7 +4858,6 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
     int pushed_x = held_x && !last_x_pushed;
     int pushed_a = held_a && !last_a_pushed;
     int pushed_b = held_b && !last_b_pushed;
-    
 
     int switching = (game_data.switch_player_timer != -1);
     if(switching) {
@@ -4856,8 +4868,6 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
             game_data.switch_player_timer = -1;
         }
     }
-
-
 
     if(pushed_x) {
         // allow a call if either the 
@@ -5031,7 +5041,6 @@ void look_at_yx(transform *cam, vert3f position, vert3f target)
 }
 
 void game_update(ExotiqueInterface* ei) {
-
     int cur_start_pushed = ei->input->start;
     int cur_select_pushed = ei->input->select;
 
@@ -5043,7 +5052,7 @@ void game_update(ExotiqueInterface* ei) {
     f32 use_camera_rot_x = camera_rot_x;
     f32 lerped_cam_dist = camera_radius;
 
-    //static block whole_frame_block = ROOT_TIMED_BLOCK(whole_frame_block, "sim frame")
+    static block whole_frame_block = ROOT_TIMED_BLOCK(whole_frame_block, "sim frame")
 
         vert3f cam_pos = orbit_camera_position(abs_cam_rot_y, use_camera_rot_x, lerped_cam_dist);
         look_at_yx(&cam_view_trans, cam_pos, (vert3f){0.0f,0.0f,0.0f});
@@ -5076,12 +5085,12 @@ void game_update(ExotiqueInterface* ei) {
             case NUM_GAME_STATES:
                 break;
         }
-    //END_TIMED_BLOCK(whole_frame_block)
+    END_TIMED_BLOCK(whole_frame_block)
     
     game_data.frame++;
-    //if((game_data.frame & 31) == 0) {
-    //    //print_and_reset_root_block(&whole_frame_block);
-    //}
+    if((game_data.frame & 31) == 0) {
+        //print_and_reset_root_block(&whole_frame_block);
+    }
     
     last_select_pushed = cur_select_pushed;
     last_left_pushed = ei->input->left;
@@ -5091,5 +5100,4 @@ void game_update(ExotiqueInterface* ei) {
     last_a_pushed = ei->input->a;
     last_b_pushed = ei->input->b;
 }
-
 

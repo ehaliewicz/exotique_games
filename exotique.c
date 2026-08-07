@@ -598,7 +598,7 @@ main(const int argc, const char* argv[])
   //(void)argv;
 
   exotique_load(&g_game_manager, &g_exotique_interface);
-  game_load(&g_exotique_interface, argc-1, argv+1);
+  game_load(&g_exotique_interface, argc, argv);
   sdl_load(&g_game_manager);
 
   // Main loop

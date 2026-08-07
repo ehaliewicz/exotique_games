@@ -13,6 +13,9 @@ REM If your zip has an x86_64-w64-mingw32\ sub-folder, append it here.
 SET SDL2_DIR=C:\Users\Erik\code\SDL2-2.32.10\x86_64-w64-mingw32
 SET SDL2_INC=%SDL2_DIR%\include\SDL2
 SET SDL2_LIB=%SDL2_DIR%\lib
+SET SDL2_NET_DIR=C:\Users\Erik\code\SDL2_net-devel-2.4.0-mingw\SDL2_net-2.4.0\x86_64-w64-mingw32
+SET SDL2_NET_INC=%SDL2_NET_DIR%\include\SDL2
+SET SDL2_NET_LIB=%SDL2_NET_DIR%\lib
 
 SET ARCH=64
 
@@ -21,7 +24,8 @@ REM  Warning flags  (split across two variables; cmd line-length limit)
 REM ============================================================
 REM -Waggregate-return
 SET EXTRA_CFLAGS=-DSDL_MAIN_HANDLED -Warith-conversion -Wcast-align=strict -Wcast-qual -Wconversion -Wdouble-promotion -Wduplicated-branches -Wduplicated-cond -Wfloat-equal -Wformat=2 -Wlogical-op -Wmissing-include-dirs -Wnull-dereference -Wstrict-aliasing=2 -Wstrict-overflow=2 -Wswitch-default -Wswitch-enum -Wundef -Wuninitialized -Wwrite-strings
-SET CFLAGS=-Wall -Wextra -Wpedantic -Wshadow -Werror -Wfatal-errors %EXTRA_CFLAGS%
+SET CFLAGS=-Wall -Wextra -DSDL_MAIN_HANDLED
+REM -Wpedantic -Wshadow -Werror -Wfatal-errors %EXTRA_CFLAGS%
 SET SIMPLE_CFLAGS=-Wall 
 
 REM ============================================================
@@ -38,7 +42,7 @@ SET GAME=%~n1
 REM ============================================================
 REM  Compile exotique.c
 REM ============================================================
-"%GCC%" -c %CFLAGS% -std=c2x -O2 -march=native ^
+"%GCC%" -c %CFLAGS% -std=c2x -O3 -ggdb -march=westmere ^
     -I "%SDL2_INC%" -D_REENTRANT ^
     exotique.c
 IF ERRORLEVEL 1 (
@@ -57,8 +61,8 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c99 -Og -ggdb -ffast-math -march=native -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
-    -I ".." ^
+"%GCC%" -c %CFLAGS% -std=c99 -O3 -ggdb -ffast-math -march=westmere -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
+    -I ".." -I %SDL2_INC% -I %SDL2_NET_INC% ^
     ^
     -D ARCH=%ARCH% ^
     "%GAME%.c"
@@ -73,7 +77,7 @@ REM  NOTE: -lasan may fail with MinGW -- remove if GCC complains
 REM        it cannot find libasan.
 REM ============================================================
 gcc exotique.o miniaudio.o "%GAME%.o" ^
-    -L "%SDL2_LIB%" -lSDL2 -latomic -flto ^
+    -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" -lSDL2 -lSDL2_net -latomic -flto ^
     ^
     -o "%GAME%.exe"
 IF ERRORLEVEL 1 (

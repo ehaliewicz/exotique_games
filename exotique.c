@@ -123,7 +123,7 @@ ExotiqueInterface g_exotique_interface = {0};
 
 // XXX: game.c mandatory functions declarations
 
-void game_load(ExotiqueInterface* ei);
+void game_load(ExotiqueInterface* ei, int argc, const char* argv[]);
 void game_update(ExotiqueInterface* ei);
 void game_draw(ExotiqueInterface* ei);
 
@@ -594,11 +594,11 @@ exotique_panic(GameManager* gm)
 int
 main(const int argc, const char* argv[])
 {
-  (void)argc;
-  (void)argv;
+  //(void)argc;
+  //(void)argv;
 
   exotique_load(&g_game_manager, &g_exotique_interface);
-  game_load(&g_exotique_interface);
+  game_load(&g_exotique_interface, argc-1, argv+1);
   sdl_load(&g_game_manager);
 
   // Main loop
@@ -626,8 +626,8 @@ main(const int argc, const char* argv[])
   	float elapsedMS = (float)(end - start) / (float)SDL_GetPerformanceFrequency() * 1000.0f;
 
 	  // Cap to 60 FPS
-    uint32_t delay = (uint32_t)floor(16.666f - elapsedMS);
-    if(delay > 0 && delay <= 16) {
+    uint32_t delay = (uint32_t)floor(33.333f - elapsedMS);
+    if(delay > 0 && delay <= 33) {
       //exotique_printf("delaying %i\n", delay);
   	  SDL_Delay(delay);
     }

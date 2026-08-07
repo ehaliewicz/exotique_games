@@ -241,7 +241,8 @@ int bricks_left;
 
 int hard_mode = 0;
 
-void game_load(ExotiqueInterface *ei) {
+void game_load(ExotiqueInterface *ei, int argc, char* argv[]) {
+
     int c, s, l;
     int y,x;
     bricks_left = 0;

@@ -21,11 +21,8 @@ typedef struct block block;
 
 struct block {
     const char* name;
-    u64 count;
-    u64 cumulative_count;
-    u64 cur_start_ticks;
-    u64 total_ticks;
-    u64 cumulative_total_ticks;
+    u64 count, cumulative_count;
+    u64 cur_start_ticks, total_ticks, cumulative_total_ticks;
     int num_children;
     block *children[16];
 };
@@ -42,11 +39,7 @@ void exit_block(block* blk) {
 }
 
 block new_timed_block(const char* name) {
-    block blk;
-    blk.name = name;
-    blk.count = 0;
-    blk.total_ticks = 0;
-    return blk;
+    return (block){name,0,0,0,0,0,0,{NULL}};
 }
 
 #define ROOT_TIMED_BLOCK(var, name) {name, 0, 0, 0, 0, 0, 0, {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}; do {   \
@@ -79,22 +72,20 @@ void print_and_reset_block(block *blk, int depth) {
     u64 exclusive_cumulative_total = blk->cumulative_total_ticks - children_cumulative_total;
     double exclusive_per_tick = (double)exclusive_cumulative_total / (double)blk->cumulative_count;
 
-    print_prefix(depth);
-    exotique_printf("BLOCK %s total %llu total per %f\n", blk->name, blk->total_ticks, total_per_tick);
-    print_prefix(depth);
-    exotique_printf(" exc %llu, exc per %f\n", exclusive_total, exclusive_per_tick);
-    
+    print_prefix(depth); exotique_printf("%11s %5llums   %5.3fms  %5llums   %5.3fms\n", blk->name, blk->total_ticks, total_per_tick, exclusive_total, exclusive_per_tick);
+        
     for(int i = 0; i < blk->num_children; i++) {
         print_and_reset_block(blk->children[i], depth+1);
     }
-    print_prefix(depth);
-    exotique_printf("END %s\n", blk->name);
+    //print_prefix(depth);
+    //exotique_printf("END %s\n", blk->name);
 
     blk->count = 0;
     blk->total_ticks = 0;
 }
 
 void print_and_reset_root_block(block *blk) {
+    exotique_printf("                 inc   inc per      exc   exc per\n", blk->name);
     print_and_reset_block(blk, 0);
 }
 
@@ -104,7 +95,6 @@ void block_add_child(block *parent, block *child) {
 
 
 //    DATA TYPES, SCALAR AND VERTEX/VECTOR MATH
-
 
 typedef struct {
     f32 x,y;
@@ -218,8 +208,7 @@ static inline f32 fast_atan2(f32 y, f32 x) {
     return (y < 0.0f) ? -angle : angle;
 }
 
-static inline f32 fast_inv_sqrt( f32 number )
-{
+static inline f32 fast_inv_sqrt( f32 number ) {
 	long i;
 	f32 x2, y;
 	const f32 threehalfs = 1.5F;
@@ -243,8 +232,7 @@ static inline f32 dot(vert3f a, vert3f b)
     return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
-static inline vert3f normalize(vert3f v)
-{
+static inline vert3f normalize(vert3f v) {
     f32 recip_len = fast_inv_sqrt(dot(v,v));
     //f32 recip_len = 1.0f / len;
 
@@ -296,24 +284,10 @@ typedef struct {
 matrix mat_mul_mat(const matrix *a, const matrix *b) { 
     matrix r; 
     for (int i = 0; i < 4; ++i) { 
-       //for (int j = 0; j < 4; ++j) { 
-         r.m[i][0] = (a->m[i][0] * b->m[0][0] + 
-                      a->m[i][1] * b->m[1][0] + 
-                      a->m[i][2] * b->m[2][0] + 
-                      a->m[i][3] * b->m[3][0]);
-         r.m[i][1] = (a->m[i][0] * b->m[0][1] + 
-                      a->m[i][1] * b->m[1][1] + 
-                      a->m[i][2] * b->m[2][1] + 
-                      a->m[i][3] * b->m[3][1]);
-         r.m[i][2] = (a->m[i][0] * b->m[0][2] + 
-                      a->m[i][1] * b->m[1][2] + 
-                      a->m[i][2] * b->m[2][2] + 
-                      a->m[i][3] * b->m[3][2]);
-         r.m[i][3] = (a->m[i][0] * b->m[0][3] + 
-                      a->m[i][1] * b->m[1][3] + 
-                      a->m[i][2] * b->m[2][3] + 
-                      a->m[i][3] * b->m[3][3]);
-        //}
+         r.m[i][0] = (a->m[i][0] * b->m[0][0] + a->m[i][1] * b->m[1][0] + a->m[i][2] * b->m[2][0] + a->m[i][3] * b->m[3][0]);
+         r.m[i][1] = (a->m[i][0] * b->m[0][1] + a->m[i][1] * b->m[1][1] + a->m[i][2] * b->m[2][1] + a->m[i][3] * b->m[3][1]);
+         r.m[i][2] = (a->m[i][0] * b->m[0][2] + a->m[i][1] * b->m[1][2] + a->m[i][2] * b->m[2][2] + a->m[i][3] * b->m[3][2]);
+         r.m[i][3] = (a->m[i][0] * b->m[0][3] + a->m[i][1] * b->m[1][3] + a->m[i][2] * b->m[2][3] + a->m[i][3] * b->m[3][3]);
     } 
     return r; 
 }
@@ -323,9 +297,7 @@ matrix mat_inverse_affine(const matrix *a) {
     float m10 = a->m[1][0], m11 = a->m[1][1], m12 = a->m[1][2];
     float m20 = a->m[2][0], m21 = a->m[2][1], m22 = a->m[2][2];
 
-    float det = m00 * (m11 * m22 - m12 * m21)
-              - m01 * (m10 * m22 - m12 * m20)
-              + m02 * (m10 * m21 - m11 * m20);
+    float det = m00 * (m11 * m22 - m12 * m21) - m01 * (m10 * m22 - m12 * m20) + m02 * (m10 * m21 - m11 * m20);
 
     // det == 0 means non-invertible (e.g. a zero scale somewhere in the chain)
     float invDet = 1.0f / det;
@@ -433,55 +405,25 @@ matrix transform_to_matrix(const transform *t) {
 matrix transform_to_view_matrix(const transform *cam)
 {
     matrix t = translation_matrix(scale_vert3(cam->position, -1.0f));
-
     matrix rx = rotation_x_matrix(-cam->rotation.x);
     matrix ry = rotation_y_matrix(-cam->rotation.y);
-
     matrix r = mat_mul_mat(&rx, &ry);
-
     return mat_mul_mat(&r, &t);
 }
 
 vert3f mat_mul_vert3(const matrix *m, const vert3f *v) {
     vert3f r;
-
-    r.x =
-        m->m[0][0] * v->x +
-        m->m[0][1] * v->y +
-        m->m[0][2] * v->z +
-        m->m[0][3];
-
-    r.y =
-        m->m[1][0] * v->x +
-        m->m[1][1] * v->y +
-        m->m[1][2] * v->z +
-        m->m[1][3];
-
-    r.z =
-        m->m[2][0] * v->x +
-        m->m[2][1] * v->y +
-        m->m[2][2] * v->z +
-        m->m[2][3];
-
+    r.x = m->m[0][0] * v->x + m->m[0][1] * v->y + m->m[0][2] * v->z + m->m[0][3];
+    r.y = m->m[1][0] * v->x + m->m[1][1] * v->y + m->m[1][2] * v->z + m->m[1][3];
+    r.z = m->m[2][0] * v->x + m->m[2][1] * v->y + m->m[2][2] * v->z + m->m[2][3];
     return r;
 }
 
 vert3f mat_mul_normal(const matrix *m, const vert3f *n) {
     vert3f r;
-    r.x =
-        m->m[0][0] * n->x +
-        m->m[0][1] * n->y +
-        m->m[0][2] * n->z;
-
-    r.y =
-        m->m[1][0] * n->x +
-        m->m[1][1] * n->y +
-        m->m[1][2] * n->z;
-
-    r.z =
-        m->m[2][0] * n->x +
-        m->m[2][1] * n->y +
-        m->m[2][2] * n->z;
+    r.x = m->m[0][0] * n->x + m->m[0][1] * n->y + m->m[0][2] * n->z;
+    r.y = m->m[1][0] * n->x + m->m[1][1] * n->y + m->m[1][2] * n->z;
+    r.z = m->m[2][0] * n->x + m->m[2][1] * n->y + m->m[2][2] * n->z;
 
     return normalize(r);
 }
@@ -507,9 +449,9 @@ static inline  f32_vec lerp_f32_vec(f32_vec a, f32_vec b, f32_vec mix) {
 }
 
 static inline f32_vec dot_batch_single(f32_vec a_comps[3], vert3f b) {
-    f32_vec axs = a_comps[0];//(f32_vec){a[0].x, a[1].x, a[2].x, a[3].x};
-    f32_vec ays = a_comps[1];//(f32_vec){a[0].y, a[1].y, a[2].y, a[3].y};
-    f32_vec azs = a_comps[2];//(f32_vec){a[0].z, a[1].z, a[2].z, a[3].z};
+    f32_vec axs = a_comps[0];
+    f32_vec ays = a_comps[1];
+    f32_vec azs = a_comps[2];
     f32_vec bxs = broadcast_f32_vec(b.x);
     f32_vec bys = broadcast_f32_vec(b.y);
     f32_vec bzs = broadcast_f32_vec(b.z);
@@ -521,38 +463,18 @@ static inline f32_vec dot_batch_single(f32_vec a_comps[3], vert3f b) {
     return xs + ys + zs;
 }
 
-static inline f32_vec dot_batch_multiple(vert3f a[4], vert3f b[4]) {
-    f32_vec axs = (f32_vec){a[0].x, a[1].x, a[2].x, a[3].x};
-    f32_vec ays = (f32_vec){a[0].y, a[1].y, a[2].y, a[3].y};
-    f32_vec azs = (f32_vec){a[0].z, a[1].z, a[2].z, a[3].z};
-    f32_vec bxs = (f32_vec){b[0].x, b[1].x, b[2].x, b[3].x};
-    f32_vec bys = (f32_vec){b[0].y, b[1].y, b[2].y, b[3].y};
-    f32_vec bzs = (f32_vec){b[0].z, b[1].z, b[2].z, b[3].z};
-
-    f32_vec xs = axs * bxs;
-    f32_vec ys = ays * bys;
-    f32_vec zs = azs * bzs;
-
-    return xs + ys + zs;
-}
-
 static inline void normalize_batch(f32_vec comps[3], f32_vec normalized_out[3]) {
 
-    f32_vec xs = comps[0];//{a[0].x, a[1].x, a[2].x, a[3].x};
-    f32_vec ys = comps[1];//{a[0].y, a[1].y, a[2].y, a[3].y};
-    f32_vec zs = comps[2];//{a[0].z, a[1].z, a[2].z, a[3].z};
+    f32_vec xs = comps[0];
+    f32_vec ys = comps[1];
+    f32_vec zs = comps[2];
 
     f32_vec xxs = xs*xs;
     f32_vec yys = ys*ys;
-    f32_vec zzs = zs*zs; //xs*xs ys*ys zs*zs;
+    f32_vec zzs = zs*zs;
     f32_vec dots = xxs + yys + zzs; // square lens (dot product)
 
-    f32_vec recip_lens = (f32_vec){
-        fast_inv_sqrt(dots[0]),
-        fast_inv_sqrt(dots[1]),
-        fast_inv_sqrt(dots[2]),
-        fast_inv_sqrt(dots[3])
-    };
+    f32_vec recip_lens = (f32_vec){fast_inv_sqrt(dots[0]), fast_inv_sqrt(dots[1]), fast_inv_sqrt(dots[2]), fast_inv_sqrt(dots[3])};
 
 
     f32_vec norm_xs = xs * recip_lens;
@@ -562,58 +484,35 @@ static inline void normalize_batch(f32_vec comps[3], f32_vec normalized_out[3]) 
     normalized_out[0] = norm_xs;
     normalized_out[1] = norm_ys;
     normalized_out[2] = norm_zs;
-    //for(int i = 0; i < 4; i++) {
-    //    out[i] = (vert3f){norm_xs[i], norm_ys[i], norm_zs[i]};
-    //}
 }
 
 void mat_mul_vert3_batch(const matrix *m, const f32_vec poses_soa[3], f32_vec out_comps[3]) {
-    f32_vec vx = poses_soa[0];//{ v[0].x, v[1].x, v[2].x, v[3].x };
-    f32_vec vy = poses_soa[1];//{ v[0].y, v[1].y, v[2].y, v[3].y };
-    f32_vec vz = poses_soa[2];//{ v[0].z, v[1].z, v[2].z, v[3].z };
+    f32_vec vx = poses_soa[0];
+    f32_vec vy = poses_soa[1];
+    f32_vec vz = poses_soa[2];
 
-    f32_vec rx = broadcast_f32_vec(m->m[0][0]) * vx + broadcast_f32_vec(m->m[0][1]) * vy +
-               broadcast_f32_vec(m->m[0][2]) * vz + broadcast_f32_vec(m->m[0][3]);
-
-    f32_vec ry = broadcast_f32_vec(m->m[1][0]) * vx + broadcast_f32_vec(m->m[1][1]) * vy +
-               broadcast_f32_vec(m->m[1][2]) * vz + broadcast_f32_vec(m->m[1][3]);
-
-    f32_vec rz = broadcast_f32_vec(m->m[2][0]) * vx + broadcast_f32_vec(m->m[2][1]) * vy +
-               broadcast_f32_vec(m->m[2][2]) * vz + broadcast_f32_vec(m->m[2][3]);
+    f32_vec rx = broadcast_f32_vec(m->m[0][0]) * vx + broadcast_f32_vec(m->m[0][1]) * vy + broadcast_f32_vec(m->m[0][2]) * vz + broadcast_f32_vec(m->m[0][3]);
+    f32_vec ry = broadcast_f32_vec(m->m[1][0]) * vx + broadcast_f32_vec(m->m[1][1]) * vy + broadcast_f32_vec(m->m[1][2]) * vz + broadcast_f32_vec(m->m[1][3]);
+    f32_vec rz = broadcast_f32_vec(m->m[2][0]) * vx + broadcast_f32_vec(m->m[2][1]) * vy + broadcast_f32_vec(m->m[2][2]) * vz + broadcast_f32_vec(m->m[2][3]);
 
     out_comps[0] = rx;
     out_comps[1] = ry;
     out_comps[2] = rz;
-    //for (int i = 0; i < 4; i++) {
-    //    out[i].x = rx[i];
-    //    out[i].y = ry[i];
-    //    out[i].z = rz[i];
-    //}
 }
 
 void mat_mul_normal_batch(const matrix *m, const f32_vec norm_comp_soa[3], f32_vec out_comps[3]) {
     /* Transpose 4 vertices into SoA lanes */
-    f32_vec vx = norm_comp_soa[0];//{ v[0].x, v[1].x, v[2].x, v[3].x };
-    f32_vec vy = norm_comp_soa[1];//{ v[0].y, v[1].y, v[2].y, v[3].y };
-    f32_vec vz = norm_comp_soa[2];//{ v[0].z, v[1].z, v[2].z, v[3].z };
+    f32_vec vx = norm_comp_soa[0];
+    f32_vec vy = norm_comp_soa[1];
+    f32_vec vz = norm_comp_soa[2];
 
-    f32_vec rx = broadcast_f32_vec(m->m[0][0]) * vx + broadcast_f32_vec(m->m[0][1]) * vy +
-               broadcast_f32_vec(m->m[0][2]) * vz;
-
-    f32_vec ry = broadcast_f32_vec(m->m[1][0]) * vx + broadcast_f32_vec(m->m[1][1]) * vy +
-               broadcast_f32_vec(m->m[1][2]) * vz;
-
-    f32_vec rz = broadcast_f32_vec(m->m[2][0]) * vx + broadcast_f32_vec(m->m[2][1]) * vy +
-               broadcast_f32_vec(m->m[2][2]) * vz;
+    f32_vec rx = broadcast_f32_vec(m->m[0][0]) * vx + broadcast_f32_vec(m->m[0][1]) * vy + broadcast_f32_vec(m->m[0][2]) * vz;
+    f32_vec ry = broadcast_f32_vec(m->m[1][0]) * vx + broadcast_f32_vec(m->m[1][1]) * vy + broadcast_f32_vec(m->m[1][2]) * vz;
+    f32_vec rz = broadcast_f32_vec(m->m[2][0]) * vx + broadcast_f32_vec(m->m[2][1]) * vy + broadcast_f32_vec(m->m[2][2]) * vz;
 
     out_comps[0] = rx;
     out_comps[1] = ry;
     out_comps[2] = rz;
-    //for (int i = 0; i < 4; i++) {
-    //    out[i].x = rx[i];
-    //    out[i].y = ry[i];
-    //    out[i].z = rz[i];
-    //}
 }
 
 
@@ -625,9 +524,7 @@ typedef struct {
     f32 inv_z0, inv_z1, inv_z2;       // 12 bytes
     vert2f uv0_over_z, uv1_over_z, uv2_over_z; // 24 bytes
     f32 b0, b1, b2;
-    u8 tex;
-    u8 no_tmap; 
-    u8 mip_level_or_color; 
+    u8 tex_or_dithered, mip_level_or_color;
 } transformed_tri;
 
 #define MAX_TILE_TRIS 16384
@@ -643,14 +540,12 @@ tile tiles[TILES_WIDE*TILES_HIGH];
 transformed_tri global_tri_buffer[MAX_GLOBAL_TRIS]; /* up to one million? */
 
 typedef struct {
-    vert3f pos;
-    vert3f norm;
+    vert3f pos, norm;
     vert2f uv;
 } obj_vertex;
 
 typedef struct {
-    vert3f *pos;
-    vert3f *norm;
+    vert3f *pos, *norm;
     vert2f *uv;
 } obj_vertex_stream;
 
@@ -658,11 +553,11 @@ typedef struct {
     const obj_vertex *vertexStream;
     const u16 *indexStream; 
 
-    int vertexCount;
-    int indexCount;
+    int vertexCount, indexCount;
 } obj_mesh;
 
 #include "mesh_board.h"
+#include "mesh_dragon.h"
 #include "mesh_mahjong_tile.h"
 #include "mesh_tenbou.h"
 #include "mesh_wind_indicator.h"
@@ -699,11 +594,7 @@ u8 light_remap_table[NUM_SHADES][NUM_BASE_COLORS];
 // REMAPS FROM ALL COLORS IN THE PALETTE, TO SHADES OF THOSE COLORS WITHIN THE PALETTE
 u8 full_light_remap_table[NUM_SHADES][256];
 
-vert3f light = {
-    1.0f,
-    1.0f,
-    -.5f
-};
+vert3f light = { 1.0f, 1.0f, -.5f};
 
 typedef struct {
     u8 palette[4]; // up to 4 colors in per-image palette.  these are indexes of the global palette (2 are shared)
@@ -719,8 +610,7 @@ typedef enum {
 typedef struct {
     compressed_texture* comp_tex_ptr;
     u8* texels[4];
-    int width;
-    int height;
+    int width, height;
     compress_type compressed; 
     u8 default_pal_idx;
 } texture;
@@ -770,12 +660,9 @@ static inline f32_vec i32_vec_convert_f32(i32_vec a) {
     return res;
 }
 
-static inline f32_vec clamp_f32_vec(f32_vec a, f32 mi, f32 ma) {
+static inline f32_vec f32_vec_clamp(f32_vec a, f32 mi, f32 ma) {
     return (f32_vec) {
-        CLAMP(a[0], mi, ma),
-        CLAMP(a[1], mi, ma),
-        CLAMP(a[2], mi, ma),
-        CLAMP(a[3], mi, ma),
+        CLAMP(a[0], mi, ma),  CLAMP(a[1], mi, ma),  CLAMP(a[2], mi, ma), CLAMP(a[3], mi, ma),
     };
 }
 
@@ -783,15 +670,6 @@ static inline i32_vec f32_vec_convert_i32(f32_vec a) {
     i32_vec res;
     for(int i = 0; i < 4; i++) { res[i] = (i32)a[i]; }
     return res;
-}
-
-static inline f32_vec f32_vec_clamp(f32_vec a, f32 min, f32 max) {
-    return (f32_vec){
-        CLAMP(a[0], min, max),
-        CLAMP(a[1], min, max),
-        CLAMP(a[2], min, max),
-        CLAMP(a[3], min, max),
-    };
 }
 
 static inline u8 i32_vec_extract_low_bits(const i32_vec a) {
@@ -1064,7 +942,7 @@ int rasterize_triangle_2x2_quad(
                     );
                 inv_z_vec = inv_z_vec;
 
-                f32_vec brightness_vec = clamp_f32_vec(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
+                f32_vec brightness_vec = f32_vec_clamp(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
 
                 i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
                 i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
@@ -1107,6 +985,7 @@ int rasterize_triangle_2x2_quad_no_tmap(
     i32 start_x, i32 end_x, i32 start_y, i32 end_y
 ) {
     u8 color = tri_attributes->mip_level_or_color;
+    u8 dithered =  tri_attributes->tex_or_dithered;
     // swap everything for first two vertexes (actual vertex positions and attributes)
     f32 iz0 = tri_attributes->inv_z1;
     f32 iz1 = tri_attributes->inv_z0;
@@ -1229,9 +1108,9 @@ int rasterize_triangle_2x2_quad_no_tmap(
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
     };
 
-    i32 dx = maxx-minx;
-
+    i32_vec no_pixel_dither_mask = dithered ? (i32_vec){0x00000000, 0xFFFFFFFF, 0xFFFFFFFF, 0x00000000} : broadcast_i32_vec(0xFFFFFFFF); // if not dithered, mask all pixels on (if covered and unoccluded)
     for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
+
         i32_vec cx01_vec = cy01_vec;
         i32_vec cx12_vec = cy12_vec;
         i32_vec cx20_vec = cy20_vec;
@@ -1244,8 +1123,9 @@ int rasterize_triangle_2x2_quad_no_tmap(
         u16_vec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
 
 
-        for (i32 x = 0; x < dx; x += 2, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
-            i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
+        for (i32 x = minx; x < maxx; x += 2, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
+            i32_vec dither_mask = ((x&0b10)^(y&0b10)) ? no_pixel_dither_mask : broadcast_i32_vec(0xFFFFFFFF);
+            i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31) & dither_mask;
 
             int coverage_mask = i32_vec_any(covered_vec);
 
@@ -1263,13 +1143,14 @@ int rasterize_triangle_2x2_quad_no_tmap(
                                 (w1_vec * iz1_vec) +
                                 (w2_vec * iz2_vec));
 
-            f32_vec brightness_vec = clamp_f32_vec(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
+            f32_vec brightness_vec = f32_vec_clamp(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
 
 
             i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
             i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
 
             u32 mask_bytes = i32_vec_extract_bytes(in_tri_and_unoccluded);
+
 
             if(mask_bytes != 0) {
                 drew_pixel = 1;
@@ -1322,6 +1203,7 @@ typedef enum {
     //UNLIT_UNTEXTURED,
     UNLIT_TEXTURED,
     LIT_TEXTURED,
+    LIT_TEXTURED_DITHERED,
     //LIT_UNTEXTURED
 } shader;
 
@@ -2086,22 +1968,18 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
             t->start_x, t->start_x+RENDER_TILE_SIZE,
             t->start_y, t->start_y+RENDER_TILE_SIZE
         );
-
     }
-
 
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tex_tri_indexes[i];
-
         rasterize_triangle_2x2_quad(
             zbuffer,
             &global_tri_buffer[global_tri_idx],
-            &textures[global_tri_buffer[global_tri_idx].tex],
+            &textures[global_tri_buffer[global_tri_idx].tex_or_dithered],
             t->start_x, t->start_x+RENDER_TILE_SIZE,
             t->start_y, t->start_y+RENDER_TILE_SIZE
         );
     }
-    //t->z_dirty = t->z_dirty || drew_pix;
 
     /* flush tile to output */
     col_val_ptr = __builtin_assume_aligned(&render_target[0], 4);
@@ -2191,7 +2069,7 @@ void bin_triangle(
     vert3f *v0, vert3f *v1, vert3f *v2,
     vert2f *v0_uv, vert2f *v1_uv, vert2f *v2_uv,
     f32 b0, f32 b1, f32 b2,
-    u8 texture_id) {
+    u8 texture_id, shader cur_shader) {
 
         if(total_triangles == MAX_GLOBAL_TRIS) {
             return;
@@ -2320,6 +2198,7 @@ void bin_triangle(
 
 
                 global_tri_buffer[total_triangles].mip_level_or_color = tex_pal_idx;
+                global_tri_buffer[total_triangles].tex_or_dithered = cur_shader == LIT_TEXTURED_DITHERED;
             } else {
                 vert2f uv0_over_z = {uv0.x * inv_z0, uv0.y * inv_z0};
                 vert2f uv1_over_z = {uv1.x * inv_z1, uv1.y * inv_z1};
@@ -2327,7 +2206,7 @@ void bin_triangle(
                 global_tri_buffer[total_triangles].uv0_over_z = uv0_over_z;
                 global_tri_buffer[total_triangles].uv1_over_z = uv1_over_z;
                 global_tri_buffer[total_triangles].uv2_over_z = uv2_over_z;
-                global_tri_buffer[total_triangles].tex = texture_id;
+                global_tri_buffer[total_triangles].tex_or_dithered = texture_id;
                 global_tri_buffer[total_triangles].mip_level_or_color = mip_level;
             }
             
@@ -2625,7 +2504,7 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
                 rotv0, rotv1, rotv2,
                 uv0, uv1, uv2,
                 b0, b1, b2, 
-                texture_id
+                texture_id, cur_shader
             );
         }
     }
@@ -2676,35 +2555,16 @@ i16 decompressed_sound_buffer[NUM_SOUNDS][32768];
 typedef struct {
     void *compressed_raw_data;
     i16* decompressed_data;
-    u32 num_bytes;
-    u32 num_mono_samples;
+    u32 num_bytes, num_mono_samples;
 } sound_data;
 
 sound_data sounds[NUM_SOUNDS] = {
-    {
-        tile_click_4b_raw_data, decompressed_sound_buffer[0],
-        TILE_CLICK_NUM_BYTES, 0
-    },
-    {
-        pon_4b_raw_data, decompressed_sound_buffer[1],
-        PON_NUM_BYTES, 0
-    },
-    {
-        chii_4b_raw_data, decompressed_sound_buffer[2],
-        CHII_NUM_BYTES, 0
-    },
-    {
-        riichi_4b_raw_data, decompressed_sound_buffer[3],
-        RIICHI_NUM_BYTES, 0
-    },
-    {
-        tsumo_4b_raw_data, decompressed_sound_buffer[4],
-        TSUMO_NUM_BYTES, 0
-    },
-    {
-        ron_4b_raw_data, decompressed_sound_buffer[5],
-        RON_NUM_BYTES, 0
-    }
+    {tile_click_4b_raw_data, decompressed_sound_buffer[0], TILE_CLICK_NUM_BYTES, 0},
+    {pon_4b_raw_data, decompressed_sound_buffer[1], PON_NUM_BYTES, 0},
+    {chii_4b_raw_data, decompressed_sound_buffer[2], CHII_NUM_BYTES, 0},
+    {riichi_4b_raw_data, decompressed_sound_buffer[3], RIICHI_NUM_BYTES, 0},
+    {tsumo_4b_raw_data, decompressed_sound_buffer[4], TSUMO_NUM_BYTES, 0},
+    {ron_4b_raw_data, decompressed_sound_buffer[5], RON_NUM_BYTES, 0}
 };
 
 u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
@@ -2715,7 +2575,6 @@ u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
         -1,-1,-1,-1,
         2, 4, 6, 8
     };
-
     static const int step_table[89] = {
            7,      8,     9,    10,    11,    12,    13,    14,
           16,     17,    19,    21,    23,    25,    28,    31,
@@ -2734,8 +2593,6 @@ u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
     u32 num_blocks = num_bytes / 512;
     i16 *out = output;
     for(u32 blk = 0; blk < num_blocks; blk++) {
-
-
         int predictor = (i16)(raw[0]|(raw[1]<<8));
         raw += 2;
         int step_index = *raw++;
@@ -3382,14 +3239,17 @@ void draw_hand(
     if(draw_wind_indicator) {
         transform wind_indicator_trans = identity_transform();
         wind_indicator_trans.position.x = -25.0f;
-        wind_indicator_trans.rotation.y = (f32)M_PI;
+        //wind_indicator_trans.rotation.y = (f32)M_PI;
+        wind_indicator_trans.rotation.y = (f32)game_data.frame/1024.0f;
         wind_indicator_trans.rotation.z = game_data.cur_wind == EAST_WIND ? 0.0f : (f32)M_PI; 
 
-        wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
+        //wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
+        wind_indicator_trans.scale = (vert3f){25.0f, 25.0f, 25.0f};
+
         matrix wind_indicator_to_hand_mat = transform_to_matrix(&wind_indicator_trans);
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED;
-        draw_calls[draw_idx].mesh = &wind_indicator_mesh;
+        draw_calls[draw_idx].mesh = &dragon_decimated_mesh;
         draw_calls[draw_idx].bounds = 0;
         draw_calls[draw_idx].texture = WIND_INDICATOR;
         draw_calls[draw_idx].model_to_view = mat_mul_mat(hand_to_view_matrix, &wind_indicator_to_hand_mat);
@@ -3625,7 +3485,6 @@ transform cam_view_trans;
 static u64 ms_per_frame;
 static u64 prev_frame_ticks = 0;  
 
-#include "mesh_dragon.h"
 
 void game_draw(ExotiqueInterface* ei) {
 
@@ -3648,43 +3507,22 @@ void game_draw(ExotiqueInterface* ei) {
 
     static block whole_frame_block = ROOT_TIMED_BLOCK(whole_frame_block, "draw frame")
         matrix view_matrix = transform_to_view_matrix(&cam_view_trans);
-        static block clear_tiles_block = START_TIMED_BLOCK(clear_tiles_block, "clear tiles", whole_frame_block)
+        static block clear_tiles_block = START_TIMED_BLOCK(clear_tiles_block, "clear buf", whole_frame_block)
             clear_tile_bins();
         END_TIMED_BLOCK(clear_tiles_block)
         
-        static block riichi_block = START_TIMED_BLOCK(riichi_block, "riichi draw calls", whole_frame_block)
+        static block riichi_block = START_TIMED_BLOCK(riichi_block, "draw game", whole_frame_block)
             draw_riichi_game(game_data.cur_game_state, game_data.frame, &view_matrix);
         END_TIMED_BLOCK(riichi_block)
 
-        static block board_block = START_TIMED_BLOCK(board_block, "board draw calls", whole_frame_block)
+        static block board_block = START_TIMED_BLOCK(board_block, "draw board", whole_frame_block)
             draw_board(&view_matrix);
         END_TIMED_BLOCK(board_block)
 
-        
-        transform dragon_transform = identity_transform();
-        dragon_transform.position.y = 1.0f;
-        dragon_transform.scale = (vert3f){40.0f, 40.0f, 40.0f};
-        dragon_transform.rotation.y = (f32)game_data.frame/1024.0f;
-        matrix dragon_world_matrix = transform_to_matrix(&dragon_transform);
-        matrix dragon_view_matrix = mat_mul_mat(&view_matrix, &dragon_world_matrix);
 
-        static block dragon_block = START_TIMED_BLOCK(dragon_block, "dragon", whole_frame_block)
-        mesh_draw_call dragon_dc;
-        dragon_dc.mesh = &dragon_decimated_mesh;
-        dragon_dc.bounds = NULL;
-        dragon_dc.texture = GREEN_DRAGON;
-        dragon_dc.model_to_view = dragon_view_matrix;
-        dragon_dc.model_to_world = dragon_world_matrix;
-        dragon_dc.shdr = LIT_TEXTURED;
-        submit_mesh_draw_call(&dragon_dc);
-        END_TIMED_BLOCK(dragon_block)
-
-        static block raster_block = START_TIMED_BLOCK(raster_block, "rasterize tiles", whole_frame_block)
+        static block raster_block = START_TIMED_BLOCK(raster_block, "rast. tiles", whole_frame_block)
             rasterize_tiles(ei, zbuf);
         END_TIMED_BLOCK(raster_block)
-
-
-
 
     END_TIMED_BLOCK(whole_frame_block)
 
@@ -3765,12 +3603,12 @@ void reset_game() {
     game_data.cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     game_data.frame = 0;
     game_data.deal_steps = 0;
-    game_data.cur_player = 0;
-    game_data.cur_dealer = 0;
+    game_data.cur_dealer++;
     if(game_data.cur_dealer == 4) {
         game_data.cur_dealer = 0;
         game_data.cur_wind = (game_data.cur_wind+1)%2;
     }
+    game_data.cur_player = game_data.cur_dealer;
     game_data.switch_player_timer = -1;
     game_data.draw_end_frame = 0;
     
@@ -4395,7 +4233,7 @@ void step_deal(u32 cur_frame) {
         return;
     }
 
-    int hand_index = game_data.deal_steps & 0x3;
+    int hand_index = (game_data.cur_dealer + game_data.deal_steps) & 0x3;
     hand* this_hand = &game_data.hands[hand_index];
 
     i8 cur_num_tiles = this_hand->num_closed_tiles;
@@ -4415,20 +4253,20 @@ void step_deal(u32 cur_frame) {
     if(game_data.deal_steps == 17) {
         game_data.cur_game_state = IN_GAME;
 
-        //game_data.hands[0].tiles[0] = EAST;
-        //game_data.hands[0].tiles[1] = EAST;
-        //game_data.hands[0].tiles[2] = EAST;
-        //game_data.hands[0].tiles[3] = GREEN_DRAGON;
-        //game_data.hands[0].tiles[4] = GREEN_DRAGON;
-        //game_data.hands[0].tiles[5] = ONE_MAN;
-        //game_data.hands[0].tiles[6] = TWO_MAN;
-        //game_data.hands[0].tiles[7] = THREE_MAN;
-        //game_data.hands[0].tiles[8] = FIVE_MAN;
-        //game_data.hands[0].tiles[9] = FIVE_MAN;
-        //game_data.hands[0].tiles[10] = THREE_PIN;
-        //game_data.hands[0].tiles[11] = FOUR_PIN;
-        //game_data.hands[0].tiles[12] = FIVE_PIN;
-        //game_data.hands[0].tiles[13] = ONE_SOU;
+        game_data.hands[0].tiles[0] = EAST;
+        game_data.hands[0].tiles[1] = EAST;
+        game_data.hands[0].tiles[2] = EAST;
+        game_data.hands[0].tiles[3] = GREEN_DRAGON;
+        game_data.hands[0].tiles[4] = GREEN_DRAGON;
+        game_data.hands[0].tiles[5] = ONE_MAN;
+        game_data.hands[0].tiles[6] = TWO_MAN;
+        game_data.hands[0].tiles[7] = THREE_MAN;
+        game_data.hands[0].tiles[8] = FIVE_MAN;
+        game_data.hands[0].tiles[9] = FIVE_MAN;
+        game_data.hands[0].tiles[10] = THREE_PIN;
+        game_data.hands[0].tiles[11] = FOUR_PIN;
+        game_data.hands[0].tiles[12] = FIVE_PIN;
+        game_data.hands[0].tiles[13] = FIVE_MAN;
 
         game_data.switch_player_timer = -1;
         
@@ -4471,7 +4309,7 @@ u32 draw_next_tile(u32 cur_frame, int player) {
     return cur_frame + get_frames_for_duration(TILE_DEAL_DURATION);
 }
 
-#define AI_PLAYER_SPEED 0.192f
+#define AI_PLAYER_SPEED 0.333f
 
 tile_type player_winds[4] = {
     EAST, NORTH, WEST, SOUTH 
@@ -4751,7 +4589,7 @@ u32 is_unused(int idx, u32 unused_bmp) {
 }
 
 int find_unused_after(tile_type hand_tiles[14], tile_type find, int start_after_idx, u32 unused_bmp) {
-    for(int idx = 0; idx < start_after_idx; idx++) {
+    for(int idx = start_after_idx+1; idx < 14; idx++) {
         if (is_unused(idx, unused_bmp) && hand_tiles[idx] == find) {
             return idx;
         }
@@ -4830,6 +4668,25 @@ int is_win(hand* h) {
 
 }
 
+
+int in_tenpai_for_discard(hand* h) {
+
+    tile_type tmp[14];
+    copy_hand_tiles_to_tmp(h, tmp);
+
+        // copy into a temporary hand
+    tile_type og_tile = tmp[h->selected_tile_idx];
+
+    for(tile_type new_tile = 0; new_tile < NUM_TILES; new_tile++) {
+        tmp[h->selected_tile_idx] = new_tile;
+        if(is_winning_hand(tmp)) {
+            return 1;
+        }
+    }
+    tmp[h->selected_tile_idx] = og_tile;
+    return 0;
+}
+
 int in_tenpai(hand* h) {
 
     tile_type tmp[14];
@@ -4866,7 +4723,7 @@ int attempt_riichi(int player) {
     }
 
 
-    if(in_tenpai(cur_hand)) {
+    if(in_tenpai_for_discard(cur_hand)) {
         return 1;
     }
     return 0;
@@ -5029,6 +4886,7 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
                             TSUMO,
                             0.25f
                         );
+                        reset_game();
                     } else if (attempt_riichi(this_player)) {
                         
                         player_hand->in_riichi = 1;
@@ -5041,6 +4899,8 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
                             }
                         }
                     }
+                } else {
+                    // attempt ron
                 }
                 break;
             default:
@@ -5050,35 +4910,24 @@ void run_game(ExotiqueInterface *ei, const u32 cur_frame) {
     }
 }
 
-vert3f orbit_camera_position(float yaw, float pitch, float radius)
-{
-    vert3f p;
-
+vert3f orbit_camera_position(float yaw, float pitch, float radius) {
     float cp = cosf(pitch);
     float sp = sinf(pitch);
 
     float cy = cosf(yaw);
     float sy = sinf(yaw);
 
-    p.x = sy * cp * radius;
-    p.y = sp * radius;
-    p.z = cy * cp * radius;
-
-    return p;
+    return (vert3f){sy * cp * radius, sp * radius, cy * cp * radius};
 }
 
-void look_at_yx(transform *cam, vert3f position, vert3f target)
-{
+void look_at_yx(transform *cam, vert3f position, vert3f target) {
     float dx = target.x - position.x;
     float dy = target.y - position.y;
     float dz = target.z - position.z;
 
-    cam->rotation.y = fast_atan2(dx, dz);
-
     float horizontal = my_sqrt(dx * dx + dz * dz);
-
+    cam->rotation.y = fast_atan2(dx, dz);
     cam->rotation.x = -fast_atan2(dy, horizontal);
-
     cam->position = position;
 }
 
@@ -5107,7 +4956,6 @@ void game_update(ExotiqueInterface* ei) {
 
         light = normalize(mat_mul_vert3(&rot, &forward));
         
-
         //if(cur_select_pushed && !last_select_pushed) {
         //   reset_game(ei);
         //}
@@ -5130,6 +4978,7 @@ void game_update(ExotiqueInterface* ei) {
     END_TIMED_BLOCK(whole_frame_block)
     
     game_data.frame++;
+
     if((game_data.frame & 31) == 0) {
         //print_and_reset_root_block(&whole_frame_block);
     }
@@ -5142,4 +4991,3 @@ void game_update(ExotiqueInterface* ei) {
     last_a_pushed = ei->input->a;
     last_b_pushed = ei->input->b;
 }
-

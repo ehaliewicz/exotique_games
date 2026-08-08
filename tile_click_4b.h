@@ -1,5 +1,3 @@
-/* C:\Users\Erik\code\exotique_games\tile_click_4b.wav (7/21/2026 8:09:02 AM)
-   StartOffset(h): 0000003C, EndOffset(h): 0000103B, Length(h): 00001000 */
 #ifndef TILE_CLICK_4B_H
 #define TILE_CLICK_4B_H
 

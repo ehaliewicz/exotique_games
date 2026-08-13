@@ -2757,7 +2757,6 @@ typedef enum __attribute__((packed)) {
     X(RIICHI, "riichi")         \
     X(IPPATSU, "ippatsu")       \
     X(YAKUHAI, "yakuhai")       \
-    X(OPEN_YAKUHAI, "yakuhai")  \
     X(CHIITOITSU, "chiitoitsu") \
     X(KOKUSHI_MUSOU, "kokushi musou")
 
@@ -2828,7 +2827,7 @@ game_data_t game_data = {
     // hand winner
     -1,
     // hand winner score mods
-    {0},
+    {.num_mods = 0},
     // draw end frame
     0,
     // cur dealer
@@ -3519,7 +3518,7 @@ void game_draw(ExotiqueInterface* ei) {
         u8 bkgd_col = light_remap_table[NUM_SHADES/2][WHITE];
         for(int i = 0; i < 256*256; i++) { textures[SCORE_TEXTURE].texels[0][i] = bkgd_col; }
         for(int i = 0; i < game_data.hand_winner_mods.num_mods; i++) {
-            draw_string_to_texture(score_modifier_names[game_data.hand_winner_mods.mods[i]], 1, i+1, col, bkgd_col, textures[SCORE_TEXTURE].texels[0]);
+            draw_string_to_texture((char*)score_modifier_names[game_data.hand_winner_mods.mods[i]], 1, i+1, col, bkgd_col, textures[SCORE_TEXTURE].texels[0]);
         }
         //draw_string_to_texture("Hello, world! 123123", 1, 1, textures[SCORE_TEXTURE].texels[0]);
 
@@ -3681,8 +3680,8 @@ void reset_game() {
         player_winds[2] = player_winds[3];
         player_winds[3] = tmp;
     }
-    is_not_first_game = 1;
     game_data.hand_winner = -1;
+    game_data.hand_winner_mods.num_mods = 0;
     game_data.cur_wind = EAST_WIND;
     game_data.cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     game_data.frame = 0;
@@ -3703,12 +3702,17 @@ void reset_game() {
 
     init_wall();
     for(int i = 0; i < 4; i++) {
+        int score = game_data.hands[i].score;
         game_data.hands[i] = init_empty_hand();
+        if(is_not_first_game) {
+            game_data.hands[i].score = score;
+        }
     }
     shuffle_deck(&board_wall);
 
     game_data.next_deal_pos = 0;
     game_data.last_discard_player = -1;
+    is_not_first_game = 1;
 }
 
 void exit(int);
@@ -4115,6 +4119,10 @@ int queue_size() {
     return (queue_head - queue_tail);
 }
 
+void reset_queue() {
+    queue_head = queue_tail = 0;
+}
+
 
 player_action queue_peek() {
     return action_queue[queue_tail&(MAX_PLAYER_EVENTS-1)];
@@ -4448,20 +4456,22 @@ void step_deal(u32 cur_frame) {
     if(game_data.deal_steps == 17) {
         game_data.cur_game_state = IN_GAME;
 
-        //game_data.hands[0].tiles[0] = EAST;
-        //game_data.hands[0].tiles[1] = EAST;
-        //game_data.hands[0].tiles[2] = EAST;
-        //game_data.hands[0].tiles[3] = GREEN_DRAGON;
-        //game_data.hands[0].tiles[4] = GREEN_DRAGON;
-        //game_data.hands[0].tiles[5] = ONE_MAN;
-        //game_data.hands[0].tiles[6] = TWO_MAN;
-        //game_data.hands[0].tiles[7] = THREE_MAN;
-        //game_data.hands[0].tiles[8] = FIVE_MAN;
-        //game_data.hands[0].tiles[9] = FIVE_MAN;
-        //game_data.hands[0].tiles[10] = THREE_PIN;
-        //game_data.hands[0].tiles[11] = FOUR_PIN;
-        //game_data.hands[0].tiles[12] = FIVE_PIN;
-        //game_data.hands[0].tiles[13] = TWO_PIN;
+        
+        game_data.hands[0].tiles[0] = EAST;
+        game_data.hands[0].tiles[1] = EAST;
+        game_data.hands[0].tiles[2] = EAST;
+        game_data.hands[0].tiles[3] = GREEN_DRAGON;
+        game_data.hands[0].tiles[4] = GREEN_DRAGON;
+        game_data.hands[0].tiles[5] = ONE_MAN;
+        game_data.hands[0].tiles[6] = TWO_MAN;
+        game_data.hands[0].tiles[7] = THREE_MAN;
+        game_data.hands[0].tiles[8] = FIVE_MAN;
+        game_data.hands[0].tiles[9] = FIVE_MAN;
+        game_data.hands[0].tiles[10] = THREE_PIN;
+        game_data.hands[0].tiles[11] = FOUR_PIN;
+        game_data.hands[0].tiles[12] = FIVE_PIN;
+        game_data.hands[0].tiles[13] = TWO_PIN;
+        
 
         game_data.switch_player_timer = -1;
         
@@ -4727,13 +4737,138 @@ int is_tanyao(tile_type hand_tiles[14]) {
     return 1;
 }
 
+int is_chiitoitsu(tile_type hand_tiles[14]) {
+    for(int i = 0; i < 14; i += 2) {
+        if(hand_tiles[i] != hand_tiles[i+1]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+
+#define MAX_HAN 13
+// if a dealer wins
+
+// tsumo vs ron (for tsumo all players pay in, otherwise just the called player)
+const int dealer_score_tables[9][2] = {
+    {  500,  1500},
+    { 1000,  2900},
+    { 2000,  5800},
+    { 3900, 11600},
+    { 4000, 12000},
+    { 6000, 18000},
+    { 8000, 24000},
+    {12000, 36000},
+    {16000, 48000}
+};
+
+const int nondealer_score_tables[9][3] = {
+    {   300,   500,  1000},
+    {   500,  1000,  2000},
+    {  1000,  2000,  3900},
+    {  2000,  3900,  7700},
+    {  2000,  4000,  8000},
+    {  3000,  6000, 12000},
+    {  4000,  8000, 16000},
+    {  6000, 12000, 24000},
+    {  8000, 16000, 32000}
+};
+
+int get_score_table_index(int han) {
+    if(han < 6) {
+        return han-1;
+    }
+    if(han == 7) {
+        return 5;
+    }
+    if(han < 11) {
+        return 6;
+    }
+    if(han < 13) {
+        return 7;
+    }
+    return 8;
+}
+
+int get_dealer_score(int han, int is_ron) {
+    int idx = get_score_table_index(han);
+    return dealer_score_tables[idx][is_ron];
+}
+
+typedef struct {
+    int for_dealer;
+    int for_non_dealer;
+} non_dealer_score;
+
+
+// get score for a non dealer winner.  is dealer parameter represents whether the loser is the dealer or not
+int get_non_dealer_score(int han, int is_ron, int is_dealer) {
+    int idx = get_score_table_index(han);
+    int sub_idx = is_ron ? 2 : is_dealer ? 1 : 0;
+    return nondealer_score_tables[idx][sub_idx];
+}
+
+
+void adjust_scores(int is_ron, int rond_player) {
+    int han = 0;
+    hand_score_modifiers mods = game_data.hand_winner_mods;
+
+    for(int i = 0; i < mods.num_mods; i++) {
+        switch(mods.mods[i]) {
+            case KOKUSHI_MUSOU:
+                han += 13;
+                break;
+            case CHIITOITSU:
+                han += 2;
+                break;
+            case PINFU:
+            case RIICHI:
+            case IPPATSU:
+            case TSUMO:
+            case TANYAO:
+            case YAKUHAI:
+            case DORA:
+            case AKA_DORA:
+            case URA_DORA:
+                han += 1;
+                break;
+            default:
+                break;
+        }
+    }
+
+    int score_added = 0;
+    int winner_is_dealer = game_data.hand_winner == game_data.cur_dealer;
+    for(int i = 0; i < 4; i++) {
+        if(game_data.hand_winner == i) {
+            continue;
+        }
+        int is_dealer = game_data.cur_dealer == i;
+        if (is_ron) {
+            if(i != rond_player) {
+                continue;
+            }
+            int this_score = winner_is_dealer ? get_dealer_score(han, is_ron) : get_non_dealer_score(han, is_ron, is_dealer);
+            game_data.hands[i].score -= this_score;
+            score_added += this_score;
+        } else {
+            int this_score = winner_is_dealer ? get_dealer_score(han, is_ron) : get_non_dealer_score(han, is_ron, is_dealer);
+            game_data.hands[i].score -= this_score;
+            score_added += this_score;
+        }
+        
+    }
+    game_data.hands[game_data.hand_winner].score += score_added;
+
+}
 
 
 // returns 1 if it's a winning hand
 // writes score modifiers
 int calc_winning_score_modifiers(hand_score_modifiers *mods, tile_type hand_tiles[14], int is_tsumo, int is_closed, int in_riichi, tile_type dora, tile_type round_wind, tile_type seat_wind) {
-    
-    if(0) { //is_chiitoitsu(hand_tiles)) {
+    mods->num_mods = 0;
+    if(is_chiitoitsu(hand_tiles)) {
         return 1;
     }
     if(0) { // is_kokushi_musou(hand_tiles)) {
@@ -4995,6 +5130,8 @@ block run_game(ExotiqueInterface *ei, const u32 cur_frame, block whole_frame_blo
     int pushed_x = ei->input->x && !last_x_pushed;
     int pushed_a = ei->input->a && !last_a_pushed;
     int pushed_b = ei->input->b && !last_b_pushed;
+    
+    reset_queue();
 
     int switching = (game_data.switch_player_timer != -1);
     if(switching) {
@@ -5098,11 +5235,11 @@ block run_game(ExotiqueInterface *ei, const u32 cur_frame, block whole_frame_blo
                         if(can_call != NO_CALL) {
                             add_sound(call_sounds[can_call], 0.125f); //location
                             if(can_call == RON_CALL) {
-                                exotique_printf("RON!!!!\n");
-                                //calculate_and_deduct_score_of_hand(this_player);
                                 game_data.hand_winner = this_player;
+                                adjust_scores(1, game_data.last_discard_player);
                                 game_data.cur_game_state = SHOW_WINNING_HAND;
                                 game_data.switch_player_timer = get_frames_for_duration(SHOW_SCORE_DURATION);
+                                return whole_frame_block;
                             } else {
                                 sort_last_three_open_tiles_based_on_player_order(player_hand, this_player, game_data.last_discard_player);
                                 fixup_selected_idx(&game_data.hands[this_player]);
@@ -5121,9 +5258,10 @@ block run_game(ExotiqueInterface *ei, const u32 cur_frame, block whole_frame_blo
                     exotique_printf("TSUMO WIN !\n");
                     add_sound(TSUMO, 0.25f);
                     game_data.hand_winner = this_player;
+                    adjust_scores(0, -1);
                     game_data.cur_game_state = SHOW_WINNING_HAND;
                     game_data.switch_player_timer = get_frames_for_duration(SHOW_SCORE_DURATION);
-                    //reset_game();
+                    return whole_frame_block;
                 } else if (attempt_riichi(this_player)) {             
                     player_hand->in_riichi = 1;
                     add_sound(RIICHI_SND, 0.125f);

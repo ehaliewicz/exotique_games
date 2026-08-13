@@ -360,6 +360,14 @@ uint64_t exotique_get_ticks() {
   return SDL_GetTicks64();
 }
 
+uint64_t exotique_get_perf_counter() {
+  return SDL_GetPerformanceCounter();
+}
+
+uint64_t exotique_get_perf_frequency() {
+  return SDL_GetPerformanceFrequency();
+}
+
 static void
 exotique_update(GameManager* gm, ExotiqueInterface* ei)
 {
@@ -626,8 +634,8 @@ main(const int argc, const char* argv[])
   	float elapsedMS = (float)(end - start) / (float)SDL_GetPerformanceFrequency() * 1000.0f;
 
 	  // Cap to 60 FPS
-    uint32_t delay = (uint32_t)floor(33.333f - elapsedMS);
-    if(delay > 0 && delay <= 33) {
+    uint32_t delay = (uint32_t)floor(16.666f - elapsedMS);
+    if(delay > 0 && delay <= 16) {
       //exotique_printf("delaying %i\n", delay);
   	  SDL_Delay(delay);
     }

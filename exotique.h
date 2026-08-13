@@ -71,6 +71,8 @@ struct ExotiqueInterface
 };
 int exotique_printf( const char * format, ... );
 u64 exotique_get_ticks();
+u64 exotique_get_perf_counter();
+u64 exotique_get_perf_frequency();
 void game_load(ExotiqueInterface* ei, int argc, const char* argv[]);
 void game_update(ExotiqueInterface* ei);
 void game_draw(ExotiqueInterface* ei);

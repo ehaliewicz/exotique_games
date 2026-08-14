@@ -3107,6 +3107,8 @@ vert3f calc_global_discard_position(hand *h, int discard_i, matrix* hand_to_worl
     return mat_mul_vert3(hand_to_world_matrix, &local);
 }
 
+int use_dragon_model = 1;
+
 void draw_hand(
     u32 cur_frame, wall* w, hand* h, 
     int draw_wind_indicator, int hand_won,
@@ -3238,17 +3240,21 @@ void draw_hand(
     if(draw_wind_indicator) {
         transform wind_indicator_trans = identity_transform();
         wind_indicator_trans.position.x = -25.0f;
-        //wind_indicator_trans.rotation.y = (f32)M_PI;
-        wind_indicator_trans.rotation.y = (f32)game_data.frame/1024.0f;
+
         wind_indicator_trans.rotation.z = game_data.cur_wind == EAST_WIND ? 0.0f : (f32)M_PI; 
 
-        //wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
-        wind_indicator_trans.scale = (vert3f){25.0f, 25.0f, 25.0f};
+        if(use_dragon_model) {
+            wind_indicator_trans.rotation.y = (f32)game_data.frame/1024.0f;
+            wind_indicator_trans.scale = (vert3f){25.0f, 25.0f, 25.0f};
+        } else {
+            wind_indicator_trans.rotation.y = (f32)M_PI;
+            wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
+        }
 
         matrix wind_indicator_to_hand_mat = transform_to_matrix(&wind_indicator_trans);
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED;
-        draw_calls[draw_idx].mesh = &dragon_decimated_mesh;
+        draw_calls[draw_idx].mesh = use_dragon_model ? &dragon_decimated_mesh : &wind_indicator_mesh;
         draw_calls[draw_idx].bounds = 0;
         draw_calls[draw_idx].texture = WIND_INDICATOR;
         draw_calls[draw_idx].model_to_view = mat_mul_mat(hand_to_view_matrix, &wind_indicator_to_hand_mat);
@@ -3794,7 +3800,7 @@ typedef enum __attribute__((packed)) {
 
 void setup_host(int num_clients) {
     if(num_clients < 0 || num_clients > 3) {
-        exotique_printf("Please specify number of clients between 0 and 3, --num_clients [num]\n");
+        exotique_printf("Please specify number of clients between 0 and 3, --num-clients [num]\n");
         exit(1);
     }
     
@@ -4243,10 +4249,13 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
         if(strcmp(argv[i], "--no-music") == 0) {
             enable_music = 0;
         }
+        if(strcmp(argv[i], "--no-dragon") == 0) {
+            use_dragon_model = 0;
+        }
     }
     int num_clients = -1;
     for(int i = 0; i < argc; i++) {
-        if(strcmp(argv[i], "--num_clients") == 0 && argc > i+1) {
+        if(strcmp(argv[i], "--num-clients") == 0 && argc > i+1) {
             char *endptr;
             errno = 0;
             num_clients = strtol(argv[i+1],&endptr, 10);
@@ -4456,7 +4465,7 @@ void step_deal(u32 cur_frame) {
     if(game_data.deal_steps == 17) {
         game_data.cur_game_state = IN_GAME;
 
-        
+        /*        
         game_data.hands[0].tiles[0] = EAST;
         game_data.hands[0].tiles[1] = EAST;
         game_data.hands[0].tiles[2] = EAST;
@@ -4471,6 +4480,7 @@ void step_deal(u32 cur_frame) {
         game_data.hands[0].tiles[11] = FOUR_PIN;
         game_data.hands[0].tiles[12] = FIVE_PIN;
         game_data.hands[0].tiles[13] = TWO_PIN;
+        */
         
 
         game_data.switch_player_timer = -1;
@@ -4958,6 +4968,12 @@ call_type attempt_call(int player, hand_score_modifiers *mods) {
         return RON_CALL;
     }
 
+    int prev_player = player-1;
+    if(prev_player == -1) {
+        prev_player = 3;
+    }
+    int can_chii = game_data.last_discard_player == prev_player;
+
     // check for sequence
     int got_ll = 0, ll_index = -1;
     int got_l = 0, l_index = -1;
@@ -4999,7 +5015,7 @@ call_type attempt_call(int player, hand_score_modifiers *mods) {
         return PON_CALL;
     }
 
-    if(got_ll && got_l) {
+    if(can_chii && got_ll && got_l) {
         //exotique_printf("Can CHII %s to complete %s %s\n", tile_names[prev_discard], tile_names[cur_hand->tiles[ll_index]], tile_names[cur_hand->tiles[l_index]]);
         if(ll_index < l_index) { l_index--; }
         copy_tile_index_to_open(cur_hand, ll_index);
@@ -5009,7 +5025,7 @@ call_type attempt_call(int player, hand_score_modifiers *mods) {
         prev_hand->num_discards--;
         return CHII_CALL;
     }
-    if(got_l && got_r) {
+    if(can_chii && got_l && got_r) {
         //exotique_printf("Can CHII %s to complete %s %s\n", tile_names[prev_discard], tile_names[cur_hand->tiles[l_index]], tile_names[cur_hand->tiles[r_index]]);
         copy_tile_index_to_open(cur_hand, l_index);
         cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
@@ -5019,7 +5035,7 @@ call_type attempt_call(int player, hand_score_modifiers *mods) {
         copy_tile_index_to_open(cur_hand, r_index);
         return CHII_CALL;
     }
-    if(got_r && got_rr) {
+    if(can_chii && got_r && got_rr) {
         //exotique_printf("Can CALL %s to complete %s %s\n", tile_names[prev_discard], tile_names[cur_hand->tiles[r_index]], tile_names[cur_hand->tiles[rr_index]]);
         cur_hand->open_tiles[cur_hand->num_open_tiles] = prev_discard;
         cur_hand->open_tile_rotated[cur_hand->num_open_tiles++] = 1;

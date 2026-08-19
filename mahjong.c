@@ -1949,6 +1949,7 @@ u32 decompress_MP3(u8* raw_data, i16* output, u32 num_bytes) {
 
     return (u32)frames_read;
 #else 
+    (void)raw_data; (void)output; (void)num_bytes;
     return 0;
 #endif
 }
@@ -2073,7 +2074,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     (void)pInput;
     (void)pDevice;
 
-    drain_pending_sounds();   // <-- only new line: pull in any clicks queued since last callback
+    drain_pending_sounds(); 
     i16* out = (i16*)pOutput;
 
     for(u32 i = 0; i < frameCount; i++) {
@@ -2265,6 +2266,11 @@ typedef struct {
     player_type player_types[4];
 } game_data_t;
 
+
+// NOTE: I extracted this from game_data
+// because I was considering sending periodic game state 
+// and figured I could omit the wall because it's generated from a RNG seed
+// but honestly it should probably go back
 wall board_wall = { 0 };
 
 
@@ -2327,7 +2333,7 @@ game_data_t game_data = {
 };
 
 
-i8 human_player = 0; // default value for host, for clients this gets assigned to an initial player num in a packet
+i8 human_player = 0; // default value for host, for clients this gets assigned to an initial player num in a packet from the host
 static u32 rotl(const u32 x, i32 k) {
   return (x << k) | (x >> (32 - k));
 }

@@ -61,7 +61,7 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c23 -O2 -ggdb -ffast-math -march=westmere -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding ^
+"%GCC%" -c %CFLAGS% -std=c23 -O2 -ggdb -ffast-math -march=westmere -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding -ffunction-sections ^
     -I ".." -I %SDL2_INC% -I %SDL2_NET_INC% ^
     ^
     -D ARCH=%ARCH% ^
@@ -73,11 +73,10 @@ IF ERRORLEVEL 1 (
 
 REM ============================================================
 REM  Link
-REM  NOTE: -lasan may fail with MinGW -- remove if GCC complains
-REM        it cannot find libasan.
 REM ============================================================
-gcc exotique.o miniaudio.o "%GAME%.o" ^
-    -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" -lSDL2 -lSDL2_net -latomic -flto ^
+gcc -flto -Wl,--gc-sections ^
+    exotique.o miniaudio.o "%GAME%.o" ^
+    -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" -lSDL2 -lSDL2_net -latomic  ^
     ^
     -o "%GAME%.exe"
 IF ERRORLEVEL 1 (

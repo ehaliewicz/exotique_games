@@ -4331,13 +4331,14 @@ typedef enum {
 } call_type;
 
 
-void copy_hand_tiles_to_tmp(hand* h, tile_type tmp[14]) {
+int copy_hand_tiles_to_tmp(hand* h, tile_type tmp[14]) {
     for(int t = 0; t < h->num_closed_tiles; t++) {
         tmp[t] = h->tiles[t];
     }
     for(int t = 0; t < h->num_open_tiles; t++) {
         tmp[h->num_closed_tiles+t] = h->open_tiles[t];
     }
+    return h->num_closed_tiles + h->num_open_tiles;
 }
 
 
@@ -4789,9 +4790,11 @@ void sort_last_three_open_tiles_based_on_player_order(hand* h, int caller, int c
 int in_tenpai_for_discard_internal(hand* h, int player, int discard_idx) {
 
     tile_type tmp[14];
-    copy_hand_tiles_to_tmp(h, tmp);
-
-        // copy into a temporary hand
+    int tiles_in_hand = copy_hand_tiles_to_tmp(h, tmp);
+    if(tiles_in_hand < 14) {
+        return 0;
+    }
+    // copy into a temporary hand
     tile_type og_tile = tmp[discard_idx];
 
     for(tile_type new_tile = 0; new_tile < NUM_TILES; new_tile++) {
@@ -4930,7 +4933,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
         int this_players_turn = game_data.cur_player == this_player;
 
         // if switching, we can do a call, but nothing else
-        int can_draw = !switching && this_players_turn && player_draw_state == UNDRAWN;;
+        int can_draw = !switching && this_players_turn && player_draw_state == UNDRAWN;
         int can_discard = !switching && this_players_turn && player_draw_state == DRAWN;
 
 
@@ -5008,7 +5011,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                     adjust_scores(0, -1);
                     show_winning_hand();
                     return whole_frame_block;
-                } else if (attempt_riichi(this_player)) {             
+                } else if (can_discard && attempt_riichi(this_player)) {             
                     player_hand->in_riichi = 1;
                     add_sound(RIICHI_SND, 0.125f);
                     discard_current_tile(this_player, 1);

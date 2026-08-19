@@ -605,6 +605,17 @@ main(const int argc, const char* argv[])
   //(void)argc;
   //(void)argv;
 
+
+  //char* end_ptr;
+  //int frame_ms = strtol(argv[1], &end_ptr, 10);
+  //exotique_printf("frame ms: %i\n", frame_ms);
+  int frame_ms = -1;
+  for(int i = 1; i < argc; i++) {
+    if(strcmp(argv[i], "--slow") == 0) {
+      frame_ms = 66;
+      break;
+    }
+  }
   exotique_load(&g_game_manager, &g_exotique_interface);
   game_load(&g_exotique_interface, argc, argv);
   sdl_load(&g_game_manager);
@@ -634,11 +645,17 @@ main(const int argc, const char* argv[])
   	float elapsedMS = (float)(end - start) / (float)SDL_GetPerformanceFrequency() * 1000.0f;
 
 	  // Cap to 60 FPS
-    uint32_t delay = (uint32_t)floor(16.666f - elapsedMS);
-    if(delay > 0 && delay <= 16) {
-      //exotique_printf("delaying %i\n", delay);
-  	  SDL_Delay(delay);
+    if(frame_ms != -1) {
+      int32_t delay = (int32_t)floor(frame_ms - elapsedMS);
+      if(delay > 0) {
+        SDL_Delay(delay);
+      }
     }
+    //uint32_t delay = (uint32_t)floor(16.666f - elapsedMS);
+    //if(delay > 0 && delay <= 16) {
+      //exotique_printf("delaying %i\n", delay);
+  	  //SDL_Delay(delay);
+    //}
    
   }
 

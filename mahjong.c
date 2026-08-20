@@ -4032,6 +4032,7 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     }
     exotique_printf("Connections setup to %i total players\n", num_socks_in_set);
     reset_game();
+
 }
 
 
@@ -4148,22 +4149,21 @@ void step_deal() {
         game_data.cur_game_state = IN_GAME;
         game_data.draw_state = DRAWN;
         
-        /*
-        game_data.hands[0].tiles[0] = EAST;
-        game_data.hands[0].tiles[1] = EAST;
+        
+        game_data.hands[0].tiles[0] = ONE_PIN;
+        game_data.hands[0].tiles[1] = TWO_PIN;
         game_data.hands[0].tiles[2] = EAST;
-        game_data.hands[0].tiles[3] = GREEN_DRAGON;
-        game_data.hands[0].tiles[4] = GREEN_DRAGON;
+        game_data.hands[0].tiles[3] = FOUR_PIN;
+        game_data.hands[0].tiles[4] = FIVE_PIN;
         game_data.hands[0].tiles[5] = ONE_MAN;
         game_data.hands[0].tiles[6] = TWO_MAN;
-        game_data.hands[0].tiles[7] = THREE_MAN;
+        game_data.hands[0].tiles[7] = WHITE_DRAGON;
         game_data.hands[0].tiles[8] = FIVE_MAN;
-        game_data.hands[0].tiles[9] = FIVE_MAN;
-        game_data.hands[0].tiles[10] = THREE_PIN;
-        game_data.hands[0].tiles[11] = FOUR_PIN;
-        game_data.hands[0].tiles[12] = FIVE_PIN;
-        game_data.hands[0].tiles[13] = TWO_PIN;
-        */
+        game_data.hands[0].tiles[9] = SIX_MAN;
+        game_data.hands[0].tiles[10] = THREE_SOU;
+        game_data.hands[0].tiles[11] = FOUR_SOU;
+        game_data.hands[0].tiles[12] = SEVEN_SOU;
+        game_data.hands[0].tiles[13] = EIGHT_SOU;
 
         game_data.switch_player_timer_handle = -1;
         
@@ -4678,7 +4678,7 @@ call_info can_call(int player, hand_score_modifiers *mods) {
 
     hand* prev_hand = &game_data.hands[game_data.last_discard_player];
     hand* cur_hand = &game_data.hands[player];
-    tile_type prev_discard = prev_hand->discards[prev_hand->num_discards-1];
+    tile_type prev_discard = game_data.last_discard;
 
     tile_type tmp_full_hand[14];
     copy_hand_tiles_to_tmp(cur_hand, tmp_full_hand);
@@ -4997,8 +4997,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
     int pushed_x = ei->input->x && !last_x_pushed;
     int pushed_a = ei->input->a && !last_a_pushed;
     int pushed_b = ei->input->b && !last_b_pushed;
-    
-    //reset_queue();
+
 
     int switching = (game_data.switch_player_timer_handle != -1);
 
@@ -5054,12 +5053,12 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
     } while(0);
 
     if(game_data.waiting_for_calls) {
-        /*
+        
         exotique_printf("waiting for calls from: \n");
         for(int i = 0; i < game_data.waiting_for_calls; i++) {
             exotique_printf("%i\n", game_data.waiting_for_calls_players[i]);
         }
-        */
+        
         while(!queue_empty() && game_data.waiting_for_calls) {
             player_action action = queue_peek();
             i8 this_player = action.player_num;
@@ -5129,6 +5128,8 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                         adjust_scores(1, game_data.last_discard_player);
                         show_winning_hand();
                     } else {
+                        attempt_call(this_player, &game_data.hand_winner_mods);
+
                         sort_last_three_open_tiles_based_on_player_order(player_hand, this_player, game_data.last_discard_player);
                         fixup_selected_idx(&game_data.hands[this_player]);
                         game_data.cur_player = this_player;
@@ -5151,7 +5152,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
 
 
         while(!queue_empty()) {
-            player_action action = queue_peek();
+             player_action action = queue_peek();
             if(action.sim_frame > game_data.sim_frame) {
                 exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
                 break;

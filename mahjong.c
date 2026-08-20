@@ -2160,6 +2160,7 @@ typedef struct __attribute__((packed)) {
     i8 selected_tile_idx;
     i8 num_discards;
     i8 in_riichi;
+    int no_call_timer;
 } hand;
 
 typedef struct __attribute__((packed)) {
@@ -2245,7 +2246,7 @@ typedef struct {
     tile_type dora_tile; // TODO: support for multiple doras
     int next_deal_pos; // 
     u32 frame;
-    u32 sequence_number;
+    u32 sim_frame;
     i8 deal_steps;
     i8 cur_player;
     int switch_player_timer_handle, shuffle_timer_handle, deal_timer_handle;
@@ -2264,6 +2265,8 @@ typedef struct {
     ai_state ai_player_states[4];
     int ai_player_timer_handles[4];
     player_type player_types[4];
+    int waiting_for_calls; // 0 -> no calls necessary.  1+ waiting for calls
+    int waiting_for_calls_players[4]; // player numbers that we are waiting for are in here
 } game_data_t;
 
 
@@ -2329,7 +2332,11 @@ game_data_t game_data = {
     // ai player timer handles
     {-1, -1, -1, -1},
     // player types
-    {HUMAN, AGGRESSIVE_AI, CHAOTIC_AI, CONSERVATIVE_AI}
+    {HUMAN, AGGRESSIVE_AI, CHAOTIC_AI, CONSERVATIVE_AI},
+    // waiting for calls
+    0,
+    // players from which we are waiting for calls from
+    {-1, -1, -1, -1}
 };
 
 
@@ -3127,6 +3134,7 @@ hand init_empty_hand() {
         h.discard_timer_handles[i] = 1;
     }
 
+    h.no_call_timer = -1;
     return h;
 }
 
@@ -3174,10 +3182,13 @@ void reset_ai_player_state(int idx) {
     timer_start(game_data.ai_player_timer_handles[idx], AI_PLAYER_SPEED, 0, reset_ai_player_state_callback, idx);
 }
 
+void reset_queue();
+
 void reset_game() {
     static int is_not_first_game = 0;
     reset_timers();
     
+    reset_queue();
 
     if(is_not_first_game) {
         int tmp = player_winds[0];
@@ -3186,15 +3197,17 @@ void reset_game() {
         player_winds[2] = player_winds[3];
         player_winds[3] = tmp;
     }
-    game_data.sequence_number = 0;
     game_data.hand_winner = -1;
     game_data.hand_winner_mods.num_mods = 0;
     game_data.cur_wind = EAST_WIND;
     game_data.cur_game_state = INITIAL_SHUFFLE_AND_SETUP;
     game_data.frame = 0;
+    game_data.sim_frame = 0;
     game_data.draw_state = UNDRAWN;
+    game_data.waiting_for_calls = 0;
     for(int i = 0; i < 4; i++) {
         game_data.ai_player_timer_handles[i] = -1;
+        game_data.waiting_for_calls_players[i] = -1;
         reset_ai_player_state(i);
     }
     game_data.deal_steps = 0;
@@ -3246,7 +3259,6 @@ static struct {
     IPaddress peer; // host and port used to connect to server
     u16 listen_port; // port this client is listening on
     Uint8 name[256+1];
-    u32 last_acked;
 } client_info[MAX_CLIENTS];
 
 void server_get_connection() {
@@ -3621,10 +3633,10 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
 }
 
 #define ACTIONS             \
-    X(ACK)                  \
     X(MOVE_SELECTED_LEFT)   \
     X(MOVE_SELECTED_RIGHT)  \
     X(ATTEMPT_CALL)         \
+    X(NO_ATTEMPT_CALL)      \
     X(ATTEMPT_DRAW)         \
     X(ATTEMPT_DISCARD)      \
     X(ATTEMPT_RIICHI_OR_WIN)
@@ -3642,18 +3654,19 @@ const char* action_names[] = {
 
 typedef struct {
     i8 player_num;
-    u32 sequence_number;
+    u32 sim_frame;
     player_action_type cmd;
 } player_action;
 
 player_action make_player_action(i8 player_num, player_action_type cmd) {
     //game_data.cur_frame;
-    return (player_action){player_num, game_data.sequence_number, cmd};
+    return (player_action){player_num, game_data.sim_frame, cmd};
 }
 
 #define MAX_PLAYER_EVENTS 128
 player_action action_queue[MAX_PLAYER_EVENTS];
 
+// writes to head, and reads from tail
 int queue_head = 0;
 int queue_tail = 0;
 
@@ -3681,6 +3694,7 @@ player_action queue_peek() {
 }
 
 player_action queue_pop() {
+    //exotique_printf("QUEUE POP\n");
     if(queue_empty()) {
         exotique_printf("ACTION QUEUE UNDERFLOW!\n");
         exit(1);
@@ -3691,15 +3705,20 @@ player_action queue_pop() {
 }
 
 int first_event_is_lesser(player_action act1, player_action act2) {
-    if(act1.sequence_number < act2.sequence_number) {
+    if(act1.sim_frame < act2.sim_frame) {
         return 1;
     }
-    if(act1.sequence_number > act2.sequence_number) {
+    if(act1.sim_frame > act2.sim_frame) {
         return 0;
     }
+    // lower player number means it will be earlier in queue
     if(act1.player_num < act2.player_num) {
         return 1;
     }
+    // >= player number means it will stay in the correct order
+
+    // this ensures that the same player's events will remain ordered, relative to other events by THAT player, in the same order as they arrived
+
     return 0;
 }
 
@@ -3708,17 +3727,22 @@ void queue_push(player_action act) {
         exotique_printf("ACTION QUEUE OVERFLOW!\n");
         exit(1);
     }
+    /*
+    exotique_printf(
+        "PUSH action: frame=%i player=%i cmd=%s | current frame=%i | head=%i tail=%i size=%i\n",
+        act.sim_frame,
+        act.player_num,
+        action_names[act.cmd],
+        game_data.sim_frame,
+        queue_head,
+        queue_tail,
+        queue_size()
+    );
+    */
 
     action_queue[queue_head&(MAX_PLAYER_EVENTS-1)] = act;
-    queue_head++;
 
-
-
-    // queue_tail -> queue_head 
-    // queue_tail == queue_head => empty
-    // queue_tail = 0, queue_head = 1, queue[0] = element
-
-    int cur_new_idx = queue_head;
+    int cur_new_idx = queue_head++;
 
     // insertion sort the new event into place
     // sort by sequence number ASCENDING, if both sequence numbers are the same, sort by player number ascending
@@ -3729,6 +3753,20 @@ void queue_push(player_action act) {
         action_queue[cur_new_idx&(MAX_PLAYER_EVENTS-1)] = old;
         cur_new_idx--;
     }
+
+    /*
+    for (int i = queue_tail; i < queue_head; i++) {
+        player_action a = action_queue[i & (MAX_PLAYER_EVENTS - 1)];
+
+        exotique_printf(
+            "  [%i] frame=%i player=%i cmd=%s\n",
+            i,
+            a.sim_frame,
+            a.player_num,
+            action_names[a.cmd]
+        );
+    }
+    */
 }
 
 void client_send_input_to_all_clients() {
@@ -3741,13 +3779,10 @@ void client_send_input_to_all_clients() {
     data_buf[0] = INPUT_FROM_CLIENT;
     player_action this_action;
     if(queue_size() == 0) {
-        //return;
-        this_action = make_player_action(human_player, ACK);
-    } else if (queue_size() == 1) {
-        this_action = queue_peek();
-    } else {
-        exotique_printf("Expected only one entry (player input) in queue, but got %i\n", queue_size());
+        exotique_printf("Expected one entry (player input) in queue, but got 0\n");
         exit(1);
+    } else {
+        this_action = queue_peek();
     }
     memcpy(data_buf+1, &this_action, sizeof(player_action));
 
@@ -3812,10 +3847,7 @@ void client_wait_for_all_inputs() {
                     exit(1);
                 }
                 exotique_printf("got an action from player %i\n", action.player_num);
-                client_info[action.player_num].last_acked = action.sequence_number;
-                if(action.cmd != ACK) {
-                    queue_push(action);
-                }
+                queue_push(action);
             }
         }
 
@@ -4115,7 +4147,8 @@ void step_deal() {
     if(game_data.deal_steps == 17) {
         game_data.cur_game_state = IN_GAME;
         game_data.draw_state = DRAWN;
-   
+        
+        /*
         game_data.hands[0].tiles[0] = EAST;
         game_data.hands[0].tiles[1] = EAST;
         game_data.hands[0].tiles[2] = EAST;
@@ -4130,7 +4163,7 @@ void step_deal() {
         game_data.hands[0].tiles[11] = FOUR_PIN;
         game_data.hands[0].tiles[12] = FIVE_PIN;
         game_data.hands[0].tiles[13] = TWO_PIN;
-        
+        */
 
         game_data.switch_player_timer_handle = -1;
         
@@ -4276,6 +4309,7 @@ int get_best_discard(int player, hand* h) {
     return h->num_closed_tiles-2;
 }
 
+int waiting_on_call_from(int player);
 
 void run_ai_player(i8 player, hand* h, int this_player_turn) {
 
@@ -4293,6 +4327,10 @@ void run_ai_player(i8 player, hand* h, int this_player_turn) {
             queue_push(make_player_action(player, ATTEMPT_CALL));
             return;
         }
+    }
+    if(waiting_on_call_from(player)) {
+        queue_push(make_player_action(player, NO_ATTEMPT_CALL));
+        return;
     }
 
     int best_discard = get_best_discard(player, h);
@@ -4785,6 +4823,7 @@ void rotate_last_three_open_tiles(hand *h) {
 }
 
 void sort_last_three_open_tiles_based_on_player_order(hand* h, int caller, int callee) {
+    return;
     int dst_idx = get_index_to_move_called_tile_to(caller, callee) + h->num_open_tiles - 3;
     //int src_idx = 
     while(!h->open_tile_rotated[dst_idx]) {
@@ -4882,32 +4921,112 @@ void show_winning_hand() {
 }
 
 
+int waiting_on_call_from(int player) {
+    for(int i = 0; i < game_data.waiting_for_calls; i++) {
+        if(game_data.waiting_for_calls_players[i] == player) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void remove_player_from_waiting_on_call_list(int player) {
+    if(game_data.waiting_for_calls == 0) {
+        exotique_printf("Bug when trying to remove player %i from call list, list is empty\n", player);
+        exit(1);
+    }
+    int idx = -1;
+    for(int i = 0; i < game_data.waiting_for_calls; i++) {
+        if(game_data.waiting_for_calls_players[i] == player) {
+            idx = i;
+            break;
+        }
+    }
+    if(idx == -1) {
+        exotique_printf("Bug when trying to remove player from call wait list\n", player);
+        //return;
+        exit(1);
+    }
+
+    game_data.waiting_for_calls_players[idx] = game_data.waiting_for_calls_players[game_data.waiting_for_calls-1];
+    game_data.waiting_for_calls--;
+}
+
+void add_player_to_waiting_on_call_list(int player) {
+    for(int i = 0; i < game_data.waiting_for_calls; i++) {
+        if(game_data.waiting_for_calls_players[i] == player) {
+            exotique_printf("Bug when trying to add player %i to waiting for call list, already in list\n", player);
+            exit(1);
+        }
+    }
+    game_data.waiting_for_calls_players[game_data.waiting_for_calls++] = player;
+    if(game_data.waiting_for_calls > 4) {
+        exotique_printf("Bug when adding player to waiting for call list, have %i players!\n", game_data.waiting_for_calls);
+        exit(1);
+    }
+}
+
+#define NO_CALL_DURATION 3.0
+
+void end_no_call_timer_callback(u64 callback_data) {
+    // send a no call event :(
+    int player = callback_data;
+    queue_push(make_player_action(player, NO_ATTEMPT_CALL));
+    game_data.hands[player].no_call_timer = -1;
+}
+
+void start_no_call_timer(int player) {
+    int handle = timer_get_handle("HUMAN NO CALL TIMER");
+    game_data.hands[player].no_call_timer = handle;
+    timer_start(
+        handle, NO_CALL_DURATION, 1, end_no_call_timer_callback, player
+    );
+}
+
+void clear_no_call_timer(int player) {
+    timer_release(game_data.hands[player].no_call_timer);
+    game_data.hands[player].no_call_timer = -1;
+}
+void advance_frame(const char* reason) {
+    exotique_printf("advancing frame to %i after %s\n", ++game_data.sim_frame, reason);
+}
+
+
 block run_game(ExotiqueInterface *ei, block whole_frame_block) {
     int pushed_y = ei->input->y && !last_y_pushed;
     int pushed_x = ei->input->x && !last_x_pushed;
     int pushed_a = ei->input->a && !last_a_pushed;
     int pushed_b = ei->input->b && !last_b_pushed;
     
-    reset_queue();
+    //reset_queue();
 
     int switching = (game_data.switch_player_timer_handle != -1);
 
+    int send_input = 0;
     if(pushed_x) {
-        queue_push(make_player_action(human_player, ATTEMPT_CALL));        
+        queue_push(make_player_action(human_player, ATTEMPT_CALL));
+        send_input = 1;  
     } else if(ei->input->left && !last_left_pushed) {
         queue_push(make_player_action(human_player, MOVE_SELECTED_LEFT));
+        send_input = 1;  
     } else if (ei->input->right && !last_right_pushed) {
         queue_push(make_player_action(human_player, MOVE_SELECTED_RIGHT));
+        send_input = 1;  
     } else if(pushed_a) {
         queue_push(make_player_action(human_player, ATTEMPT_DRAW));
+        send_input = 1;  
     } else if(pushed_b) {
         queue_push(make_player_action(human_player, ATTEMPT_DISCARD));
+        send_input = 1;  
     } else if (pushed_y) {
         queue_push(make_player_action(human_player, ATTEMPT_RIICHI_OR_WIN));
+        send_input = 1;  
     }
 
     static block network_send_block = START_TIMED_BLOCK(network_send_block, "send input", whole_frame_block)
+    if(send_input) {
         client_send_input_to_all_clients();
+    }
     END_TIMED_BLOCK(network_send_block);
 
     static block network_receive_block = START_TIMED_BLOCK(network_receive_block, "recv inputs", whole_frame_block)
@@ -4921,123 +5040,224 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
         }
     }
 
+    
+    int step_frame = 0;
+    char* step_reason = NULL;
 
+    #define STEP_FRAME_REASON(reason) do {  \
+        if(step_frame == 1) {               \
+            exotique_printf("TRYING TO ADVANCE FRAME TWICE!\n");    \
+            exit(1);                        \
+        }                           \
+        step_frame = 1;             \
+        step_reason = (reason);     \
+    } while(0);
 
-    while(!queue_empty()) {
-        player_action action = queue_pop();
-        i8 this_player = action.player_num;
-        //if(action.game_frame < game_data.frame) {
-        //    exotique_printf("RECEIVED OLD INPUT, MUST ADD SYNCHRONIZATION BARRIERS!\n");
-        //    exit(1);
-        //}
-        //if(action.game_frame > game_data.cur_frame) {
-        //    queue.push(action);
-        //}
-
-        
-        tile_draw_state player_draw_state = game_data.draw_state;
-        int this_players_turn = game_data.cur_player == this_player;
-
-        // if switching, we can do a call, but nothing else
-        int can_draw = !switching && this_players_turn && player_draw_state == UNDRAWN;
-        int can_discard = !switching && this_players_turn && player_draw_state == DRAWN;
-
-
-        client_info[action.player_num].last_acked = action.sequence_number;
-        hand *player_hand = &game_data.hands[action.player_num];
-
-        switch(action.cmd) {
-            case MOVE_SELECTED_LEFT:
-                player_hand->selected_tile_idx--;
-                fixup_selected_idx(player_hand); 
-                add_sound(TILE_CLICK, 0.085f); 
-                break;
-            case MOVE_SELECTED_RIGHT:
-                player_hand->selected_tile_idx++;
-                fixup_selected_idx(player_hand);
-        
-                add_sound(TILE_CLICK, 0.085f);
-                break;
-            case ATTEMPT_DRAW:
-                if(game_data.wall_rem == 14) {
-                    show_winning_hand();
-
-                    return whole_frame_block;
-                }
-                if(can_draw) {
-                    sort_hand(player_hand);
-                    draw_next_tile(action.player_num);
-                }
-                break;
-            case ATTEMPT_DISCARD:
-                if(can_discard) {
-                    discard_current_tile(game_data.cur_player, 0);
-                    switch_player();
-                    for(int i = 0; i < 4; i++) {
-                        if(game_data.player_types[i] != HUMAN) {
-                            reset_ai_player_state(i);
-                        }
-                    }
-                }
-                break;
-            case ATTEMPT_CALL: do {
-                    bool has_discard = game_data.last_discard_player != -1;
-                    bool not_own_discard = game_data.last_discard_player != this_player;
-                    bool is_discarders_turn = game_data.last_discard_player == game_data.cur_player;
-                    bool my_unstarted_draw = this_player == game_data.cur_player && player_draw_state == UNDRAWN;
-                    if (has_discard && not_own_discard && (is_discarders_turn || my_unstarted_draw)) {
-                        call_type can_call = attempt_call(this_player, &game_data.hand_winner_mods);
-                        if(can_call != NO_CALL) {
-                            add_sound(call_sounds[can_call], 0.125f); //location
-                            if(can_call == RON_CALL) {
-                                game_data.hand_winner = this_player;
-                                adjust_scores(1, game_data.last_discard_player);
-                                show_winning_hand();
-                                return whole_frame_block;
-                            } else {
-                                sort_last_three_open_tiles_based_on_player_order(player_hand, this_player, game_data.last_discard_player);
-                                fixup_selected_idx(&game_data.hands[this_player]);
-
-                                game_data.cur_player = this_player;
-                                timer_release(game_data.switch_player_timer_handle);
-                                game_data.switch_player_timer_handle = -1;
-
-                            }
-                            // bail out so that the player switch code can run before we continue to process events here 
-                            return whole_frame_block;
-                        }
-                    }
-                } while(0);
-                break;
-            case ATTEMPT_RIICHI_OR_WIN: 
-                if(is_win(&game_data.hand_winner_mods, player_hand, this_player, 1)) {
-                    exotique_printf("TSUMO WIN !\n");
-                    add_sound(TSUMO, 0.25f);
-                    game_data.hand_winner = this_player;
-                    adjust_scores(0, -1);
-                    show_winning_hand();
-                    return whole_frame_block;
-                } else if (can_discard && attempt_riichi(this_player)) {             
-                    player_hand->in_riichi = 1;
-                    add_sound(RIICHI_SND, 0.125f);
-                    discard_current_tile(this_player, 1);
-                    switch_player();
-                    for(int i = 0; i < 4; i++) {
-                        if(game_data.player_types[i] != HUMAN) {
-                            reset_ai_player_state(i);
-                        }
-                    }
-                }
-                break;
-            case ACK:
-            default:
-                exotique_printf("Unhandled event type %i\n", action.cmd);
-                break;
+    if(game_data.waiting_for_calls) {
+        /*
+        exotique_printf("waiting for calls from: \n");
+        for(int i = 0; i < game_data.waiting_for_calls; i++) {
+            exotique_printf("%i\n", game_data.waiting_for_calls_players[i]);
         }
+        */
+        while(!queue_empty() && game_data.waiting_for_calls) {
+            player_action action = queue_peek();
+            i8 this_player = action.player_num;
+            hand *player_hand = &game_data.hands[action.player_num];
+            // we can execute MOVE_SELECTED_LEFT and MOVE_SELECTED_RIGHT packets, but everything else is ignored for now.
+            // however, we still have to verify sim frames!
+            if(action.sim_frame > game_data.sim_frame) {
+                exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
+                break;
+            }
+            switch(action.cmd) {
+                case MOVE_SELECTED_LEFT:
+                    queue_pop();
+                    player_hand->selected_tile_idx--;
+                    fixup_selected_idx(player_hand); 
+                    add_sound(TILE_CLICK, 0.085f); 
+                    break;
+                case MOVE_SELECTED_RIGHT:
+                    queue_pop();
+                    player_hand->selected_tile_idx++;
+                    fixup_selected_idx(player_hand);
+            
+                    add_sound(TILE_CLICK, 0.085f);
+                    break;
+
+                case NO_ATTEMPT_CALL:
+                    queue_pop();
+                    if(!waiting_on_call_from(action.player_num)) {
+                        // ignore these from players other than who we're waiting for
+                        continue;
+                    }
+                    // remove this player from the list of waiting players
+                    remove_player_from_waiting_on_call_list(action.player_num);
+                    if(game_data.waiting_for_calls == 0) {
+                        switch_player_callback(0);
+                        STEP_FRAME_REASON("no calls made");
+                    }
+                    break;
+                case ATTEMPT_CALL:
+                    queue_pop();
+                    if(!waiting_on_call_from(action.player_num)) {
+                        // discard calls in this sim_frame from players we're not waiting for
+                        // since they are totally invalid
+                        continue;
+                    }
+                    // now we can process the call (if applicable)
+
+                    // well uh, we KNOW that a call from this player should be valid, since we've already CHECKED
+                    call_info call = can_call(this_player, &game_data.hand_winner_mods);
+
+                    
+                    if(call.call == NO_CALL) {
+                        exotique_printf("GOT CALL FROM PLAYER WHO WE'RE WAITING ON, BUT CANNOT CALL DUE TO BUG?!\n");
+                        exit(1);
+                    }
+                    game_data.waiting_for_calls = 0;   
+                    add_sound(call_sounds[call.call], 0.125f); //location 
+                    
+                    timer_release(game_data.hands[human_player].no_call_timer);
+                    game_data.hands[human_player].no_call_timer = -1;
+
+                    timer_release(game_data.switch_player_timer_handle);
+                    game_data.switch_player_timer_handle = -1;
+                    
+                    if(call.call == RON_CALL) {
+                        game_data.hand_winner = this_player;
+                        adjust_scores(1, game_data.last_discard_player);
+                        show_winning_hand();
+                    } else {
+                        sort_last_three_open_tiles_based_on_player_order(player_hand, this_player, game_data.last_discard_player);
+                        fixup_selected_idx(&game_data.hands[this_player]);
+                        game_data.cur_player = this_player;
+
+                        STEP_FRAME_REASON("call made");
+                        if(step_frame) {
+                            advance_frame(step_reason);
+                        }
+                    }
+                    // preempt all other players
+                    // sorry, but high ping should not inconvenience other players :)                        
+                    return whole_frame_block;
+
+                default:
+                    queue_pop();
+            }
+        }
+
+    } else {
+
+
+        while(!queue_empty()) {
+            player_action action = queue_peek();
+            if(action.sim_frame > game_data.sim_frame) {
+                exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
+                break;
+            }
+
+            i8 this_player = action.player_num;
+
+            if(action.sim_frame < game_data.sim_frame) {
+                exotique_printf("RECEIVED OLD INPUT, MUST ADD SYNCHRONIZATION BARRIERS! (theirs %i, ours %i)\n", action.sim_frame, game_data.sim_frame);
+                exit(1);
+            }
+
+            queue_pop();
+
+            
+            tile_draw_state player_draw_state = game_data.draw_state;
+            int this_players_turn = game_data.cur_player == this_player;
+
+            // if switching, we can do a call, but nothing else
+            int can_draw = !switching && this_players_turn && player_draw_state == UNDRAWN;
+            int can_discard = !switching && this_players_turn && player_draw_state == DRAWN;
+
+            hand *player_hand = &game_data.hands[action.player_num];
+
+
+            switch(action.cmd) {
+                case MOVE_SELECTED_LEFT:
+                    player_hand->selected_tile_idx--;
+                    fixup_selected_idx(player_hand); 
+                    add_sound(TILE_CLICK, 0.085f); 
+                    break;
+                case MOVE_SELECTED_RIGHT:
+                    player_hand->selected_tile_idx++;
+                    fixup_selected_idx(player_hand);
+            
+                    add_sound(TILE_CLICK, 0.085f);
+                    break;
+                case ATTEMPT_DRAW:
+                    if(game_data.wall_rem == 14) {
+                        show_winning_hand();
+
+                        return whole_frame_block;
+                    }
+                    if(can_draw) {
+                        sort_hand(player_hand);
+                        draw_next_tile(action.player_num);
+                        STEP_FRAME_REASON("draw made");
+                    }
+                    break;
+                case ATTEMPT_DISCARD:
+                    if(can_discard) {
+                        discard_current_tile(game_data.cur_player, 0);
+                        STEP_FRAME_REASON("discard made");
+                        for(int i = 0; i < 4; i++) {
+                            if(game_data.player_types[i] != HUMAN) {
+                                reset_ai_player_state(i);
+                            }
+                            call_info call = can_call(i, &game_data.hand_winner_mods);
+                            if(call.call != NO_CALL) {
+                                if(i == human_player) {
+                                    // we dont want to add to waiting on call list?
+                                    // or do we..
+                                    // essentially this timer should cause us to send a ATTEMPT_NO_CALL action
+                                    start_no_call_timer(human_player);
+                                }
+                                add_player_to_waiting_on_call_list(i);
+                            }
+                        }
+                        if(game_data.waiting_for_calls == 0) {
+                            switch_player();
+                        }
+                    }
+                    break;
+                case ATTEMPT_RIICHI_OR_WIN: 
+                    if(is_win(&game_data.hand_winner_mods, player_hand, this_player, 1)) {
+                        exotique_printf("TSUMO WIN !\n");
+                        add_sound(TSUMO, 0.25f);
+                        game_data.hand_winner = this_player;
+                        adjust_scores(0, -1);
+                        show_winning_hand();
+                        return whole_frame_block;
+                    } else if (can_discard && attempt_riichi(this_player)) {             
+                        player_hand->in_riichi = 1;
+                        add_sound(RIICHI_SND, 0.125f);
+                        discard_current_tile(this_player, 1);
+                        STEP_FRAME_REASON("riichi discard made");
+                        switch_player();
+                        for(int i = 0; i < 4; i++) {
+                            if(game_data.player_types[i] != HUMAN) {
+                                reset_ai_player_state(i);
+                            }
+                        }
+                    }
+                    break;
+                default:
+                    exotique_printf("Unhandled event type %i\n", action.cmd);
+                    break;
+            }
+        }
+    }
+    
+    if(step_frame) {
+        advance_frame(step_reason);
     }
     return whole_frame_block;
 }
-
 
 vert3f orbit_camera_position(float yaw, float pitch, float radius) {
     float cp = cosf(pitch);

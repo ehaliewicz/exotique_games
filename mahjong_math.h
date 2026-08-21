@@ -186,7 +186,7 @@ static inline  f32_vec lerp_f32_vec(f32_vec a, f32_vec b, f32_vec mix) {
     return a + ((b-a) * mix);
 }
 
-static inline f32_vec dot_batch_single(f32_vec a_comps[3], vert3f b) {
+static inline f32_vec dot_batch_single(const f32_vec a_comps[3], const vert3f b) {
     f32_vec axs = a_comps[0];
     f32_vec ays = a_comps[1];
     f32_vec azs = a_comps[2];

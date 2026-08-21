@@ -3,7 +3,6 @@
 
 #define VEC_LANES 4
 
-typedef u16 u16_vec __attribute__((vector_size(2*VEC_LANES)));
 typedef f32 f32_vec __attribute__((vector_size(4*VEC_LANES)));
 typedef i32 i32_vec __attribute__((vector_size(4*VEC_LANES)));
 
@@ -20,30 +19,48 @@ static inline f32 decode_u16_inv_z(u16 inv_z) {
     return ((f32)inv_z)/65536.0f;
 }
 
-static inline u16_vec encode_float_inv_z_vec(f32_vec inv_z) {
-    //return (u16_vec)(inv_z*65536.0f);
+static inline u64 encode_float_inv_z_vec(f32_vec inv_z) {
     f32_vec scaled = (inv_z*65536.0f);
-    u16_vec res;
-    for(int i = 0; i < 4; i++) {
-        res[i] = (u16)scaled[i];
-    }
+    u64 res = (
+        (((u64)((u16)scaled[0]))<<0) |
+        (((u64)((u16)scaled[1]))<<16) |
+        (((u64)((u16)scaled[2]))<<32) |
+        (((u64)((u16)scaled[3]))<<48)
+    );
     return res;
 }
+static inline u64 encode_float_inv_z_vec_avx2(__m128 inv_z) {
+    __m128 scaled = _mm_mul_ps(inv_z, _mm_set1_ps(65536.0f)); // we now have 4 32-bit floats scaled into a 0->65536 range
+    __m128i scaled_ints = _mm_cvtps_epi32(scaled); // now 4 32-bit integers in the same range
 
-static inline f32_vec decode_u16_inv_z_vec(u16_vec inv_z) {
-    f32_vec scaled;
-    for(int i = 0; i < 4; i++) {
-        scaled[i] = (f32)inv_z[i];
-    }
+    // now we want to grab the low 2 bytes of each value
+    __m128i low_words_mask = _mm_setr_epi8(0, 1, 4, 5, 8, 9, 12, 13, -1, -1, -1, -1, -1, -1, -1, -1);
+    return (u64)_mm_cvtsi128_si64(_mm_shuffle_epi8(scaled_ints, low_words_mask));
+}
+
+static inline f32_vec decode_u64_inv_z_vec(u64 inv_z) {
+    f32_vec scaled = (f32_vec) {
+        (f32)((inv_z>>0)&0xFFFF),
+        (f32)((inv_z>>16)&0xFFFF),
+        (f32)((inv_z>>32)&0xFFFF),
+        (f32)((inv_z>>48)&0xFFFF)
+    };
     return scaled / 65536.0f;
+}
+
+static inline __m128 decode_u64_inv_z_vec_avx2(u64 inv_z) {
+    __m128 recip_divisor = _mm_set1_ps(1.0f/65536.0f);
+    __m128 scaled = _mm_setr_ps(
+        (f32)(inv_z&0xFFFF), 
+        (f32)((inv_z>>16)&0xFFFF), 
+        (f32)((inv_z>>32)&0xFFFF), 
+        (f32)((inv_z>>48)&0xFFFF)
+    );
+    return _mm_mul_ps(scaled, recip_divisor);
 }
 
 static inline i32_vec broadcast_i32_vec(i32 a) {
     return (i32_vec){ a, a, a, a};
-}
-
-static inline u16_vec i32_mask_vec_to_u16_vec(i32_vec v) {
-    return (u16_vec){v[0]&0xFFFF, v[1]&0xFFFF, v[2]&0xFFFF, v[3]&0xFFFF};
 }
 
 static inline i32_vec i32_vec_select(i32_vec mask, i32_vec a, i32_vec b) {
@@ -93,13 +110,7 @@ u32 i32_vec_extract_bytes(const i32_vec a) {
     }
     return res;
 }
-u32 u16_vec_extract_bytes(const u16_vec a) {
-    u32 res = 0;
-    for(int i = 0; i < 4; i++) {
-        res |= ((u32)(a[i] ? 0xFF : 0x00)<<(i*8));
-    }
-    return res;
-}
+
 
 
 #endif

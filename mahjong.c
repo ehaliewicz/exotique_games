@@ -174,8 +174,7 @@ typedef struct {
     u8 default_pal_idx;
 } texture;
 
-
-int rasterize_triangle_2x2_quad(
+void rasterize_triangle_2x2_quad(
     u16 *restrict zbuffer,
     transformed_tri *restrict tri_attributes,
     texture *restrict tex,
@@ -187,9 +186,6 @@ int rasterize_triangle_2x2_quad(
     f32 iz0 = tri_attributes->inv_z1;
     f32 iz1 = tri_attributes->inv_z0;
     f32 iz2 = tri_attributes->inv_z2;
-    f32_vec iz0_vec = broadcast_f32_vec(iz0);
-    f32_vec iz1_vec = broadcast_f32_vec(iz1);
-    f32_vec iz2_vec = broadcast_f32_vec(iz2);
 
     vert2i v0 = tri_attributes->proj_v1;
     vert2i v1 = tri_attributes->proj_v0;
@@ -200,17 +196,9 @@ int rasterize_triangle_2x2_quad(
     vert2f uv2_over_z = tri_attributes->uv2_over_z;
 
 
-    //u16 quantized_brightness = tri_attributes->b0;
-    //u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
     f32 b0 = tri_attributes->b1;
     f32 b1 = tri_attributes->b0;
     f32 b2 = tri_attributes->b2;
-    f32_vec b0_vec = broadcast_f32_vec(b0);
-    f32_vec b1_vec = broadcast_f32_vec(b1);
-    f32_vec b2_vec = broadcast_f32_vec(b2);
-
-
-    int drew_pixel = 0;
 
     f32 v0u_over_z = uv0_over_z.x;
     f32 v0v_over_z = uv0_over_z.y;
@@ -255,8 +243,8 @@ int rasterize_triangle_2x2_quad(
     // barycentric weights weights (scaled by area)
     f32 recip_area = 1.0f / (f32)area;
     //f32_vec recip_area_vec = broadcast_f32_vec(recip_area);
-    iz1_vec = (iz1_vec-iz0_vec)*recip_area;
-    iz2_vec = (iz2_vec-iz0_vec)*recip_area;
+    iz1 = (iz1-iz0)*recip_area;
+    iz2 = (iz2-iz0)*recip_area;
 
     v1u_over_z = (v1u_over_z-v0u_over_z)*recip_area;
     v1v_over_z = (v1v_over_z-v0v_over_z)*recip_area;
@@ -264,8 +252,16 @@ int rasterize_triangle_2x2_quad(
     v2u_over_z = (v2u_over_z-v0u_over_z)*recip_area;
     v2v_over_z = (v2v_over_z-v0v_over_z)*recip_area;
 
-    b1_vec = (b1_vec - b0_vec) * recip_area;
-    b2_vec = (b2_vec - b0_vec) * recip_area;
+    b1 = (b1 - b0) * recip_area;
+    b2 = (b2 - b0) * recip_area;
+
+    
+    f32_vec iz0_vec = broadcast_f32_vec(iz0);
+    f32_vec iz1_vec = broadcast_f32_vec(iz1);
+    f32_vec iz2_vec = broadcast_f32_vec(iz2);
+    f32_vec b0_vec = broadcast_f32_vec(b0);
+    f32_vec b1_vec = broadcast_f32_vec(b1);
+    f32_vec b2_vec = broadcast_f32_vec(b2);
 
     
 
@@ -338,7 +334,7 @@ int rasterize_triangle_2x2_quad(
         int in_tile_x = minx-start_x;
         int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
         u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
-        u16_vec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
+        u64 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
         for (i32 x = 0; x < (maxx-minx); x += 2, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
 
             i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
@@ -349,8 +345,8 @@ int rasterize_triangle_2x2_quad(
             //} else 
             if(coverage_mask != 0x0) {
                 // skip completely uncovered quads
-                u16_vec zbuf_val_vec_u16 = *zbuf_ptr;
-                f32_vec zbuf_val_vec = decode_u16_inv_z_vec(zbuf_val_vec_u16);
+                u64 zbuf_val_vec_u64 = *zbuf_ptr;
+                f32_vec zbuf_val_vec = decode_u64_inv_z_vec(zbuf_val_vec_u64);
                 u32 cbuf_val = *col_buf_ptr;
 
                 f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
@@ -369,8 +365,6 @@ int rasterize_triangle_2x2_quad(
 
                 u32 mask_bytes = i32_vec_extract_bytes(in_tri_and_unoccluded);
                 if(mask_bytes != 0) {
-                    drew_pixel = 1;
-
 
                     f32_vec z_vec = 1.0f / inv_z_vec;
                     //f32_vec brightness_vec = brightness_over_z_vec * z_vec;
@@ -418,10 +412,10 @@ int rasterize_triangle_2x2_quad(
             }
         }
     }
-    return drew_pixel;
 }
 
-int rasterize_triangle_2x2_quad_no_tmap(
+
+void rasterize_triangle_2x2_quad_no_tmap_avx2(
     u16 *restrict zbuffer,
     transformed_tri *restrict tri_attributes,
     i32 start_x, i32 end_x, i32 start_y, i32 end_y
@@ -431,29 +425,229 @@ int rasterize_triangle_2x2_quad_no_tmap(
     f32 iz0 = tri_attributes->inv_z1;
     f32 iz1 = tri_attributes->inv_z0;
     f32 iz2 = tri_attributes->inv_z2;
-    f32_vec iz0_vec = broadcast_f32_vec(iz0);
-    f32_vec iz1_vec = broadcast_f32_vec(iz1);
-    f32_vec iz2_vec = broadcast_f32_vec(iz2);
 
     vert2i v0 = tri_attributes->proj_v1;
     vert2i v1 = tri_attributes->proj_v0;
     vert2i v2 = tri_attributes->proj_v2;
 
+    f32 b0 = tri_attributes->b1;
+    f32 b1 = tri_attributes->b0;
+    f32 b2 = tri_attributes->b2;
 
-    //u8 quantized_brightness = tri_attributes->b0;
-    //u8* lit_pal_ptr = full_light_remap_table[quantized_brightness];
-    //u8 lit_color = lit_pal_ptr[color];
-    //u32 lit_color_qw = ((u32)lit_color<<24)|((u32)lit_color<<16)|((u32)lit_color<<8)|(u32)lit_color;
+    // 28.4 fixed point
+    const i32 x0 = v0.x;
+    const i32 y0 = v0.y;
+    const i32 x1 = v1.x;
+    const i32 y1 = v1.y;
+    const i32 x2 = v2.x;
+    const i32 y2 = v2.y;
+    //
+    // Edge deltas
+    //
+    const i32 dx01 = x0 - x1;
+    const i32 dy01 = y0 - y1;
+    const i32 dx12 = x1 - x2;
+    const i32 dy12 = y1 - y2;
+    const i32 dx20 = x2 - x0;
+    const i32 dy20 = y2 - y0;
+
+    const __m128i dy01_shifted_vec = _mm_set1_epi32(dy01<<5);
+    const __m128i dy12_shifted_vec = _mm_set1_epi32(dy12<<5);
+    const __m128i dy20_shifted_vec = _mm_set1_epi32(dy20<<5);
+    const __m128i dx01_shifted_vec = _mm_set1_epi32(dx01<<5);
+    const __m128i dx12_shifted_vec = _mm_set1_epi32(dx12<<5);
+    const __m128i dx20_shifted_vec = _mm_set1_epi32(dx20<<5); // shift by 4 for subpixel, but double again because we're using 2x2 quad blocks now 
+
+
+    i32 area = (dx01 * dy20 - dy01 * dx20);
+    // barycentric weights weights (scaled by area)
+    f32 recip_area = 1.0f / (f32)area;
+
+    iz1 = (iz1 - iz0) * recip_area;
+    iz2 = (iz2 - iz0) * recip_area;
+    b1 = (b1 - b0) * recip_area;
+    b2 = (b2 - b0) * recip_area;
+
+    
+    __m128 iz0_vec = _mm_set1_ps(iz0);
+    __m128 iz1_vec = _mm_set1_ps(iz1);
+    __m128 iz2_vec = _mm_set1_ps(iz2);
+    __m128 b0_vec = _mm_set1_ps(b0);
+    __m128 b1_vec = _mm_set1_ps(b1);
+    __m128 b2_vec = _mm_set1_ps(b2);
+
+    //iz1_vec = _mm_mul_ps(_mm_sub_ps(iz1_vec, iz0_vec), recip_area);
+    //iz2_vec = _mm_mul_ps(_mm_sub_ps(iz2_vec, iz0_vec), recip_area);
+
+    //b1_vec = _mm_mul_ps(_mm_sub_ps(b1_vec, b0_vec), recip_area);
+    //b2_vec = _mm_mul_ps(_mm_sub_ps(b2_vec, b0_vec), recip_area);
+
+    
+    // bounding box of triangle (not so good for larger triangles)
+    i32 minx = MIN(x0, MIN(x1, x2));
+    i32 maxx = MAX(x0, MAX(x1, x2));
+    i32 miny = MIN(y0, MIN(y1, y2)); 
+    i32 maxy = MAX(y0, MAX(y1, y2));
+
+    minx = CLAMP((minx + 15) >> 4, start_x, end_x) & ~1; // mask off low bit to align to 2 pixels
+    maxx = CLAMP((maxx + 15) >> 4, start_x, end_x);
+    miny = CLAMP((miny + 15) >> 4, start_y, end_y) & ~1; // mask off low bit to align to 2 pixels
+    maxy = CLAMP((maxy + 15) >> 4, start_y, end_y);
+
+
+
+    // edge constants, used for incremental edge coverage calculation
+    i32 e01 = dy01 * x0 - dx01 * y0;
+    i32 e12 = dy12 * x1 - dx12 * y1;
+    i32 e20 = dy20 * x2 - dx20 * y2;
+
+    // copy the edge constants into separate variables, so that the fill rule nudge below doesn't affect attribute interpolation (although it would be minor)
+    i32 c01 = e01;
+    i32 c12 = e12;
+    i32 c20 = e20;
+
+    // top left fill rule
+    // ensure that sample positions on a left or top edge are nudged over (to be covered).
+    if (dy01 < 0 || (dy01 == 0 && dx01 > 0)) {
+        c01++;
+    }
+    if (dy12 < 0 || (dy12 == 0 && dx12 > 0)) {
+        c12++;
+    }
+    if (dy20 < 0 || (dy20 == 0 && dx20 > 0)) {
+        c20++;
+    }
+
+    i32 startX = minx << 4;
+    i32 startY = miny << 4;
+    #define FIXED_ONE_PX 16
+
+    __m128i cy01_vec = _mm_setr_epi32(
+        c01 + dx01 * startY - dy01 * startX,
+        c01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
+        c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
+        c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
+    );
+    __m128i cy12_vec = _mm_setr_epi32(
+        c12 + dx12 * startY - dy12 * startX,
+        c12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
+        c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
+        c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
+    );
+    __m128i cy20_vec = _mm_setr_epi32(
+        c20 + dx20 * startY - dy20 * startX,
+        c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
+        c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
+        c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
+    );
+
+    for (i32 y = miny; y < maxy; y += 2, cy01_vec = _mm_add_epi32(cy01_vec, dx01_shifted_vec), cy12_vec = _mm_add_epi32(cy12_vec, dx12_shifted_vec), cy20_vec = _mm_add_epi32(cy20_vec, dx20_shifted_vec)) {
+
+        __m128i cx01_vec = cy01_vec;
+        __m128i cx12_vec = cy12_vec;
+        __m128i cx20_vec = cy20_vec;
+
+        int in_tile_y = y-start_y;
+        int in_tile_x = minx-start_x;
+        int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
+
+        u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
+        u64 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
+
+
+        for (i32 x = minx; x < maxx; x += 2, cx01_vec = _mm_sub_epi32(cx01_vec, dy01_shifted_vec), cx12_vec = _mm_sub_epi32(cx12_vec, dy12_shifted_vec), cx20_vec = _mm_sub_epi32(cx20_vec, dy20_shifted_vec), col_buf_ptr++, zbuf_ptr++) {
+            
+            //__m128i covered_vec = _mm_cmplt_epi32(_mm_set1_epi32(0), _mm_or_si128(cx01_vec, _mm_or_si128(cx12_vec, cx20_vec)));
+            __m128i or_vec = _mm_or_si128(cx01_vec, _mm_or_si128(cx12_vec, cx20_vec));
+            __m128i covered_vec = _mm_andnot_si128(_mm_srai_epi32(or_vec, 31), _mm_set1_epi32(-1));
+
+            int all_pixels_uncovered = _mm_testz_si128(covered_vec, covered_vec);
+
+            // skip completely uncovered quads
+            if(all_pixels_uncovered) {
+                continue;
+            }
+
+            u32 cbuf_val = *col_buf_ptr;
+                        
+            __m128 zbuf_val_vec = decode_u64_inv_z_vec_avx2(*zbuf_ptr);
+
+            __m128 w1_vec = _mm_cvtepi32_ps(cx20_vec); 
+            __m128 w2_vec = _mm_cvtepi32_ps(cx01_vec);
+
+            __m128 inv_z_vec = _mm_add_ps(
+                iz0_vec, 
+                _mm_add_ps(
+                    _mm_mul_ps(w1_vec, iz1_vec),
+                    _mm_mul_ps(w2_vec, iz2_vec)
+                )
+            );
+
+
+            __m128 brightness_vec = _mm_add_ps(b0_vec, _mm_add_ps(_mm_mul_ps(w1_vec, b1_vec), _mm_mul_ps(w2_vec, b2_vec)));
+            brightness_vec = _mm_max_ps(_mm_set1_ps(0), brightness_vec);
+            brightness_vec = _mm_min_ps(_mm_set1_ps((f32)(NUM_SHADES-1)), brightness_vec);
+
+            __m128i unoccluded = (__m128i)_mm_cmpge_ps(inv_z_vec, zbuf_val_vec);
+
+            __m128i in_tri_and_unoccluded = _mm_and_si128(unoccluded, covered_vec);
+
+
+            __m128i low_bytes_mask = _mm_setr_epi8(0, 4, 8, 12, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
+            u32 mask_bytes = (u32)_mm_cvtsi128_si32(_mm_shuffle_epi8(in_tri_and_unoccluded, low_bytes_mask));
+             
+            // wow! its a tiny bit faster without this!
+            //int no_pixels_unoccluded_and_covered = _mm_testz_si128(in_tri_and_unoccluded, in_tri_and_unoccluded);
+            //if(no_pixels_unoccluded_and_covered) {
+            //    continue;
+            // }
+
+            // 256 bytes per each of the 25 top level indexes.
+            // so essentially we need to multiply those brightness by 256.
+
+            // man if this palette is ordered, or we had 32-bit color this could be way better, oh well
+            
+            __m128i lit_pal_indexes = _mm_slli_epi32(_mm_cvtps_epi32(brightness_vec), 8);
+
+
+            __m128i color_indexes = _mm_add_epi32(lit_pal_indexes, _mm_set1_epi32(color));
+            __m128i colors = _mm_i32gather_epi32((int*)full_light_remap_table, color_indexes, 1); // we're loading a full 32-bit value per color, but that's okay
+
+            __m128i shuffled = _mm_shuffle_epi8(colors, low_bytes_mask);
+            u32 lit_color_qw = (u32)_mm_cvtsi128_si32(shuffled);
+
+
+            u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
+            
+            *col_buf_ptr = masked_color;
+
+            __m128 new_zbuf_vec = (__m128)_mm_or_si128(_mm_and_si128(in_tri_and_unoccluded, (__m128i)inv_z_vec), _mm_andnot_si128(in_tri_and_unoccluded, (__m128i)zbuf_val_vec));
+
+            u64 new_zbuf_val =  encode_float_inv_z_vec_avx2(new_zbuf_vec);
+            *zbuf_ptr = new_zbuf_val;
+        }
+    }
+}
+
+
+void rasterize_triangle_2x2_quad_no_tmap(
+    u16 *restrict zbuffer,
+    transformed_tri *restrict tri_attributes,
+    i32 start_x, i32 end_x, i32 start_y, i32 end_y
+) {
+    u8 color = tri_attributes->mip_level_or_color;
+    // swap everything for first two vertexes (actual vertex positions and attributes)
+    f32 iz0 = tri_attributes->inv_z1;
+    f32 iz1 = tri_attributes->inv_z0;
+    f32 iz2 = tri_attributes->inv_z2;
+
+    vert2i v0 = tri_attributes->proj_v1;
+    vert2i v1 = tri_attributes->proj_v0;
+    vert2i v2 = tri_attributes->proj_v2;
 
     f32 b0 = tri_attributes->b1;
     f32 b1 = tri_attributes->b0;
     f32 b2 = tri_attributes->b2;
-    f32_vec b0_vec = broadcast_f32_vec(b0);
-    f32_vec b1_vec = broadcast_f32_vec(b1);
-    f32_vec b2_vec = broadcast_f32_vec(b2);
-
-
-    int drew_pixel = 0;
 
 
     // 28.4 fixed point
@@ -484,11 +678,21 @@ int rasterize_triangle_2x2_quad_no_tmap(
     i32 area = (dx01 * dy20 - dy01 * dx20);
     // barycentric weights weights (scaled by area)
     f32 recip_area = 1.0f / (f32)area;
-    iz1_vec = (iz1_vec-iz0_vec)*recip_area;
-    iz2_vec = (iz2_vec-iz0_vec)*recip_area;
+    iz1 = (iz1 - iz0) * recip_area;
+    iz2 = (iz2 - iz0) * recip_area;
 
-    b1_vec = (b1_vec - b0_vec) * recip_area;
-    b2_vec = (b2_vec - b0_vec) * recip_area;
+    b1 = (b1 - b0) * recip_area;
+    b2 = (b2 - b0) * recip_area;
+    //b1_vec = (b1_vec - b0_vec) * recip_area;
+    //b2_vec = (b2_vec - b0_vec) * recip_area;
+
+    
+    f32_vec iz0_vec = broadcast_f32_vec(iz0);
+    f32_vec iz1_vec = broadcast_f32_vec(iz1);
+    f32_vec iz2_vec = broadcast_f32_vec(iz2);
+    f32_vec b0_vec = broadcast_f32_vec(b0);
+    f32_vec b1_vec = broadcast_f32_vec(b1);
+    f32_vec b2_vec = broadcast_f32_vec(b2);
 
     
     // bounding box of triangle (not so good for larger triangles)
@@ -560,7 +764,7 @@ int rasterize_triangle_2x2_quad_no_tmap(
         int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
 
         u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
-        u16_vec *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
+        u64 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
 
 
         for (i32 x = minx; x < maxx; x += 2, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
@@ -573,8 +777,8 @@ int rasterize_triangle_2x2_quad_no_tmap(
                 continue;
             }
             u32 cbuf_val = *col_buf_ptr;
-            u16_vec zbuf_val_vec_u16 = *zbuf_ptr;
-            f32_vec zbuf_val_vec = decode_u16_inv_z_vec(zbuf_val_vec_u16);
+            u64 zbuf_val_vec_u64 = *zbuf_ptr;
+            f32_vec zbuf_val_vec = decode_u64_inv_z_vec(zbuf_val_vec_u64);
 
             f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
             f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
@@ -593,9 +797,6 @@ int rasterize_triangle_2x2_quad_no_tmap(
 
 
             if(mask_bytes != 0) {
-                drew_pixel = 1;
-                //f32_vec z_vec = 1.0f / inv_z_vec;
-                //f32_vec brightness_vec = brightness_over_z_vec * z_vec;
                 u8 *lit_pal_ptr0 = full_light_remap_table[(u8)(brightness_vec[0])];
                 u8 *lit_pal_ptr1 = full_light_remap_table[(u8)(brightness_vec[1])];
                 u8 *lit_pal_ptr2 = full_light_remap_table[(u8)(brightness_vec[2])];
@@ -616,7 +817,6 @@ int rasterize_triangle_2x2_quad_no_tmap(
             }
         }
     }
-    return drew_pixel;
 }
 
 
@@ -652,25 +852,16 @@ typedef struct {
     bbox* bounds;
     u8 texture;
     matrix model_to_view;
-    matrix model_to_world;
+    // currently we use view space light direction (simply pointing in the camera direction :) ), so we don't need this.  previously we used it to transform normals into world space
+    // then I tried inversing it to transform world-space light into object space, but that also required this matrix, and a bunch of math and stores to pass it down to the transform code
+    // but now, we can simply multiply view space light dir by an inverse(model_to_view_matrix) to get object space lighting.
+    //matrix model_to_world;  
     shader shdr;
     int force_mip0;
 } mesh_draw_call;
 
-//const f32 focal = 500.0f;
 const f32 camx = (f32)(RENDER_WIDTH/2.0f);
 const f32 camy = (f32)(RENDER_HEIGHT/2.0f);
-
-vert3f isometric_project_coord(vert3f r) {
-    //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
-    const f32 focal = (RENDER_HEIGHT / 2.0f) / 0.6f; //tanf(fov_y / 2.0f);
-
-    return (vert3f){
-            camx + focal * r.x / 40.0f,
-            camy - focal * r.y / 40.0f,
-            r.z
-    };
-}
 
 vert3f project_coord(vert3f r) {
     //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
@@ -1240,10 +1431,10 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
 
     /* clear zbuffer for this tile, fill with background, OR game board */
     u32 *col_val_ptr = __builtin_assume_aligned(&render_target[0], 4);
-    u16_vec *zbuf_ptr = __builtin_assume_aligned(&zbuf[0], 8);
+    u64 *zbuf_ptr = __builtin_assume_aligned(&zbuf[0], 8);
 
     f32_vec inv_far_vec_flt = broadcast_f32_vec(1.0f/FAR_Z);
-    u16_vec inv_far_vec = encode_float_inv_z_vec(inv_far_vec_flt);
+    u64 inv_far_vec = encode_float_inv_z_vec(inv_far_vec_flt);
     u32 board_col_idx = light_remap_table[7][GREEN];
     board_col_idx |= (board_col_idx<<8);
     board_col_idx |= (board_col_idx<<16);
@@ -1302,12 +1493,14 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
     for(i = 0; i < num_solid_tris; i++) {
         u32 global_tri_idx = t->solid_tri_indexes[i];
         // drew_pix
-        rasterize_triangle_2x2_quad_no_tmap(
+        //rasterize_triangle_2x2_quad_no_tmap(
+        rasterize_triangle_2x2_quad_no_tmap_avx2(
             zbuffer,
             &global_tri_buffer[global_tri_idx],
             t->start_x, t->start_x+RENDER_TILE_SIZE,
             t->start_y, t->start_y+RENDER_TILE_SIZE
         );
+
     }
 
     for(i = 0; i < num_tris; i++) {
@@ -1606,7 +1799,7 @@ int vcache_rem() {
     return VCACHE_SIZE - vcache_idx;
 }
 
-void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, const matrix *model_to_view, const matrix *model_to_world, const shader cur_shader) {
+void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, const matrix *model_to_view, const vert3f object_space_light_dir, const shader cur_shader) {
 
     i16 v_idx = vert_cache_tags[cache_tag_idx];
     const obj_vertex* in_vert = &vertex_stream[v_idx];
@@ -1629,9 +1822,7 @@ void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, con
         l0 = ambient;
     } else {
         // Rotate normals into world space (not view)
-        vert3f rn0 = mat_mul_normal(model_to_world, n0);
-        vert3f nn0 = normalize(rn0);
-        f32 dot_light = dot(nn0, light);
+        f32 dot_light = dot(*n0, object_space_light_dir);
         l0 = dot_light + ambient;
     }
 
@@ -1648,7 +1839,8 @@ void process_vertex_batch(const int batch_tag_idx,
     const f32_vec vert_poses_soa[3], 
     const vert2f vert_uvs[4], 
     const f32_vec vert_norms_soa[3],
-    const matrix* model_to_view, const matrix *model_to_world, 
+    const matrix* model_to_view,
+    const vert3f obj_space_light_dir,
     const shader cur_shader) {
 
     f32_vec rot_vert_comps[3];
@@ -1665,16 +1857,11 @@ void process_vertex_batch(const int batch_tag_idx,
     f32_vec ambient = lerp_f32_vec(broadcast_f32_vec(0.20f), broadcast_f32_vec(0.40f), hemi);
 
     f32_vec l0;
-    f32_vec rot_norm_comps[3];
-    f32_vec normalized_norm_comps[3];
+
     if(cur_shader == UNLIT_TEXTURED) {
         l0 = ambient;
     } else {
-        // Rotate normals into world space (not view)
-        mat_mul_normal_batch(model_to_world, vert_norms_soa, rot_norm_comps);
-        normalize_batch(rot_norm_comps, normalized_norm_comps);
-
-        l0 = dot_batch_single(normalized_norm_comps, light) + ambient;
+        l0 = dot_batch_single(vert_norms_soa, obj_space_light_dir) + ambient;
     }
 
     f32_vec c0 = f32_vec_clamp(l0, 0.0f, 1.0f);
@@ -1689,7 +1876,7 @@ void process_vertex_batch(const int batch_tag_idx,
     }
 }
 
-void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream, const matrix* model_to_view, const matrix *model_to_world, const shader cur_shader) {
+void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream, const matrix* model_to_view, const vert3f obj_space_light_dir, const shader cur_shader) {
     
     int num_bunches = num_verts/4;
     for(int bunch = 0; bunch < num_bunches; bunch++) {
@@ -1709,18 +1896,18 @@ void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream
             norms_soa[2][i] = vertex_stream[idx].norm.z;
             vert_uvs[i] = vertex_stream[idx].uv;
         }
-        process_vertex_batch(batch_tag_idx, poses_soa, vert_uvs, norms_soa, model_to_view, model_to_world, cur_shader);
+        process_vertex_batch(batch_tag_idx, poses_soa, vert_uvs, norms_soa, model_to_view, obj_space_light_dir, cur_shader);
 
     }
     
     for(int i = num_bunches*4; i < num_verts; i++) {
         vertex_shader(
-            i, vertex_stream, model_to_view, model_to_world, cur_shader
+            i, vertex_stream, model_to_view, obj_space_light_dir, cur_shader
         );
     }
 }
 
-int triangle_backfacing(vert3f *v0, vert3f *v1, vert3f *v2) {
+static inline int triangle_backfacing(vert3f *v0, vert3f *v1, vert3f *v2) {
 
     // 28.4 fixed point
     const i32 X0 = (i32)v1->x;
@@ -1748,7 +1935,14 @@ int vcache_hits;
 void submit_mesh_draw_call(mesh_draw_call* mdc) {
     const obj_mesh *m = mdc->mesh;
     matrix *model_to_view = &mdc->model_to_view;
-    matrix *model_to_world = &mdc->model_to_world;
+    //matrix *model_to_world = &mdc->model_to_world;
+    //matrix world_to_model = mat_inverse_affine(model_to_world);
+    //vert3f obj_space_light_dir = mat_mul_normal(&world_to_model, &light);
+
+    matrix view_to_model = mat_inverse_affine(model_to_view);
+    vert3f obj_space_light_dir = mat_mul_normal(&view_to_model, &light);
+    
+
     u8 texture_id = mdc->texture;
     shader cur_shader = mdc->shdr;
     (void)texture_id;
@@ -1811,7 +2005,7 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
         parallel_vertex_shader(
             vcache_idx,
             m->vertexStream,
-            model_to_view, model_to_world,
+            model_to_view, obj_space_light_dir,
             cur_shader
         );
             
@@ -2678,15 +2872,14 @@ void draw_hand(
 
         matrix tile_mat = transform_to_matrix(&tile_trans);
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tile_mat);
-        matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
+        //matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED; 
         draw_calls[draw_idx].mesh = &mahjong_tile_mesh;
         draw_calls[draw_idx].bounds = &tile_bbox;
         draw_calls[draw_idx].texture = h->tiles[i];
-        draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
-        draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
-        draw_idx++;
+        //draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
+        draw_calls[draw_idx++].model_to_view = tile_to_view_matrix;
     }
 
     /*
@@ -2722,15 +2915,14 @@ void draw_hand(
         matrix tile_mat = transform_to_matrix(&tile_trans);
 
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tile_mat);
-        matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
+        //matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tile_mat);
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED; 
         draw_calls[draw_idx].mesh = &mahjong_tile_mesh;
         draw_calls[draw_idx].bounds = &tile_bbox;
         draw_calls[draw_idx].texture = h->open_tiles[i];
-        draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
-        draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
-        draw_idx++;
+        //draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
+        draw_calls[draw_idx++].model_to_view = tile_to_view_matrix;
     }
 
     
@@ -2767,15 +2959,14 @@ void draw_hand(
         matrix discard_tile_mat = transform_to_matrix(&discard_transform);
       
         matrix tile_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &discard_tile_mat);
-        matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &discard_tile_mat);
+        //matrix tile_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &discard_tile_mat);
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED; 
         draw_calls[draw_idx].mesh = &mahjong_tile_mesh;
         draw_calls[draw_idx].bounds = &tile_bbox;
         draw_calls[draw_idx].texture = h->discards[i];
-        draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
-        draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
-        draw_idx++;
+        //draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
+        draw_calls[draw_idx++].model_to_view = tile_to_view_matrix;
     }
 
     if(draw_wind_indicator) {
@@ -2798,8 +2989,8 @@ void draw_hand(
         draw_calls[draw_idx].mesh = use_dragon_model ? &dragon_low_poly_mesh : &wind_indicator_mesh;
         draw_calls[draw_idx].bounds = 0;
         draw_calls[draw_idx].texture = WIND_INDICATOR;
-        draw_calls[draw_idx].model_to_view = mat_mul_mat(hand_to_view_matrix, &wind_indicator_to_hand_mat);
-        draw_calls[draw_idx++].model_to_world = mat_mul_mat(hand_to_world_matrix, &wind_indicator_to_hand_mat);
+        //draw_calls[draw_idx].model_to_world = mat_mul_mat(hand_to_world_matrix, &wind_indicator_to_hand_mat);
+        draw_calls[draw_idx++].model_to_view = mat_mul_mat(hand_to_view_matrix, &wind_indicator_to_hand_mat);
     }
 
     {
@@ -2852,15 +3043,15 @@ void draw_hand(
 
                     matrix tenbou_mat = transform_to_matrix(&tenbou_transform);
                     matrix tenbou_to_view_matrix = mat_mul_mat(hand_to_view_matrix, &tenbou_mat);
-                    matrix tenbou_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tenbou_mat);
+                    //matrix tenbou_to_world_matrix = mat_mul_mat(hand_to_world_matrix, &tenbou_mat);
                     
 
                     draw_calls[draw_idx].shdr = LIT_TEXTURED;
                     draw_calls[draw_idx].mesh = &tenbou_mesh;
                     draw_calls[draw_idx].bounds = &tile_bbox; // TODO: invalid but unused
                     draw_calls[draw_idx].texture = color;
-                    draw_calls[draw_idx].model_to_view = tenbou_to_view_matrix;
-                    draw_calls[draw_idx++].model_to_world = tenbou_to_world_matrix;
+                    //draw_calls[draw_idx].model_to_world = tenbou_to_world_matrix;
+                    draw_calls[draw_idx++].model_to_view = tenbou_to_view_matrix;
                 }
             }
 
@@ -2877,7 +3068,7 @@ void draw_wall(game_state cur_state, wall *w, matrix *view_mat) {
 
     int draw_idx = 0;
 
-    matrix wall_matrixes[4];
+    //matrix wall_matrixes[4];
     matrix wall_view_matrixes[4];
 
     for(int i = 0; i < 4; i++) {
@@ -2886,7 +3077,7 @@ void draw_wall(game_state cur_state, wall *w, matrix *view_mat) {
 
         matrix wall_matrix = transform_to_matrix(&wall_trans);
         matrix wall_view_matrix = mat_mul_mat(view_mat, &wall_matrix);
-        wall_matrixes[i] = wall_matrix;
+        //wall_matrixes[i] = wall_matrix;
         wall_view_matrixes[i] = wall_view_matrix;
     }
 
@@ -2911,13 +3102,13 @@ void draw_wall(game_state cur_state, wall *w, matrix *view_mat) {
 
         matrix tile_mat = transform_to_matrix(&tile_trans);
         matrix tile_to_view_matrix = mat_mul_mat(&wall_view_matrixes[wall_side], &tile_mat);
-        matrix tile_to_world_matrix = mat_mul_mat(&wall_matrixes[wall_side], &tile_mat);
+        //matrix tile_to_world_matrix = mat_mul_mat(&wall_matrixes[wall_side], &tile_mat);
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED;
         draw_calls[draw_idx].mesh = &mahjong_tile_mesh;
         draw_calls[draw_idx].bounds = &tile_bbox;
         draw_calls[draw_idx].model_to_view = tile_to_view_matrix;
-        draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
+        //draw_calls[draw_idx].model_to_world = tile_to_world_matrix;
 
         draw_calls[draw_idx++].texture = this_tile;
     }
@@ -2973,7 +3164,7 @@ void draw_board(matrix* view_mat) {
     draw_board_call.shdr = UNLIT_TEXTURED;
     draw_board_call.bounds = &board_bbox;
     draw_board_call.model_to_view = board_to_view_matrix;
-    draw_board_call.model_to_world = board_matrix;
+    //draw_board_call.model_to_world = board_matrix;
     draw_board_call.texture = BOARD;
 
     board_sides.indexCount = board_mesh.indexCount - 12;
@@ -5347,13 +5538,21 @@ void game_update(ExotiqueInterface* ei) {
         vert3f cam_pos = orbit_camera_position(abs_cam_rot_y, use_camera_rot_x, lerped_cam_dist);
         look_at_yx(&cam_view_trans, cam_pos, (vert3f){0.0f,0.0f,0.0f});
 
+        //vert3f world_light = {0, 1, 0};
+        //matrix view_matrix = transform_to_view_matrix(&cam_view_trans);
+        //light = mat_mul_normal(&view_matrix, &world_light);
+        
+
         vert3f forward = {0, 0, -1};
 
-        matrix rx = rotation_x_matrix(.95f);
-        matrix ry = rotation_y_matrix(cam_view_trans.rotation.y);
-        matrix rot = mat_mul_mat(&ry, &rx); // inverse of your view rotation
+        //matrix rx = rotation_x_matrix(.95f);
+        //matrix ry = rotation_y_matrix(cam_view_trans.rotation.y);
+        //matrix rot = mat_mul_mat(&ry, &rx); // inverse of your view rotation
 
-        light = normalize(mat_mul_vert3(&rot, &forward));
+        //light = normalize(mat_mul_vert3(&rot, &forward));
+        light = forward;
+
+
         
         switch(game_data.cur_game_state) {
             case INITIAL_SHUFFLE_AND_SETUP:

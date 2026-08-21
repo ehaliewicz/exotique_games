@@ -2164,7 +2164,7 @@ typedef struct __attribute__((packed)) {
     i8 selected_tile_idx;
     i8 num_discards;
     i8 in_riichi;
-    int no_call_timer;
+    int sorted;
 } hand;
 
 typedef struct __attribute__((packed)) {
@@ -3138,7 +3138,7 @@ hand init_empty_hand() {
         h.discard_timer_handles[i] = 1;
     }
 
-    h.no_call_timer = -1;
+    h.sorted = 0;
     return h;
 }
 
@@ -3696,6 +3696,7 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
 #define ACTIONS             \
     X(MOVE_SELECTED_LEFT)   \
     X(MOVE_SELECTED_RIGHT)  \
+    X(SORT_HAND)            \
     X(ATTEMPT_CALL)         \
     X(NO_ATTEMPT_CALL)      \
     X(ATTEMPT_DRAW)         \
@@ -4072,14 +4073,20 @@ void step_shuffle_and_setup(wall* w) {
     timer_start(game_data.shuffle_timer_handle, SHUFFLE_WAIT_DURATION, 1, shuffle_timer_callback, 0);
 }
 
-void sort_tile_list(tile_type *hand_tiles, int num_tiles) {
+void sort_tile_list(tile_type *hand_tiles, int num_tiles, int reverse) {
     for(int frontier = 0; frontier < num_tiles; frontier++) {
         // below frontier we are perfectly sorted
         
         int smallest = frontier;
         for(int j = frontier+1; j < num_tiles; j++) {
-            if(tile_sort_val[hand_tiles[j]] < tile_sort_val[hand_tiles[smallest]]) {
-                smallest = j;
+            if(reverse) {
+                if(tile_sort_val[hand_tiles[j]] > tile_sort_val[hand_tiles[smallest]]) {
+                    smallest = j;
+                }
+            } else {
+                if(tile_sort_val[hand_tiles[j]] < tile_sort_val[hand_tiles[smallest]]) {
+                    smallest = j;
+                }
             }
         }
         tile_type prev = hand_tiles[frontier];
@@ -4088,8 +4095,16 @@ void sort_tile_list(tile_type *hand_tiles, int num_tiles) {
     }
 }
 
-void sort_hand(hand* h) {
-    sort_tile_list(h->tiles, h->num_closed_tiles);
+void sort_hand(int player) { 
+    hand *h = &game_data.hands[player];
+    if(h->sorted) {
+        // sort in reverse order
+        sort_tile_list(h->tiles, h->num_closed_tiles, 1);
+        h->sorted = 0;
+    } else {
+        sort_tile_list(h->tiles, h->num_closed_tiles, 0);
+        h->sorted = 1;
+    }
 }
 
 typedef union {
@@ -4166,9 +4181,6 @@ void step_deal() {
 
         game_data.switch_player_timer_handle = -1;
         
-        for(int i = 0; i < 4; i++) {
-            sort_hand(&game_data.hands[i]);
-        }
     }
 
     int timer = timer_get_handle("deal wait");
@@ -4211,7 +4223,6 @@ void discard_current_tile(i8 player, int riichi_discard) {
     }
 
     cur_player_hand->num_closed_tiles--;
-    sort_hand(cur_player_hand);
 }
 
 void deal_timer_expired(u64 callback_data) {
@@ -4644,17 +4655,14 @@ int calc_winning_score_modifiers(hand_score_modifiers *mods, tile_type hand_tile
     return winning;
 }
 
-int is_winning_hand(hand_score_modifiers *mods, tile_type hand_tiles[14], int is_tsumo, int is_closed, int in_riichi, tile_type dora, tile_type round_wind, tile_type seat_wind) {
-    return calc_winning_score_modifiers(mods, hand_tiles, is_tsumo, is_closed, in_riichi, dora, round_wind, seat_wind);
-}
 
 int is_win(hand_score_modifiers *mods, hand* h, int player, int is_tsumo) {
     
     tile_type tmp[14];
     copy_hand_tiles_to_tmp(h, tmp);
     // sort open and closed tiles together
-    sort_tile_list(tmp, h->num_closed_tiles+h->num_open_tiles);
-    return is_winning_hand(mods, tmp, is_tsumo, (h->num_open_tiles == 0), h->in_riichi, game_data.dora_tile, game_wind_to_tile_wind[game_data.cur_wind], player_winds[player]);
+    sort_tile_list(tmp, h->num_closed_tiles+h->num_open_tiles, 0);
+    return calc_winning_score_modifiers(mods, tmp, is_tsumo, (h->num_open_tiles == 0), h->in_riichi, game_data.dora_tile, game_wind_to_tile_wind[game_data.cur_wind], player_winds[player]);
 }
 
 void copy_tile_index_to_open(hand* h, int idx) {
@@ -4688,7 +4696,7 @@ call_info can_call(int player, hand_score_modifiers *mods) {
     }
 
     tmp_full_hand[13] = prev_discard;
-    if(is_winning_hand(mods, tmp_full_hand, 0, (cur_hand->num_open_tiles == 0), cur_hand->in_riichi, game_data.dora_tile, game_wind_to_tile_wind[game_data.cur_wind], player_winds[player])) {
+    if(is_win(mods, cur_hand, player, 0)) {
         call_res.call = RON_CALL;
         return call_res;
     }
@@ -4844,7 +4852,7 @@ int in_tenpai_for_discard_internal(hand* h, int player, int discard_idx) {
 
     for(tile_type new_tile = 0; new_tile < NUM_TILES; new_tile++) {
         tmp[h->selected_tile_idx] = new_tile;
-        if(is_winning_hand(&game_data.hand_winner_mods, tmp, 1, (h->num_open_tiles == 0), h->in_riichi, game_data.dora_tile, game_wind_to_tile_wind[game_data.cur_wind], player_winds[player])) {
+        if(is_win(&game_data.hand_winner_mods, h, player, 1)) {
             return 1;
         }
     }
@@ -5026,6 +5034,10 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
         } else if(pushed_b) {
             queue_push(make_player_action(human_player, NO_ATTEMPT_CALL));
             send_input = 1;  
+        } else if (pushed_y) {
+            queue_push(make_player_action(human_player, SORT_HAND));
+            send_input = 1;
+            //sort_hand(human_player);
         }
     } else {
         // not waiting, don't allow CALLs
@@ -5041,9 +5053,13 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
         } else if(pushed_b && human_can_discard) {
             queue_push(make_player_action(human_player, ATTEMPT_DISCARD));
             send_input = 1;  
-        } else if (pushed_y && human_can_riichi_or_tsumo) {
+        } else if (pushed_x && human_can_riichi_or_tsumo) {
             queue_push(make_player_action(human_player, ATTEMPT_RIICHI_OR_WIN));
             send_input = 1;  
+        } else if (pushed_y) {
+            queue_push(make_player_action(human_player, SORT_HAND));
+            send_input = 1;
+            //sort_hand(human_player);
         }
     }
 
@@ -5091,6 +5107,11 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                     add_sound(TILE_CLICK, 0.085f);
                     break;
 
+                case SORT_HAND:
+                    queue_pop();
+                    sort_hand(this_player);
+                    break;
+
                 case NO_ATTEMPT_CALL:
                     queue_pop();
                     if(!waiting_on_call_from(action.player_num)) {
@@ -5124,9 +5145,6 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                     game_data.waiting_for_calls = 0;   
                     add_sound(call_sounds[call.call], 0.125f); //location 
                     
-                    timer_release(game_data.hands[human_player].no_call_timer);
-                    game_data.hands[human_player].no_call_timer = -1;
-
                     timer_release(game_data.switch_player_timer_handle);
                     game_data.switch_player_timer_handle = -1;
                     
@@ -5199,17 +5217,22 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
             
                     add_sound(TILE_CLICK, 0.085f);
                     break;
+
+                case SORT_HAND:
+                    sort_hand(this_player);
+                    break;
+
                 case ATTEMPT_DRAW:
+
+                    if(!can_draw) {
+                        break;
+                    }
+
                     if(game_data.wall_rem == 14) {
                         show_winning_hand();
 
                         return whole_frame_block;
                     }
-
-                    if(!can_draw) {
-                        break;
-                    }
-                    sort_hand(player_hand);
                     draw_next_tile(action.player_num);
                     stage_advance_frame("draw made");
                     break;

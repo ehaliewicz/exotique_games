@@ -1,8 +1,12 @@
+#define WIN32_LEAN_AND_MEAN
 #include "exotique.h"
 #include "miniaudio.h"
 
 #include "mahjong_common.h"
 
+#ifdef _WIN32
+    #include <winsock2.h>
+#endif
 
 u8 render_target[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
 u16 zbuf[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
@@ -3261,11 +3265,52 @@ static struct {
     Uint8 name[256+1];
 } client_info[MAX_CLIENTS];
 
+
+typedef struct {
+    int ready;
+    SOCKET channel; // actual socket fd
+    IPaddress remoteAddress;
+    IPaddress localAddress;
+    int sflag;
+} internal_TCPsocket;
+
+void disable_nagle(TCPsocket sock) {
+    internal_TCPsocket *int_sock = (internal_TCPsocket*)sock;
+    int opt = 1;
+    int res = setsockopt(int_sock->channel, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt));
+    if(res != 0) {
+        int err = WSAGetLastError();
+        exotique_printf("Error disabling nagle's algorithm on socket: %i\n", err);
+        exit(1);
+    }
+}
+
+TCPsocket SDLNet_TCP_Open_NODELAY(IPaddress *ip) {
+    TCPsocket sock = SDLNet_TCP_Open(ip);
+    //disable_nagle(sock);
+    return sock;
+}
+
+
+TCPsocket SDLNet_TCP_OpenClient_NODELAY(IPaddress *ip) {
+    TCPsocket sock = SDLNet_TCP_OpenClient(ip);
+    disable_nagle(sock);
+    return sock;
+}
+
+
+TCPsocket SDLNet_TCP_Accept_NODELAY(TCPsocket sock) {
+    TCPsocket new_sock = SDLNet_TCP_Accept(sock);
+    disable_nagle(new_sock);
+    return new_sock;
+}
+
+
 void server_get_connection() {
     TCPsocket new_sock;
     int which;
 
-    new_sock = SDLNet_TCP_Accept(serv_sock);
+    new_sock = SDLNet_TCP_Accept_NODELAY(serv_sock);
     if(new_sock == NULL) {
         return;
     }
@@ -3313,9 +3358,11 @@ void server_get_connection() {
     exotique_printf("Client connected at %i %i\n", client_info[which].peer.host, client_info[which].peer.port);
 }
 
+
+
 typedef enum __attribute__((packed)) {
     LISTEN_PORT = 1,
-    RANDOM_seed_and_player_info = 3,
+    RANDOM_SEED_AND_PLAYER_INFO = 3,
     INPUT_FROM_CLIENT = 5,
 } msg_type;
 
@@ -3372,11 +3419,11 @@ void setup_host(int num_clients) {
             break;
         }
     }
-
     
+    // remove server listen socket from socket set
     added_sock = SDLNet_TCP_DelSocket(socket_set, serv_sock);
     if(added_sock == -1) {
-        exotique_printf("error adding socket to set\n");
+        exotique_printf("error removing socket to set\n");
         exit(1);
     }
     num_socks_in_set = added_sock;
@@ -3415,11 +3462,19 @@ void setup_client(char* server_address) {
         exit(1);
     }
     exotique_printf("Connecting to %s %i\n", server_address, JONG_PORT);
-    serv_sock = SDLNet_TCP_Open(&server_ip);
-    if(serv_sock == NULL) {
-        exotique_printf("Failed to connect :(\n");
-        exit(1);
+    while(1) {
+        serv_sock = SDLNet_TCP_Open(&server_ip);
+        if(serv_sock != NULL) {
+            break;
+            //exotique_printf("Failed to connect :(\n");
+            //exit(1);
+        }
+        exotique_printf("Failed, retrying\n");
+        int counter = 1000000;
+        while(counter) { counter--; }
     }
+    disable_nagle(serv_sock);
+
     int added_sock = SDLNet_TCP_AddSocket(socket_set, serv_sock);
     if(added_sock == -1) {
         exotique_printf("error adding socket to set\n");
@@ -3446,53 +3501,66 @@ typedef struct {
 
 char data_buf[MAX_PACKET_SIZE];
 
+void send_packet_to_socket(TCPsocket sock, msg_type type, u32 num_bytes_after_type, void* src_buf, const char* obj_type) {
+    data_buf[0] = type;
+    memcpy(data_buf+1, src_buf, num_bytes_after_type);
+    int sent = SDLNet_TCP_Send(sock, &data_buf, num_bytes_after_type+1);
+    if(sent < 0) {
+        exotique_printf("Error: disconnected while sending %s\n", obj_type);
+        exit(1);
+    }
+    if(sent != (int)num_bytes_after_type+1) {
+        exotique_printf("Error sending %s (of %i bytes), only sent %i bytes\n", obj_type, num_bytes_after_type+1, sent);
+        exit(1);
+    }
+}
+
+void receive_packet_from_socket(TCPsocket sock, msg_type type, u32 num_bytes_after_type, void* dst_buf, const char* obj_type) {
+    int recvd = SDLNet_TCP_Recv(sock, data_buf, num_bytes_after_type+1);
+    if(recvd < 0) {
+        exotique_printf("Error: disconnected while receiving %s :(\n", obj_type);
+        exit(1);
+    }
+    if(recvd != (int)num_bytes_after_type+1) {
+        exotique_printf("Error receiving %s (of %i bytes), only received %i bytes\n", obj_type, num_bytes_after_type+1, recvd);
+        exit(1);
+    }
+    if(data_buf[0] != type) {
+        exotique_printf("Got unexpected byte from client when waiting for %s: %i\n", obj_type, data_buf[0]);
+        exit(1);
+    }
+    memcpy(dst_buf, data_buf+1, num_bytes_after_type);
+}
+
 typedef struct {
     u16 listen_port;
 } listen_port_t;
 
 void server_wait_for_listen_port_from_players() {
-    char data_buf[1+sizeof(listen_port_t)];
     
     for(int i = 0; i < MAX_CLIENTS; i++) {
         if(client_info[i].sock) {
             exotique_printf("Waiting for listen port from %i:%i\n", SDLNet_Read32(&client_info[i].peer.host), SDLNet_Read16(&client_info[i].peer.port));
-            long long unsigned int recvd = SDLNet_TCP_Recv(client_info[i].sock, data_buf, 1+sizeof(listen_port_t));
-            if(recvd != 1+sizeof(listen_port_t)) {
-                exotique_printf("Didn't receive right packet size waiting for listen socket (got %i bytes) from client %i %i\n",
-                    recvd,
-                    client_info[i].peer.host, client_info[i].peer.port
-                );
-                exit(1);
-            }
-            if(data_buf[0] != LISTEN_PORT) {
-                exotique_printf("Got unexpected byte from client when waiting for listen port %i\n", data_buf[0]);
-                exit(1);
-            }
+            
             listen_port_t port;
-            memcpy(&port, data_buf+1, sizeof(listen_port_t));
+            receive_packet_from_socket(client_info[i].sock, LISTEN_PORT, sizeof(listen_port_t), &port, "listen port");
+            
             client_info[i].listen_port = port.listen_port;
             exotique_printf("Client is listening on %i\n", port.listen_port);
         }
     }
 }
 
-void client_send_listen_port_to_server() {
-    
-    listen_port_t dat; dat.listen_port = client_listen_port;
-    data_buf[0] = LISTEN_PORT;
-    memcpy(data_buf+1, &dat, sizeof(dat));
 
-    u32 sent = SDLNet_TCP_Send(serv_sock, &data_buf, sizeof(listen_port_t)+1);
-    if(sent != sizeof(listen_port_t)+1) {
-        exotique_printf("Error sending listen port to server, only sent %i bytes\n", sent);
-        exit(1);
-    }
+
+
+void client_send_listen_port_to_server() {
+    listen_port_t dat; dat.listen_port = client_listen_port;
+    send_packet_to_socket(serv_sock, LISTEN_PORT, sizeof(listen_port_t), &dat, "listen port");
 }
 
-void send_initial_state() {
-    char data_buf[1+sizeof(seed_and_player_info)];
-    data_buf[0] = RANDOM_seed_and_player_info;
 
+void send_initial_state() {
     seed_and_player_info seed_info;
 
     int num_all_clients = 0;
@@ -3514,31 +3582,16 @@ void send_initial_state() {
             seed_info.your_ip.port = client_info[i].listen_port;
             seed_info.player_num = client_info[i].player_num;
 
-            memcpy(data_buf+1, &seed_info, sizeof(seed_and_player_info));
-            int sent = SDLNet_TCP_Send(client_info[i].sock, &data_buf, 1+sizeof(seed_and_player_info));
-            if(sent != 1+sizeof(seed_and_player_info)) {
-                exotique_printf("Couldn't send initial state, sent %i\n", sent);
-                exit(1);
-            }
+            send_packet_to_socket(client_info[i].sock, RANDOM_SEED_AND_PLAYER_INFO, sizeof(seed_and_player_info), &seed_info, "initial state");
         }
     }
 }
 
 seed_and_player_info receive_initial_state() {
     exotique_printf("Waiting for initial state\n");
-    long long unsigned int recvd = SDLNet_TCP_Recv(serv_sock, data_buf, 1+sizeof(seed_and_player_info));
-    if(recvd <= 0) {
-        exotique_printf("Error: disconnected from server :(\n");
-        exit(1);
-    }
 
-    if(recvd < 1+sizeof(seed_and_player_info)) {
-        exotique_printf("Expected game state (%i bytes) but only got %i bytes", 1+sizeof(seed_and_player_info), recvd);
-        exit(1);
-    }
-
-    seed_and_player_info start_info;
-    memcpy(&start_info, data_buf+1, sizeof(seed_and_player_info));
+    seed_and_player_info start_info;    
+    receive_packet_from_socket(serv_sock, RANDOM_SEED_AND_PLAYER_INFO, sizeof(seed_and_player_info), &start_info, "initial state");
 
     human_player = start_info.player_num;
     memcpy(&game_data.seeds, start_info.seeds, sizeof(u32)*4);
@@ -3595,6 +3648,8 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
                 // just try again
                 continue;
             }
+            disable_nagle(new_sock);
+
             IPaddress *ipptr = SDLNet_TCP_GetPeerAddress(new_sock);
             exotique_printf("got p2p connection from %i:%i\n", SDLNet_Read32(&ipptr->host), SDLNet_Read16(&ipptr->port));
         
@@ -3620,6 +3675,8 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
             exotique_printf("Couldn't open p2p socket to player %i: %s\n", initial_state.clients_info[i].player_num, SDLNet_GetError());
             exit(1);
         }
+        disable_nagle(p2p_sock);
+
         exotique_printf("opened p2p connection to player %i %i:%i\n", initial_state.clients_info[i].player_num, SDLNet_Read32(&p2p_ip.host), SDLNet_Read16(&p2p_ip.port));
         client_info[connected_clients].sock = p2p_sock;
         int added_sock = SDLNet_TCP_AddSocket(socket_set, client_info[connected_clients].sock);
@@ -3630,6 +3687,10 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
         num_socks_in_set = added_sock;
         client_info[connected_clients++].player_num = initial_state.clients_info[i].player_num;
     }
+
+    // add server socket to client info
+    client_info[connected_clients].player_num = 0;
+    client_info[connected_clients].sock = serv_sock;
 }
 
 #define ACTIONS             \
@@ -3687,7 +3748,6 @@ int queue_size() {
 void reset_queue() {
     queue_head = queue_tail = 0;
 }
-
 
 player_action queue_peek() {
     return action_queue[queue_tail&(MAX_PLAYER_EVENTS-1)];
@@ -3770,13 +3830,6 @@ void queue_push(player_action act) {
 }
 
 void client_send_input_to_all_clients() {
-    /*
-    
-        this routine SHOULD block
-
-    */
-    char data_buf[1+sizeof(action_packet)];
-    data_buf[0] = INPUT_FROM_CLIENT;
     player_action this_action;
     if(queue_size() == 0) {
         exotique_printf("Expected one entry (player input) in queue, but got 0\n");
@@ -3784,45 +3837,16 @@ void client_send_input_to_all_clients() {
     } else {
         this_action = queue_peek();
     }
-    memcpy(data_buf+1, &this_action, sizeof(player_action));
 
     for(int i = 0; i < MAX_CLIENTS; i++) {
         if(client_info[i].sock && client_info[i].player_num != human_player) {
-            long long unsigned int sent = SDLNet_TCP_Send(client_info[i].sock, &data_buf, 1+sizeof(player_action));
-            if(sent != 1+sizeof(player_action)) {
-                exotique_printf("Send action to other client %i failed, only sent %i bytes\n", client_info[i].player_num, sent);
-                exit(1);
-            }
-        }
-    }
-
-    // also send our input over the socket we set up to the original "host", who is now a normal client
-    if(human_player != 0) {
-        long long unsigned int sent = SDLNet_TCP_Send(serv_sock, &data_buf, 1+sizeof(player_action));
-        if(sent != 1+sizeof(player_action)) {
-            exotique_printf("Send input to host client failed, only sent %i bytes\n", sent);
-            exit(1);
+            send_packet_to_socket(client_info[i].sock, INPUT_FROM_CLIENT, sizeof(player_action), &this_action, "action");
         }
     }
 }
 
 void client_wait_for_all_inputs() {
-    /*
-
-    this routine should NOT BLOCK
-
-    and only read data when it is already available.
-
-    */
-    char data_buf[1+sizeof(player_action)];
     player_action action;
-    //exotique_printf("WAITING FOR INPUTS FROM %i PLAYERS\n", num_socks_in_set);
-    //int num_sockets_ready = SDLNet_CheckSockets(socket_set, 0);
-    //if(num_sockets_ready == 0) {
-    //    //exotique_printf("NO DATA READY\n");
-    //    return;
-    //}
-    //exotique_printf("DATA READY FROM %i PLAYERS\n", num_sockets_ready);
 
     while(socket_set != NULL && SDLNet_CheckSockets(socket_set, 0)) {
         for(int i = 0; i < MAX_CLIENTS; i++) {
@@ -3831,44 +3855,15 @@ void client_wait_for_all_inputs() {
                     continue;
                 }
 
-                long long unsigned int recvd = SDLNet_TCP_Recv(client_info[i].sock, &data_buf, 1+sizeof(player_action));
+                receive_packet_from_socket(client_info[i].sock, INPUT_FROM_CLIENT, sizeof(player_action), &action, "input");
 
-                if(recvd < 1+sizeof(player_action)) {
-                    exotique_printf("Receive inputs from server failed, only received %i bytes\n", recvd);
-                    exit(1);
-                }
-                if(data_buf[0] != INPUT_FROM_CLIENT) {
-                    exotique_printf("Got unexpected header byte from server when waiting for all inputs %i\n", data_buf[0]);
-                    exit(1);
-                }
-                memcpy(&action, data_buf+1, sizeof(player_action));
                 if(action.player_num == human_player){
-                    exotique_printf("wtf got an action from myself?\n");
+                    exotique_printf("Error: corrupted packet claims to be from this client\n");
                     exit(1);
                 }
                 exotique_printf("got an action from player %i\n", action.player_num);
                 queue_push(action);
             }
-        }
-
-        if(human_player != 0 && SDLNet_SocketReady(serv_sock)) {
-            // listen to 'host' client's input as well
-            long long unsigned int recvd = SDLNet_TCP_Recv(serv_sock, &data_buf, 1+sizeof(player_action));
-            if(recvd < 1+sizeof(player_action)) {
-                exotique_printf("Receive inputs from server failed, only received %i bytes\n", recvd);
-                exit(1);
-            }
-            if(data_buf[0] != INPUT_FROM_CLIENT) {
-                exotique_printf("Got unexpected header byte from server when waiting for all inputs %i\n", data_buf[0]);
-                exit(1);
-            }
-            memcpy(&action, data_buf+1, sizeof(player_action));
-            if(action.player_num == human_player){
-                exotique_printf("wtf got an action from myself?\n");
-                exit(1);
-            }
-                exotique_printf("got an action from player %i\n", action.player_num);
-            queue_push(action);
         }
     }
 }
@@ -3898,7 +3893,7 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
             char *endptr;
             errno = 0;
             num_clients = strtol(argv[i+1],&endptr, 10);
-            if(errno == ERANGE || endptr == argv[i+1]) {
+            if(num_clients < 0 || num_clients > 3 || endptr == argv[i+1]) {
                 exotique_printf("Invalid number of clients %i\n", num_clients);
                 exit(1);
             }
@@ -4056,7 +4051,6 @@ void shuffle_timer_callback(u64 data) {
     game_data.shuffle_timer_handle = -1;
 }
 
-
 void step_shuffle_and_setup(wall* w) {
     if(game_data.shuffle_timer_handle != -1) {
         return;
@@ -4149,21 +4143,26 @@ void step_deal() {
         game_data.cur_game_state = IN_GAME;
         game_data.draw_state = DRAWN;
         
-        
-        game_data.hands[0].tiles[0] = ONE_PIN;
-        game_data.hands[0].tiles[1] = TWO_PIN;
-        game_data.hands[0].tiles[2] = EAST;
-        game_data.hands[0].tiles[3] = FOUR_PIN;
-        game_data.hands[0].tiles[4] = FIVE_PIN;
-        game_data.hands[0].tiles[5] = ONE_MAN;
-        game_data.hands[0].tiles[6] = TWO_MAN;
-        game_data.hands[0].tiles[7] = WHITE_DRAGON;
-        game_data.hands[0].tiles[8] = FIVE_MAN;
-        game_data.hands[0].tiles[9] = SIX_MAN;
-        game_data.hands[0].tiles[10] = THREE_SOU;
-        game_data.hands[0].tiles[11] = FOUR_SOU;
-        game_data.hands[0].tiles[12] = SEVEN_SOU;
-        game_data.hands[0].tiles[13] = EIGHT_SOU;
+        /*
+        game_data.hands[0].tiles[0] = WHITE_DRAGON;
+        game_data.hands[0].tiles[1] = WHITE_DRAGON;
+        game_data.hands[1].tiles[0] = WHITE_DRAGON;
+
+        game_data.hands[0].tiles[0] = WHITE_DRAGON;
+        game_data.hands[0].tiles[1] = WHITE_DRAGON;
+        game_data.hands[0].tiles[2] = RED_DRAGON;
+        game_data.hands[0].tiles[3] = RED_DRAGON;
+        game_data.hands[0].tiles[4] = GREEN_DRAGON;
+        game_data.hands[0].tiles[5] = GREEN_DRAGON;
+        game_data.hands[0].tiles[6] = NORTH;
+        game_data.hands[0].tiles[7] = NORTH;
+        game_data.hands[0].tiles[8] = EAST;
+        game_data.hands[0].tiles[9] = EAST;
+        game_data.hands[0].tiles[10] = SOUTH;
+        game_data.hands[0].tiles[11] = SOUTH;
+        game_data.hands[0].tiles[12] = WEST;
+        game_data.hands[0].tiles[13] = WEST;
+        */
 
         game_data.switch_player_timer_handle = -1;
         
@@ -4234,7 +4233,7 @@ void draw_next_tile(int player) {
 
     cur_player_hand->wall_index_for_tiles[cur_num_tiles] = --game_data.wall_rem;
     cur_player_hand->tiles[cur_num_tiles] = board_wall.tiles[game_data.wall_rem];
-    cur_player_hand->selected_tile_idx = cur_num_tiles;
+    //cur_player_hand->selected_tile_idx = cur_num_tiles;
 }
 
 int count_tile_in_hand(tile_type hand_tiles[], int num_tiles, tile_type search_tile) {
@@ -4329,7 +4328,7 @@ void run_ai_player(i8 player, hand* h, int this_player_turn) {
         }
     }
     if(waiting_on_call_from(player)) {
-        queue_push(make_player_action(player, NO_ATTEMPT_CALL));
+       queue_push(make_player_action(player, (ai_type == AGGRESSIVE_AI) ? ATTEMPT_CALL : NO_ATTEMPT_CALL));
         return;
     }
 
@@ -4653,6 +4652,8 @@ int is_win(hand_score_modifiers *mods, hand* h, int player, int is_tsumo) {
     
     tile_type tmp[14];
     copy_hand_tiles_to_tmp(h, tmp);
+    // sort open and closed tiles together
+    sort_tile_list(tmp, h->num_closed_tiles+h->num_open_tiles);
     return is_winning_hand(mods, tmp, is_tsumo, (h->num_open_tiles == 0), h->in_riichi, game_data.dora_tile, game_wind_to_tile_wind[game_data.cur_wind], player_winds[player]);
 }
 
@@ -4676,7 +4677,6 @@ call_info can_call(int player, hand_score_modifiers *mods) {
     
     call_info call_res; call_res.call = NO_CALL;
 
-    hand* prev_hand = &game_data.hands[game_data.last_discard_player];
     hand* cur_hand = &game_data.hands[player];
     tile_type prev_discard = game_data.last_discard;
 
@@ -4734,7 +4734,7 @@ call_info can_call(int player, hand_score_modifiers *mods) {
     // TODO: this is currently not allowing KAN because those would crash the game
     // however, it should be a different call type and handled separately
     // eg open kan, closed kan
-    if(pon_cnt >= 3 && count_tile_in_hand(tmp_full_hand, cur_hand->num_closed_tiles, prev_discard) == 2) {
+    if(pon_cnt == 2 && count_tile_in_hand(tmp_full_hand, cur_hand->num_closed_tiles, prev_discard) == 2) {
         call_res.index1 = pon_index1;
         call_res.index2 = pon_index2;
         call_res.call = PON_CALL;
@@ -4966,31 +4966,44 @@ void add_player_to_waiting_on_call_list(int player) {
     }
 }
 
-#define NO_CALL_DURATION 3.0
 
-void end_no_call_timer_callback(u64 callback_data) {
-    // send a no call event :(
-    int player = callback_data;
-    queue_push(make_player_action(player, NO_ATTEMPT_CALL));
-    game_data.hands[player].no_call_timer = -1;
-}
-
-void start_no_call_timer(int player) {
-    int handle = timer_get_handle("HUMAN NO CALL TIMER");
-    game_data.hands[player].no_call_timer = handle;
-    timer_start(
-        handle, NO_CALL_DURATION, 1, end_no_call_timer_callback, player
-    );
-}
-
-void clear_no_call_timer(int player) {
-    timer_release(game_data.hands[player].no_call_timer);
-    game_data.hands[player].no_call_timer = -1;
-}
+int step_frame = 0;
+char* step_reason = NULL;
 void advance_frame(const char* reason) {
     exotique_printf("advancing frame to %i after %s\n", ++game_data.sim_frame, reason);
+    step_frame = 0;
 }
 
+void stage_advance_frame(const char* reason) {
+    if(step_frame) {
+        exotique_printf("TRYING TO ADVANCE FRAME TWICE!\n");
+        exit(1);
+    }
+    step_frame = 1;
+    step_reason = (char *)reason;
+}
+
+
+int player_can_perform_action_and_is_in_draw_state(int player_num, tile_draw_state draw_state) {
+    int switching = (game_data.switch_player_timer_handle != -1);
+    int this_players_turn = game_data.cur_player == player_num;
+
+    if(!this_players_turn) {
+        return 0;
+    }
+    if(switching) {
+        return 0;
+    }
+    return (game_data.draw_state == draw_state);
+}
+
+int player_can_discard(int player_num) {
+    return player_can_perform_action_and_is_in_draw_state(player_num, DRAWN);
+}
+
+int player_can_draw(int player_num) {
+    return player_can_perform_action_and_is_in_draw_state(player_num, UNDRAWN);
+}
 
 block run_game(ExotiqueInterface *ei, block whole_frame_block) {
     int pushed_y = ei->input->y && !last_y_pushed;
@@ -4999,27 +5012,39 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
     int pushed_b = ei->input->b && !last_b_pushed;
 
 
-    int switching = (game_data.switch_player_timer_handle != -1);
+    int human_can_draw = player_can_draw(human_player);
+    int human_can_discard = player_can_discard(human_player);
+    int human_can_riichi_or_tsumo = human_can_discard;
 
     int send_input = 0;
-    if(pushed_x) {
-        queue_push(make_player_action(human_player, ATTEMPT_CALL));
-        send_input = 1;  
-    } else if(ei->input->left && !last_left_pushed) {
-        queue_push(make_player_action(human_player, MOVE_SELECTED_LEFT));
-        send_input = 1;  
-    } else if (ei->input->right && !last_right_pushed) {
-        queue_push(make_player_action(human_player, MOVE_SELECTED_RIGHT));
-        send_input = 1;  
-    } else if(pushed_a) {
-        queue_push(make_player_action(human_player, ATTEMPT_DRAW));
-        send_input = 1;  
-    } else if(pushed_b) {
-        queue_push(make_player_action(human_player, ATTEMPT_DISCARD));
-        send_input = 1;  
-    } else if (pushed_y) {
-        queue_push(make_player_action(human_player, ATTEMPT_RIICHI_OR_WIN));
-        send_input = 1;  
+    if(waiting_on_call_from(human_player)) {
+        // waiting on a call
+        // only allow X or B
+        if(pushed_x) {
+            queue_push(make_player_action(human_player, ATTEMPT_CALL));
+            send_input = 1;  
+        } else if(pushed_b) {
+            queue_push(make_player_action(human_player, NO_ATTEMPT_CALL));
+            send_input = 1;  
+        }
+    } else {
+        // not waiting, don't allow CALLs
+        if(ei->input->left && !last_left_pushed) {
+            queue_push(make_player_action(human_player, MOVE_SELECTED_LEFT));
+            send_input = 1;  
+        } else if (ei->input->right && !last_right_pushed) {
+            queue_push(make_player_action(human_player, MOVE_SELECTED_RIGHT));
+            send_input = 1;  
+        } else if(pushed_a && human_can_draw) {
+            queue_push(make_player_action(human_player, ATTEMPT_DRAW));
+            send_input = 1;  
+        } else if(pushed_b && human_can_discard) {
+            queue_push(make_player_action(human_player, ATTEMPT_DISCARD));
+            send_input = 1;  
+        } else if (pushed_y && human_can_riichi_or_tsumo) {
+            queue_push(make_player_action(human_player, ATTEMPT_RIICHI_OR_WIN));
+            send_input = 1;  
+        }
     }
 
     static block network_send_block = START_TIMED_BLOCK(network_send_block, "send input", whole_frame_block)
@@ -5040,25 +5065,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
     }
 
     
-    int step_frame = 0;
-    char* step_reason = NULL;
-
-    #define STEP_FRAME_REASON(reason) do {  \
-        if(step_frame == 1) {               \
-            exotique_printf("TRYING TO ADVANCE FRAME TWICE!\n");    \
-            exit(1);                        \
-        }                           \
-        step_frame = 1;             \
-        step_reason = (reason);     \
-    } while(0);
-
     if(game_data.waiting_for_calls) {
-        
-        exotique_printf("waiting for calls from: \n");
-        for(int i = 0; i < game_data.waiting_for_calls; i++) {
-            exotique_printf("%i\n", game_data.waiting_for_calls_players[i]);
-        }
-        
         while(!queue_empty() && game_data.waiting_for_calls) {
             player_action action = queue_peek();
             i8 this_player = action.player_num;
@@ -5094,7 +5101,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                     remove_player_from_waiting_on_call_list(action.player_num);
                     if(game_data.waiting_for_calls == 0) {
                         switch_player_callback(0);
-                        STEP_FRAME_REASON("no calls made");
+                        stage_advance_frame("no calls made");
                     }
                     break;
                 case ATTEMPT_CALL:
@@ -5134,7 +5141,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                         fixup_selected_idx(&game_data.hands[this_player]);
                         game_data.cur_player = this_player;
 
-                        STEP_FRAME_REASON("call made");
+                        stage_advance_frame("call made");
                         if(step_frame) {
                             advance_frame(step_reason);
                         }
@@ -5142,8 +5149,10 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                     // preempt all other players
                     // sorry, but high ping should not inconvenience other players :)                        
                     return whole_frame_block;
-
+                
                 default:
+                    //goto exit_loop;    
+                    //break;
                     queue_pop();
             }
         }
@@ -5161,22 +5170,22 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
             i8 this_player = action.player_num;
 
             if(action.sim_frame < game_data.sim_frame) {
-                exotique_printf("RECEIVED OLD INPUT, MUST ADD SYNCHRONIZATION BARRIERS! (theirs %i, ours %i)\n", action.sim_frame, game_data.sim_frame);
-                exit(1);
+                exotique_printf("Ignoring old input!\n");
+                queue_pop();
+                continue;
+                //exotique_printf("RECEIVED OLD INPUT, MUST ADD SYNCHRONIZATION BARRIERS! (theirs %i, ours %i)\n", action.sim_frame, game_data.sim_frame);
+                //exit(1);
             }
 
             queue_pop();
 
             
-            tile_draw_state player_draw_state = game_data.draw_state;
-            int this_players_turn = game_data.cur_player == this_player;
-
             // if switching, we can do a call, but nothing else
-            int can_draw = !switching && this_players_turn && player_draw_state == UNDRAWN;
-            int can_discard = !switching && this_players_turn && player_draw_state == DRAWN;
+            int can_draw = player_can_draw(this_player);
+            int can_discard = player_can_discard(this_player);
+            int can_riichi_or_tsumo = can_discard;
 
             hand *player_hand = &game_data.hands[action.player_num];
-
 
             switch(action.cmd) {
                 case MOVE_SELECTED_LEFT:
@@ -5196,37 +5205,56 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
 
                         return whole_frame_block;
                     }
-                    if(can_draw) {
-                        sort_hand(player_hand);
-                        draw_next_tile(action.player_num);
-                        STEP_FRAME_REASON("draw made");
+
+                    if(!can_draw) {
+                        break;
                     }
+                    sort_hand(player_hand);
+                    draw_next_tile(action.player_num);
+                    stage_advance_frame("draw made");
                     break;
                 case ATTEMPT_DISCARD:
-                    if(can_discard) {
-                        discard_current_tile(game_data.cur_player, 0);
-                        STEP_FRAME_REASON("discard made");
-                        for(int i = 0; i < 4; i++) {
-                            if(game_data.player_types[i] != HUMAN) {
-                                reset_ai_player_state(i);
-                            }
-                            call_info call = can_call(i, &game_data.hand_winner_mods);
-                            if(call.call != NO_CALL) {
-                                if(i == human_player) {
-                                    // we dont want to add to waiting on call list?
-                                    // or do we..
-                                    // essentially this timer should cause us to send a ATTEMPT_NO_CALL action
-                                    start_no_call_timer(human_player);
-                                }
-                                add_player_to_waiting_on_call_list(i);
-                            }
+                    if(!can_discard) {
+                        break;
+                    }
+
+                    discard_current_tile(game_data.cur_player, 0);
+                    stage_advance_frame("discard made");
+                    if(player_hand->selected_tile_idx >= player_hand->num_closed_tiles) {
+                        player_hand->selected_tile_idx = player_hand->num_closed_tiles-1;
+                    }
+
+                    for(int i = 0; i < 4; i++) {
+
+                        if(game_data.player_types[i] != HUMAN) {
+                            reset_ai_player_state(i);
                         }
-                        if(game_data.waiting_for_calls == 0) {
-                            switch_player();
+                        // don't wait for player that just discarded
+                        if(i == game_data.last_discard_player) {
+                            continue;
                         }
+                        call_info call = can_call(i, &game_data.hand_winner_mods);
+                        if(call.call != NO_CALL) {
+                            add_player_to_waiting_on_call_list(i);
+                        }
+                    }
+                    
+                    if(game_data.waiting_for_calls == 0) {
+                        switch_player();
+                    } else {
+                        
+                        exotique_printf("waiting for calls from: \n");
+                        for(int i = 0; i < game_data.waiting_for_calls; i++) {
+                            exotique_printf("%i\n", game_data.waiting_for_calls_players[i]);
+                        }
+                        return whole_frame_block;
                     }
                     break;
                 case ATTEMPT_RIICHI_OR_WIN: 
+                    if(!can_riichi_or_tsumo) {
+                        break;
+                    }
+
                     if(is_win(&game_data.hand_winner_mods, player_hand, this_player, 1)) {
                         exotique_printf("TSUMO WIN !\n");
                         add_sound(TSUMO, 0.25f);
@@ -5234,11 +5262,11 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                         adjust_scores(0, -1);
                         show_winning_hand();
                         return whole_frame_block;
-                    } else if (can_discard && attempt_riichi(this_player)) {             
+                    } else if (attempt_riichi(this_player)) {             
                         player_hand->in_riichi = 1;
                         add_sound(RIICHI_SND, 0.125f);
                         discard_current_tile(this_player, 1);
-                        STEP_FRAME_REASON("riichi discard made");
+                        stage_advance_frame("riichi discard made");
                         switch_player();
                         for(int i = 0; i < 4; i++) {
                             if(game_data.player_types[i] != HUMAN) {
@@ -5288,7 +5316,8 @@ void game_update(ExotiqueInterface* ei) {
 
     camera_rot_x = CLAMP(camera_rot_x, 0.0f, 1.568f);
     f32 use_camera_rot_x = camera_rot_x;
-    f32 lerped_cam_dist = camera_radius;
+    f32 lerped_cam_dist = camera_radius;\
+
 
     static block whole_frame_block = ROOT_TIMED_BLOCK(whole_frame_block, "sim frame")
 

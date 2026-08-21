@@ -76,7 +76,7 @@ REM  Link
 REM ============================================================
 gcc -flto -Wl,--gc-sections ^
     exotique.o miniaudio.o "%GAME%.o" ^
-    -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" -lSDL2 -lSDL2_net -latomic  ^
+    -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" -lSDL2 -lSDL2_net -latomic -lwsock32 ^
     ^
     -o "%GAME%.exe"
 IF ERRORLEVEL 1 (

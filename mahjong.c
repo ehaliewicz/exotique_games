@@ -8,8 +8,18 @@
     #include <winsock2.h>
 #endif
 
-u8 render_target[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
-u16 zbuf[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+u8 color_buffer0[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+u8 color_buffer1[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+u8 color_buffer2[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+u8 color_buffer3[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+u16 zbuf0[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+u16 zbuf1[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+u16 zbuf2[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+u16 zbuf3[RENDER_TILE_SIZE*RENDER_TILE_SIZE] __attribute__((aligned(64)));
+
+u8 *color_buffers[4] = {color_buffer0, color_buffer1, color_buffer2, color_buffer3};
+u16 *z_buffers[4] = {zbuf0, zbuf1, zbuf2, zbuf3};
+
 
 
 //#define ENABLE_MUSIC
@@ -175,6 +185,7 @@ typedef struct {
 } texture;
 
 void rasterize_triangle_2x2_quad(
+    u8 *restrict color_buffer,
     u16 *restrict zbuffer,
     transformed_tri *restrict tri_attributes,
     texture *restrict tex,
@@ -333,7 +344,7 @@ void rasterize_triangle_2x2_quad(
         int in_tile_y = y-start_y;
         int in_tile_x = minx-start_x;
         int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
-        u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
+        u32 *col_buf_ptr = __builtin_assume_aligned(&color_buffer[tile_idx], 4);
         u64 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
         for (i32 x = 0; x < (maxx-minx); x += 2, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
 
@@ -416,6 +427,7 @@ void rasterize_triangle_2x2_quad(
 
 
 void rasterize_triangle_2x2_quad_no_tmap_avx2(
+    u8 *restrict color_buffer,
     u16 *restrict zbuffer,
     transformed_tri *restrict tri_attributes,
     i32 start_x, i32 end_x, i32 start_y, i32 end_y
@@ -551,7 +563,7 @@ void rasterize_triangle_2x2_quad_no_tmap_avx2(
         int in_tile_x = minx-start_x;
         int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
 
-        u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
+        u32 *col_buf_ptr = __builtin_assume_aligned(&color_buffer[tile_idx], 4);
         u64 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
 
 
@@ -631,6 +643,7 @@ void rasterize_triangle_2x2_quad_no_tmap_avx2(
 
 
 void rasterize_triangle_2x2_quad_no_tmap(
+    u8 *restrict color_buffer,
     u16 *restrict zbuffer,
     transformed_tri *restrict tri_attributes,
     i32 start_x, i32 end_x, i32 start_y, i32 end_y
@@ -763,7 +776,7 @@ void rasterize_triangle_2x2_quad_no_tmap(
         int in_tile_x = minx-start_x;
         int tile_idx = (in_tile_y&~1)*RENDER_TILE_SIZE + ((in_tile_x&~1)<<1);
 
-        u32 *col_buf_ptr = __builtin_assume_aligned(&render_target[tile_idx], 4);
+        u32 *col_buf_ptr = __builtin_assume_aligned(&color_buffer[tile_idx], 4);
         u64 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
 
 
@@ -1412,14 +1425,15 @@ void output_mixing_table(ExotiqueInterface *ei) {
 }
 
 
-//    DRAW CALLS, TILE FILLS, VERTEX SHADERS
+//  DRAW CALLS, TILE FILLS, VERTEX SHADERS
 
 int got_board_min_max_coords = 0;
 f32 board_min_y, board_max_y;
 f32 board_top_min_x, board_top_max_x;
 f32 board_bot_min_x, board_bot_max_x;
+//#define AVX2
 
-void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
+void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile* t) {
     u32 i;
 
     int base_x = t->start_x;
@@ -1430,8 +1444,8 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
 
 
     /* clear zbuffer for this tile, fill with background, OR game board */
-    u32 *col_val_ptr = __builtin_assume_aligned(&render_target[0], 4);
-    u64 *zbuf_ptr = __builtin_assume_aligned(&zbuf[0], 8);
+    u32 *col_val_ptr = __builtin_assume_aligned(&color_buffer[0], 4);
+    u64 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[0], 8);
 
     f32_vec inv_far_vec_flt = broadcast_f32_vec(1.0f/FAR_Z);
     u64 inv_far_vec = encode_float_inv_z_vec(inv_far_vec_flt);
@@ -1444,7 +1458,7 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
         //f32 y_portion = (f32)global_y / (f32)RENDER_HEIGHT;
         //int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
 
-        if(global_y >= board_min_y && global_y < board_max_y-2) {
+        if(0) { //global_y >= board_min_y && global_y < board_max_y-2) {
             f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
             f32 right = board_top_max_x + right_dx_per_dy * ((f32) global_y - board_min_y);
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
@@ -1493,9 +1507,13 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
     for(i = 0; i < num_solid_tris; i++) {
         u32 global_tri_idx = t->solid_tri_indexes[i];
         // drew_pix
-        //rasterize_triangle_2x2_quad_no_tmap(
-        rasterize_triangle_2x2_quad_no_tmap_avx2(
-            zbuffer,
+    #ifdef AVX2
+        rasterize_triangle_2x2_quad_no_tmap_avx2
+    #else
+        rasterize_triangle_2x2_quad_no_tmap
+    #endif
+        (
+            color_buffer, zbuffer,
             &global_tri_buffer[global_tri_idx],
             t->start_x, t->start_x+RENDER_TILE_SIZE,
             t->start_y, t->start_y+RENDER_TILE_SIZE
@@ -1506,7 +1524,7 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tex_tri_indexes[i];
         rasterize_triangle_2x2_quad(
-            zbuffer,
+            color_buffer, zbuffer,
             &global_tri_buffer[global_tri_idx],
             &textures[global_tri_buffer[global_tri_idx].tex],
             t->start_x, t->start_x+RENDER_TILE_SIZE,
@@ -1515,7 +1533,7 @@ void rasterize_tile(ExotiqueInterface *ei, u16 *zbuffer, tile* t) {
     }
 
     /* flush tile to output */
-    col_val_ptr = __builtin_assume_aligned(&render_target[0], 4);
+    col_val_ptr = __builtin_assume_aligned(&color_buffer[0], 4);
     for(int y = 0; y < RENDER_TILE_SIZE; y+=2) {
         int output_y = (base_y+y)>>1;
 
@@ -1551,7 +1569,7 @@ void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
         
         u8* output_row = &ei->screen[output_y*kScreenWidth+ (base_x>>1)];
 
-        if(global_y >= board_min_y && global_y < board_max_y-2) {
+        if(0) { //global_y >= board_min_y && global_y < board_max_y-2) {
             f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
             f32 right = board_top_max_x + right_dx_per_dy * ((f32) global_y - board_min_y);
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
@@ -1580,21 +1598,74 @@ void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
     }
 }
 
-void rasterize_tiles(ExotiqueInterface *ei, u16 *zbuffer) {
+#include <windows.h>
+#include <process.h>
+
+typedef struct {
+    u8* color_buffer;
+    u16* z_buffer;
+    ExotiqueInterface *ei;
+    u8 draw_tile_bmp;
+    HANDLE start_event; // Signal from Main to Worker: "Wake up and work!"
+    HANDLE done_event;  // Signal from Worker to Main: "I am finished!"
+    bool shutdown;      // Signal to cleanly close thread at app exit
+} RasterThreadCtx;
+
+
+void rasterize_tiles(ExotiqueInterface *ei, u8 *color_buffer, u16 *z_buffer, int draw_tile_bmp) {
 
     for(int y = 0; y < TILES_HIGH; y++) {
         for(int x = 0; x < TILES_WIDE; x++) {
+            u8 bmp = (y&0b10)|((x&0b10)>>1);
+            if(bmp != draw_tile_bmp) { continue; }
 
+            //if(((x^y)&1) == draw_even_tiles) { continue; }
+            
             tile* t = &tiles[y*TILES_WIDE+x];
             
             if(t->num_tex_triangles || t->num_solid_triangles) {
-                rasterize_tile(ei, zbuffer, &tiles[y*TILES_WIDE+x]);
+                rasterize_tile(ei, color_buffer, z_buffer, &tiles[y*TILES_WIDE+x]);
             } else {
                 fill_background_for_tile(ei, &tiles[y*TILES_WIDE+x]);
             }
         }
     }
 }
+#define NUM_RASTER_THREADS 4
+HANDLE raster_thread_handles[NUM_RASTER_THREADS];
+RasterThreadCtx raster_contexts[NUM_RASTER_THREADS];
+
+void raster_worker(void *arg) {
+    RasterThreadCtx *ctx = (RasterThreadCtx*)arg;
+    while(1) {
+        WaitForSingleObject(ctx->start_event, INFINITE);
+        if(ctx->shutdown) {
+            break;
+        }
+
+        // otherwise, 
+        rasterize_tiles(ctx->ei, ctx->color_buffer, ctx->z_buffer, ctx->draw_tile_bmp);
+
+        SetEvent(ctx->done_event);
+    }
+    _endthread();
+}
+
+void rasterize_tiles_parallel() {
+
+    for(int i = 0; i < NUM_RASTER_THREADS; i++) {
+        SetEvent(raster_contexts[i].start_event);
+    }
+    
+
+    HANDLE completion_events[NUM_RASTER_THREADS];
+    for(int i = 0; i < NUM_RASTER_THREADS; i++) {
+        completion_events[i] = raster_contexts[i].done_event;
+    }
+    WaitForMultipleObjects(NUM_RASTER_THREADS, completion_events, TRUE, INFINITE);
+
+}
+
 
 
 int triangles_rasterized;
@@ -3272,7 +3343,7 @@ void game_draw(ExotiqueInterface* ei) {
         END_TIMED_BLOCK(board_block)
 
         static block raster_block = START_TIMED_BLOCK(raster_block, "rast. tiles", whole_frame_block)
-            rasterize_tiles(ei, zbuf);
+            rasterize_tiles_parallel();
         END_TIMED_BLOCK(raster_block)
 
     END_TIMED_BLOCK(whole_frame_block)
@@ -4220,6 +4291,17 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     exotique_printf("Connections setup to %i total players\n", num_socks_in_set);
     reset_game();
 
+    // setup rasterization contexts
+    for(int i = 0; i < NUM_RASTER_THREADS; i++) {
+        raster_contexts[i].draw_tile_bmp = i;
+        raster_contexts[i].ei = ei;
+        raster_contexts[i].shutdown = 0;        
+        raster_contexts[i].start_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+        raster_contexts[i].done_event  = CreateEvent(NULL, FALSE, FALSE, NULL);
+        raster_contexts[i].color_buffer = color_buffers[i];
+        raster_contexts[i].z_buffer = z_buffers[i];
+        raster_thread_handles[i] = (HANDLE)_beginthread(raster_worker, 0, &raster_contexts[i]);
+    }
 }
 
 
@@ -5182,7 +5264,6 @@ void stage_advance_frame(const char* reason) {
     step_reason = (char *)reason;
 }
 
-
 int player_can_perform_action_and_is_in_draw_state(int player_num, tile_draw_state draw_state) {
     int switching = (game_data.switch_player_timer_handle != -1);
     int this_players_turn = game_data.cur_player == player_num;
@@ -5530,8 +5611,7 @@ void game_update(ExotiqueInterface* ei) {
 
     camera_rot_x = CLAMP(camera_rot_x, 0.0f, 1.568f);
     f32 use_camera_rot_x = camera_rot_x;
-    f32 lerped_cam_dist = camera_radius;\
-
+    f32 lerped_cam_dist = camera_radius;
 
     static block whole_frame_block = ROOT_TIMED_BLOCK(whole_frame_block, "sim frame")
 

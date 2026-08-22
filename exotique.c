@@ -179,11 +179,12 @@ exotique_draw(GameManager* gm)
   }
     
   // Rendering the final texture to screen
-  if (SDL_RenderClear(sm->renderer))
-  {
-    SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't clear the current rendering target with the drawing color: %s", SDL_GetError());
-    exotique_panic(gm);
-  }
+  //if (SDL_RenderClear(sm->renderer))
+  //{
+  //  SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't clear the current rendering target with the drawing color: %s", SDL_GetError());
+  //  exotique_panic(gm);
+  //}
+  
   if (SDL_RenderCopy(sm->renderer, sm->texture, NULL, NULL))
   {
     SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't copy a portion of the texture to the current rendering target: %s", SDL_GetError());

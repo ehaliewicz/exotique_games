@@ -42,7 +42,7 @@ SET GAME=%~n1
 REM ============================================================
 REM  Compile exotique.c
 REM ============================================================
-"%GCC%" -c %CFLAGS% -std=c2x -O3 -ggdb -march=westmere ^
+"%GCC%" -c %CFLAGS% -std=c2x -O2 -ggdb -march=haswell ^
     -I "%SDL2_INC%" -D_REENTRANT ^
     exotique.c
 IF ERRORLEVEL 1 (

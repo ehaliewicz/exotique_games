@@ -1211,8 +1211,8 @@ void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byt
         } else {
             global_pal_idx = light_remap_table[NUM_SHADES-1][default_pal_color];
             length = (packet>>1)+1;
-            u8 next_packet = packets[packet_idx++];
-            length += (next_packet<<7);
+            //u8 next_packet = packets[packet_idx++];
+            //length += (next_packet<<7);
         }
 
         for(int i = 0; i < length; i++) {

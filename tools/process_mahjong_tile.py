@@ -213,9 +213,10 @@ def un_rle(packets,unique_color_rev_map):
             actual_pal_idx = unique_color_rev_map[color_bit]
         else:
             # white run
-            next_byte = packets[idx]
-            idx += 1
-            length = (packet>>1) + (next_byte<<7) + 1
+            #next_byte = packets[idx]
+            #idx += 1
+            #length = (packet>>1) + (next_byte<<7) + 1
+            length = (packet>>1) + 1
 
             actual_pal_idx = WHITE_IDX
 
@@ -246,8 +247,9 @@ def rle(colors, unique_color_map, max_run_len, max_white_run_len):
                 adj_run_len = cur_run_len-1 # represent a run length of 1 with 0, 2 with 1, 64 with 32, etc
                 if is_white_run:
                     low_7_bits = (adj_run_len&0b1111111)<<1
+                    assert (adj_run_len & 0b1111111) == adj_run_len
                     packet_output.append(low_7_bits|0)
-                    packet_output.append(adj_run_len>>7)
+                    #packet_output.append(adj_run_len>>7)
                     #packet_output.append((adj_run_len<<1)|0)
                 else:
                     color_bit = unique_color_map[cur_run_color]
@@ -261,8 +263,9 @@ def rle(colors, unique_color_map, max_run_len, max_white_run_len):
         adj_run_len = cur_run_len-1
         if is_white_run:
             low_7_bits = (adj_run_len&0b1111111)<<1
+            assert (adj_run_len & 0b1111111) == adj_run_len
             packet_output.append(low_7_bits|0)
-            packet_output.append(adj_run_len>>7)
+            #packet_output.append(adj_run_len>>7)
 
         else:
             color_bit = unique_color_map[cur_run_color]

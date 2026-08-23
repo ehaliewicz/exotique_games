@@ -1157,7 +1157,7 @@ u8 texture_mip_3_buffer[NUM_ALL_TEXTURE_TYPES][32*32] __attribute__((aligned(64)
 
 
 texture textures[NUM_ALL_TEXTURE_TYPES+1] = {
-#define X(tile_name, lowercase_name, sort_val, is_terminal, is_honor) { &comp_tex_ ## lowercase_name, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 256, 256, COMPRESSED, WHITE },
+#define X(tile_name, lowercase_name, sort_val, is_terminal, is_honor) { &comp_tex_ ## lowercase_name, {NULL_PTR, NULL_PTR, NULL_PTR, NULL_PTR}, 128, 128, COMPRESSED, WHITE },
     TILE_LIST
 #undef X
     { // NUM_TILES
@@ -1458,7 +1458,7 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
         //f32 y_portion = (f32)global_y / (f32)RENDER_HEIGHT;
         //int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
 
-        if(0) { //global_y >= board_min_y && global_y < board_max_y-2) {
+        if(global_y >= board_min_y && global_y < board_max_y-2) {
             f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
             f32 right = board_top_max_x + right_dx_per_dy * ((f32) global_y - board_min_y);
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
@@ -1569,7 +1569,7 @@ void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
         
         u8* output_row = &ei->screen[output_y*kScreenWidth+ (base_x>>1)];
 
-        if(0) { //global_y >= board_min_y && global_y < board_max_y-2) {
+        if(global_y >= board_min_y && global_y < board_max_y-2) {
             f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
             f32 right = board_top_max_x + right_dx_per_dy * ((f32) global_y - board_min_y);
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
@@ -1747,11 +1747,11 @@ void bin_triangle(
 
 
 
-            u8 mip_level = 1;
+            u8 mip_level = 0;
             int tex_width = textures[texture_id].width;
             int tex_height = textures[texture_id].height;
             if(!no_tmap && tex_width > 1) {
-                mip_level = 1;
+                //mip_level = 1;
                 f32 v1v0dx = fabsf(v1->x - v0->x)*(f32)tex_width;
                 f32 v1v0dy = fabsf(v1->y - v0->y)*(f32)tex_height;
                 f32 v1v0len = (v1v0dx * v1v0dx + v1v0dy * v1v0dy);
@@ -1769,15 +1769,15 @@ void bin_triangle(
                 f32 edge1_dv_per_len = v2v0uvlen / v2v0len;
                 f32 duv_per_pix = MAX(edge0_dv_per_len, edge1_dv_per_len);
                                 
-                //if(duv_per_pix > 1.0f) {
-                //    mip_level = 1;
+                if(duv_per_pix > 1.0f) {
+                    mip_level = 1;
                     if(duv_per_pix > 2.0f) { // 6
                         mip_level = 2;
                         if(duv_per_pix > 4.0f) { // 12
                             mip_level = 3;
                         }
                     }
-                //}
+                }
                 duv_per_pix /= (f32)(2 << mip_level);
                 duv_per_pix = duv_per_pix;
             }

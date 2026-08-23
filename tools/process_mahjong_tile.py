@@ -29,15 +29,15 @@ PALETTE_HEX = [
     
 ]
  
-FINAL_SIZE = 256
+FINAL_SIZE = 128
  
 # Character fills the whole canvas except a single reserved column on the
 # right (used for the solid-color triangle marker, and forced to white by
 # the compressor's `px == x-1` check regardless of what's stored here).
-BORDER_LEFT = 10
-BORDER_RIGHT = 11
-BORDER_TOP = 10
-BORDER_BOTTOM = 10
+BORDER_LEFT = 5
+BORDER_RIGHT = 6
+BORDER_TOP = 5
+BORDER_BOTTOM = 5
 
 TARGET_W, TARGET_H = FINAL_SIZE-(BORDER_LEFT+BORDER_RIGHT), FINAL_SIZE-(BORDER_TOP+BORDER_BOTTOM)
  
@@ -298,7 +298,7 @@ def process_quantized_image(img, tex_name, output):
 
     assert len(unique_colors_map) <= 4
     #ez_compressed = rle(raw_pixels, unique_colors_map, 64)
-    compressed_packets = rle(raw_pixels, unique_colors_map, 64, 32768)
+    compressed_packets = rle(raw_pixels, unique_colors_map, 64, 128)
 
     raw_pixels_decompressed = un_rle(compressed_packets, unique_colors_rev_map)
 
@@ -398,8 +398,8 @@ def main():
         ("Hatsu.png", "green_dragon"),
     ]
     for (file, tex_name) in files:
-        quantized_image = process_tile("tiles/{}".format(file), max_non_white_colors=2)
-        out_file = "texture_{}.h".format(tex_name)
+        quantized_image = process_tile("assets/tiles/{}".format(file), max_non_white_colors=2)
+        out_file = "asset_headers/texture_{}.h".format(tex_name)
         with open(out_file, "w") as out:
             process_quantized_image(quantized_image, tex_name, out)
 

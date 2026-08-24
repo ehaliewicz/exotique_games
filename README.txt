@@ -12,13 +12,17 @@ although it might have higher CPU usage than you expect.
 --client [addr] (runs in client mode, attempts to connect to host at addr)
 --no-dragon (uses a simpler wind indicator model, might help performance)
 --no-music (disables music)
+--no-aa (disables antialiasing)
 
 ---- Controls ----
 Left/Right - select tile
 A - draw
-B - discard
-X - call (PON a discarded tile/CHII a tile discarded by the last player/RON any discard)  (KAN not yet supported)
-Y - riichi (discard selected tile and put yourself in riichi, TSUMO a winning tile draw)
+B - discard (or CANCEL CALL when game is waiting for CALL input(s))
+X - call, riichi, or tsumo 
+ - PON, CHII or RON a discarded tile if possible
+ - discard selected tile and call RIICHI if possible
+ - TSUMO is possible
+Y - sort tiles (forward or reverse)
 
 
 

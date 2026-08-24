@@ -15,9 +15,10 @@
 
 // XXX: Screen constants
 
-extern const int kScreenWidth;
-extern const int kScreenHeight;
-#define kScreenPixels (kScreenWidth * kScreenHeight)
+int kScreenWidth;
+int kScreenHeight;
+int kScreenPixels;
+//#define kScreenPixels (kScreenWidth * kScreenHeight)
 
 // XXX: Data structures
 
@@ -116,6 +117,13 @@ struct ExotiqueInterface
   uint64_t ticks;
 };
 
+typedef struct ExotiqueOptions ExotiqueOptions;
+struct ExotiqueOptions
+{
+  const int screenWidth;
+  const int screenHeight;
+};
+
 // XXX: Global data structure
 
 static GameManager g_game_manager = {0};
@@ -123,7 +131,7 @@ ExotiqueInterface g_exotique_interface = {0};
 
 // XXX: game.c mandatory functions declarations
 
-void game_load(ExotiqueInterface* ei, int argc, const char* argv[]);
+ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]);
 void game_update(ExotiqueInterface* ei);
 void game_draw(ExotiqueInterface* ei);
 
@@ -158,26 +166,33 @@ key_new_get(GameManager* gm, int32_t key)
 
 // XXX: Game functions
 
+uint32_t* pixel_ptr;
+
 static void
 exotique_draw(GameManager* gm)
 {
   ScreenManager* sm = &gm->screen_manager;
 
   
-  void *tex_pixels;
-  int tex_pitch;
-  if(SDL_LockTexture(sm->texture, nullptr, &tex_pixels, &tex_pitch) == 0) {
-    uint32_t* pixel_ptr = (uint32_t*)tex_pixels;
-    for (int32_t i = 0; i < kScreenPixels; ++i)
-    {
-      pixel_ptr[i] = sm->palette[sm->screen[i]];
-    }
-    SDL_UnlockTexture(sm->texture);
-  }  else {
-    SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't update the given texture rectangle with new pixel data: %s", SDL_GetError());
-    exotique_panic(gm);
+  //void *tex_pixels;
+  //int tex_pitch;
+  //if(SDL_LockTexture(sm->texture, nullptr, &tex_pixels, &tex_pitch) == 0) {
+  //  uint32_t* pixel_ptr = (uint32_t*)tex_pixels;
+  //  for (int32_t i = 0; i < kScreenPixels; ++i)
+  //  {
+  //    pixel_ptr[i] = sm->palette[sm->screen[i]];
+  //  }
+  //  SDL_UnlockTexture(sm->texture);
+  //}  else {
+  //  SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't update the given texture rectangle with new pixel data: %s", SDL_GetError());
+  //  exotique_panic(gm);
+  //}
+  
+  for(int i = 0; i < kScreenPixels; i++) {
+    pixel_ptr[i] = sm->palette[sm->screen[i]];
   }
-    
+  SDL_UpdateTexture(sm->texture, nullptr, pixel_ptr, kScreenWidth*4);
+  
   // Rendering the final texture to screen
   //if (SDL_RenderClear(sm->renderer))
   //{
@@ -298,14 +313,11 @@ exotique_events(GameManager* gm)
   }
 }
 
+
 static void
-exotique_load(GameManager* gm, ExotiqueInterface* ei)
-{
-  ScreenManager* sm = &gm->screen_manager;
+exotique_load(GameManager* gm, ExotiqueInterface* ei) {
 
   gm->name = "🌴 Exotique v0.8β - SDL2 (26/05/17)";
-
-  sm->screen = malloc((unsigned long)kScreenPixels * sizeof(uint8_t));
 
   gm->key_map[eKey_up] = SDL_SCANCODE_UP;
   gm->key_map[eKey_down] = SDL_SCANCODE_DOWN;
@@ -324,12 +336,24 @@ exotique_load(GameManager* gm, ExotiqueInterface* ei)
   gm->key_map[eKey_l3] = SDL_SCANCODE_3;
   gm->key_map[eKey_r3] = SDL_SCANCODE_4;
 
-  ei->screen = gm->screen_manager.screen;
   ei->palette = gm->screen_manager.palette;
 
   memset(&ei->mouse, 0, sizeof(ei->mouse));
   memset(&ei->input, 0, sizeof(ei->input));
   memset(gm->controllers, 0, sizeof(gm->controllers));
+}
+
+
+void exotique_load_screen(GameManager *gm, ExotiqueInterface *ei, ExotiqueOptions opts) {
+  
+  ScreenManager* sm = &gm->screen_manager;
+  kScreenWidth = opts.screenWidth;
+  kScreenHeight = opts.screenHeight;
+  kScreenPixels = kScreenWidth*kScreenHeight;
+  sm->screen = malloc((unsigned long)kScreenPixels * sizeof(uint8_t));
+  pixel_ptr = malloc((unsigned long)kScreenPixels * sizeof(uint32_t));
+
+  ei->screen = gm->screen_manager.screen;
 }
 
 static void
@@ -560,7 +584,10 @@ sdl_load(GameManager* gm)
     SDL_LogCritical(SDL_LOG_CATEGORY_RENDER, "Couldn't create a texture for a rendering context: %s", SDL_GetError());
     exotique_panic(gm);
   }
-
+  Uint32 nativeFormat;
+  int access, width, height;
+  SDL_QueryTexture(sm->texture, &nativeFormat, &access, &width, &height);
+  
   // These calls are optional.
   // They only serves to make the pixels square and clean when resizing the window.
   if (SDL_RenderSetLogicalSize(sm->renderer, kScreenWidth, kScreenHeight))
@@ -618,7 +645,8 @@ main(const int argc, const char* argv[])
     }
   }
   exotique_load(&g_game_manager, &g_exotique_interface);
-  game_load(&g_exotique_interface, argc, argv);
+  ExotiqueOptions opts = game_load(&g_exotique_interface, argc, argv);
+  exotique_load_screen(&g_game_manager, &g_exotique_interface, opts);
   sdl_load(&g_game_manager);
 
   // Main loop

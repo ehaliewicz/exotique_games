@@ -4,3 +4,5 @@
 *.mtl
 *.obj
 *pdb
+launcher.dist/
+tkinter_launcher.dist/

@@ -22,6 +22,8 @@ u16 *z_buffers[4] = {zbuf0, zbuf1, zbuf2, zbuf3};
 
 
 
+#define LOG(module, fmt, ...) exotique_printf("%s: " fmt "\n", module, ##__VA_ARGS__)
+
 //#define ENABLE_MUSIC
 
 #include "mahjong_block_timing.h"
@@ -52,7 +54,10 @@ typedef struct {
     u32 solid_tri_indexes[MAX_TILE_TRIS];
 } tile;
 
-tile tiles[TILES_WIDE*TILES_HIGH];
+int tiles_wide, tiles_high;
+int render_width, render_height;
+int output_width, output_height;
+tile *tiles;
 
 transformed_tri global_tri_buffer[MAX_GLOBAL_TRIS]; /* up to one million? */
 
@@ -354,73 +359,76 @@ void rasterize_triangle_2x2_quad(
             int coverage_mask = i32_vec_any(covered_vec);
             //if(coverage_mask != 0xF) {
             //} else 
-            if(coverage_mask != 0x0) {
-                // skip completely uncovered quads
-                u64 zbuf_val_vec_u64 = *zbuf_ptr;
-                f32_vec zbuf_val_vec = decode_u64_inv_z_vec(zbuf_val_vec_u64);
-                u32 cbuf_val = *col_buf_ptr;
-
-                f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
-                f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
-                f32_vec inv_z_vec = (
-                                    iz0_vec +
-                                    (w1_vec * iz1_vec) +
-                                    (w2_vec * iz2_vec)
-                    );
-                inv_z_vec = inv_z_vec;
-
-                f32_vec brightness_vec = f32_vec_clamp(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
-
-                i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
-                i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
-
-                u32 mask_bytes = i32_vec_extract_bytes(in_tri_and_unoccluded);
-                if(mask_bytes != 0) {
-
-                    f32_vec z_vec = 1.0f / inv_z_vec;
-                    //f32_vec brightness_vec = brightness_over_z_vec * z_vec;
-                                                                
-                    u32 lit_color_qw = parallel_pixel_shader(
-                        z_vec,
-                        w1_vec, w2_vec, 
-                        v0u_over_z, v0v_over_z, 
-                        v1u_over_z, v1v_over_z, 
-                        v2u_over_z, v2v_over_z,
-                        texels, tex_width, tex_height, 
-                        brightness_vec
-                        //lit_pal_ptr
-                    );
-                    // if any of the bytes in lit_color_qw are zeros, they shouldn't be drawn either
-                    if(colorkey) {
-                        u32 zero_bits =
-                            (lit_color_qw - 0x01010101u) &
-                            ~lit_color_qw &
-                            0x80808080u;
-
-                        // Turn each 0x80 flag into 0xFF in that byte.
-                        u32 zero_mask =
-                            zero_bits |
-                            (zero_bits >> 1) |
-                            (zero_bits >> 2) |
-                            (zero_bits >> 3) |
-                            (zero_bits >> 4) |
-                            (zero_bits >> 5) |
-                            (zero_bits >> 6) |
-                            (zero_bits >> 7);
-
-                        zero_mask &= 0xFFFFFFFFu;
-
-                        mask_bytes &= ~zero_mask;
-                    }
-                    u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
-                    *col_buf_ptr = masked_color;
-
-                    f32_vec new_zbuf_vec = (f32_vec)((in_tri_and_unoccluded & (i32_vec)inv_z_vec) | ((~in_tri_and_unoccluded) & (i32_vec)zbuf_val_vec));
-
-                    
-                    *zbuf_ptr = encode_float_inv_z_vec(new_zbuf_vec);
-                }
+            if(coverage_mask == 0) {
+                continue;
             }
+
+            // skip completely uncovered quads
+            u64 zbuf_val_vec_u64 = *zbuf_ptr;
+            f32_vec zbuf_val_vec = decode_u64_inv_z_vec(zbuf_val_vec_u64);
+            u32 cbuf_val = *col_buf_ptr;
+
+            f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
+            f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
+            f32_vec inv_z_vec = (
+                                iz0_vec +
+                                (w1_vec * iz1_vec) +
+                                (w2_vec * iz2_vec)
+                );
+            inv_z_vec = inv_z_vec;
+
+            f32_vec brightness_vec = f32_vec_clamp(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
+
+            i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
+            i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
+
+            u32 mask_bytes = i32_vec_extract_bytes(in_tri_and_unoccluded);
+            if(mask_bytes != 0) {
+
+                f32_vec z_vec = 1.0f / inv_z_vec;
+                //f32_vec brightness_vec = brightness_over_z_vec * z_vec;
+                                                            
+                u32 lit_color_qw = parallel_pixel_shader(
+                    z_vec,
+                    w1_vec, w2_vec, 
+                    v0u_over_z, v0v_over_z, 
+                    v1u_over_z, v1v_over_z, 
+                    v2u_over_z, v2v_over_z,
+                    texels, tex_width, tex_height, 
+                    brightness_vec
+                    //lit_pal_ptr
+                );
+                // if any of the bytes in lit_color_qw are zeros, they shouldn't be drawn either
+                if(colorkey) {
+                    u32 zero_bits =
+                        (lit_color_qw - 0x01010101u) &
+                        ~lit_color_qw &
+                        0x80808080u;
+
+                    // Turn each 0x80 flag into 0xFF in that byte.
+                    u32 zero_mask =
+                        zero_bits |
+                        (zero_bits >> 1) |
+                        (zero_bits >> 2) |
+                        (zero_bits >> 3) |
+                        (zero_bits >> 4) |
+                        (zero_bits >> 5) |
+                        (zero_bits >> 6) |
+                        (zero_bits >> 7);
+
+                    zero_mask &= 0xFFFFFFFFu;
+
+                    mask_bytes &= ~zero_mask;
+                }
+                u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
+                *col_buf_ptr = masked_color;
+
+                f32_vec new_zbuf_vec = (f32_vec)((in_tri_and_unoccluded & (i32_vec)inv_z_vec) | ((~in_tri_and_unoccluded) & (i32_vec)zbuf_val_vec));
+
+                
+                *zbuf_ptr = encode_float_inv_z_vec(new_zbuf_vec);
+            }
+            
         }
     }
 }
@@ -834,12 +842,12 @@ void rasterize_triangle_2x2_quad_no_tmap(
 
 
 void clear_tile_bins() {
-    for(i16 y = 0; y < TILES_HIGH; y++) {
-        for(i16 x = 0; x < TILES_WIDE; x++) {
-            tiles[y*TILES_WIDE+x].num_tex_triangles = 0;
-            tiles[y*TILES_WIDE+x].num_solid_triangles = 0;
-            tiles[y*TILES_WIDE+x].start_y = (i16)(y * RENDER_TILE_SIZE);
-            tiles[y*TILES_WIDE+x].start_x = (i16)(x * RENDER_TILE_SIZE);
+    for(i16 y = 0; y < tiles_high; y++) {
+        for(i16 x = 0; x < tiles_wide; x++) {
+            tiles[y*tiles_wide+x].num_tex_triangles = 0;
+            tiles[y*tiles_wide+x].num_solid_triangles = 0;
+            tiles[y*tiles_wide+x].start_y = (i16)(y * RENDER_TILE_SIZE);
+            tiles[y*tiles_wide+x].start_x = (i16)(x * RENDER_TILE_SIZE);
         }
     }
 }
@@ -873,12 +881,17 @@ typedef struct {
     int force_mip0;
 } mesh_draw_call;
 
-const f32 camx = (f32)(RENDER_WIDTH/2.0f);
-const f32 camy = (f32)(RENDER_HEIGHT/2.0f);
+f32 camx, camy, focal;
+
+void setup_camera(int render_width, int render_height) {
+    camx =(f32)render_width/2.0f;
+    camy = (f32)render_height/2.0f;
+    focal = ((f32)render_height/2.0f)/0.15f;
+}
 
 vert3f project_coord(vert3f r) {
     //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
-    const f32 focal = (RENDER_HEIGHT / 2.0f) / 0.15f; //tanf(fov_y / 2.0f);
+    //const f32 focal = (render_width / 2.0f) / 0.15f; //tanf(fov_y / 2.0f);
 
     return (vert3f){
             camx + focal * r.x / r.z,
@@ -889,7 +902,7 @@ vert3f project_coord(vert3f r) {
 
 void parallel_project_coord(f32_vec comps[3], vert3f* out) {
     //f32 fov_y = 1.047f;//deg_to_rad(76.0f); // desired vertical FOV in degrees -> radians
-    const f32 focal = (RENDER_HEIGHT / 2.0f) / 0.15f; //tanf(fov_y / 2.0f);
+    //const f32 focal = (render_height / 2.0f) / 0.15f; //tanf(fov_y / 2.0f);
     f32_vec rxs = comps[0];
     f32_vec rys = comps[1];
     f32_vec rzs = comps[2];
@@ -950,7 +963,7 @@ clip_res clip_bounding_box(mesh_draw_call* m) {
         max_z = MAX(max_z, verts[i].z);
     }
 
-    if(min_y >= RENDER_HEIGHT || min_x >= RENDER_WIDTH || max_x <= 0 || max_y <= 0) {
+    if(min_y >= render_height || min_x >= render_width || max_x <= 0 || max_y <= 0) {
         // OFF SCREEN!
         return OFF_SCREEN;
     }
@@ -972,10 +985,10 @@ clip_res clip_bounding_box(mesh_draw_call* m) {
     int i_min_y = fast_floor(min_y);
     int i_max_y = fast_ceil(max_y);
 
-    int tile_start_x = CLAMP(i_min_x / TILE_SIZE, 0, TILES_WIDE-1);
-    int tile_end_x = CLAMP((i_max_x / TILE_SIZE), 0, TILES_WIDE-1);
-    int tile_start_y = CLAMP(i_min_y / TILE_SIZE, 0, TILES_HIGH-1);
-    int tile_end_y = CLAMP((i_max_y / TILE_SIZE), 0, TILES_HIGH-1);
+    int tile_start_x = CLAMP(i_min_x / TILE_SIZE, 0, tiles_wide-1);
+    int tile_end_x = CLAMP((i_max_x / TILE_SIZE), 0, tiles_wide-1);
+    int tile_start_y = CLAMP(i_min_y / TILE_SIZE, 0, tiles_high-1);
+    int tile_end_y = CLAMP((i_max_y / TILE_SIZE), 0, tiles_high-1);
 
     // invert the closest z 
     f32 closest_inv_z = 1.0f / min_z;
@@ -983,7 +996,7 @@ clip_res clip_bounding_box(mesh_draw_call* m) {
     for(int y = tile_start_y; y <= tile_end_y; y++) {
         for(int x = tile_start_x; x <= tile_end_x; x++) {
             // if it is too close to reject for ANY tile, return 0;
-            if(closest_inv_z >= tiles[y*TILES_WIDE+x].max_z) {
+            if(closest_inv_z >= tiles[y*tiles_wide+x].max_z) {
                 return 0;
             }
         }
@@ -1149,10 +1162,39 @@ int tile_sort_val[NUM_TILES] = {
 #undef X
 };
 
-u8 texture_buffer[NUM_ALL_TEXTURE_TYPES][256*256] __attribute__((aligned(64)));
-u8 texture_mip_buffer[NUM_ALL_TEXTURE_TYPES][128*128] __attribute__((aligned(64)));
+int tex_mip_0_used = 0;
+int tex_mip_1_used = 0;
+int tex_mip_2_used = 0;
+int tex_mip_3_used = 0;
+int tex_mip_4_used = 0;
+int tex_1x1_used = 0;
+
+u8 texture_mip_0_buffer[7][256*256] __attribute__((aligned(64)));
+u8 texture_mip_1_buffer[NUM_ALL_TEXTURE_TYPES][128*128] __attribute__((aligned(64)));
 u8 texture_mip_2_buffer[NUM_ALL_TEXTURE_TYPES][64*64] __attribute__((aligned(64)));
 u8 texture_mip_3_buffer[NUM_ALL_TEXTURE_TYPES][32*32] __attribute__((aligned(64)));
+u8 texture_mip_4_buffer[NUM_ALL_TEXTURE_TYPES][16*16] __attribute__((aligned(64)));
+u8 texture_1x1_buffer[NUM_ALL_TEXTURE_TYPES][1];
+
+u8* get_texture(int size) {
+    switch(size) {
+        case 256:
+            return texture_mip_0_buffer[tex_mip_0_used++];
+        case 128:
+            return texture_mip_1_buffer[tex_mip_1_used++];
+        case 64:
+            return texture_mip_2_buffer[tex_mip_2_used++];
+        case 32:
+            return texture_mip_3_buffer[tex_mip_3_used++];
+        case 16:
+            return texture_mip_4_buffer[tex_mip_4_used++];
+        case 1:
+            return texture_1x1_buffer[tex_1x1_used++];
+        default:
+            LOG("INIT", "Unexpected texture size requested %i", size);
+            exit(1);
+    }
+}
 #define NULL_PTR 0
 
 
@@ -1311,14 +1353,10 @@ void decompress_textures(ExotiqueInterface *ei) {
 
     for(int i = 0; i < NUM_ALL_TEXTURE_TYPES; i++) {
 
-        u8* mip_tex_buf = texture_mip_buffer[i];
-        u8* mip_2_tex_buf = texture_mip_2_buffer[i];
-        u8* mip_3_tex_buf = texture_mip_3_buffer[i];
         int width = textures[i].width;
         int height = textures[i].height;
-        u8* tex_buf;
+        u8* tex_buf = get_texture(width);
         if(textures[i].compressed == COMPRESSED) {
-            tex_buf = texture_buffer[i];
             if(i == BLUE_TENBOU || i == RED_TENBOU || i == GREEN_TENBOU) {
                 // replace black index with white
                 if(textures[i].comp_tex_ptr->palette[0] == BLACK) {
@@ -1339,18 +1377,25 @@ void decompress_textures(ExotiqueInterface *ei) {
             decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height, textures[i].default_pal_idx);    
             
         } else if (textures[i].compressed == BASE_COLOR_INDEXES) {
-            tex_buf = texture_buffer[i];
             translate_texture(textures[i].texels[0], tex_buf, width*height, textures[i].default_pal_idx);
         } else {
             tex_buf = textures[i].texels[0];
 
         }
         textures[i].texels[0] = tex_buf;
-        textures[i].texels[1]  = mip_tex_buf;
-        textures[i].texels[2]  = mip_2_tex_buf;
-        textures[i].texels[3]  = mip_3_tex_buf;
-    
-        if(width > 1) {
+
+        
+        if(width == 1) {
+            textures[i].texels[1]  = tex_buf;
+            textures[i].texels[2]  = tex_buf;
+            textures[i].texels[3]  = tex_buf;
+        } else if(width > 1) {
+            u8* mip_tex_buf = get_texture(width>>1);
+            u8* mip_2_tex_buf = get_texture(width>>2);
+            u8* mip_3_tex_buf = get_texture(width>>3);
+            textures[i].texels[1]  = mip_tex_buf;
+            textures[i].texels[2]  = mip_2_tex_buf;
+            textures[i].texels[3]  = mip_3_tex_buf;
             mip_texture(ei, tex_buf, mip_tex_buf, width, -1);
             int mip_width = width>>1;
             int mip_height = height>>1;
@@ -1359,7 +1404,6 @@ void decompress_textures(ExotiqueInterface *ei) {
             int mip2_width = mip_width>>1;
             int mip2_height = mip_height>>1;
 
-            
             mip_texture(ei, mip_2_tex_buf, mip_3_tex_buf, mip2_width, -1);
             int mip3_width = mip2_width>>1;
             int mip3_height = mip2_height>>1;
@@ -1388,42 +1432,6 @@ void decompress_textures(ExotiqueInterface *ei) {
 
 }
 
-void output_palette(ExotiqueInterface *ei) {
-    // P6 binary PPM header
-    exotique_printf("P3\n16 16\n255\n");
-
-    for (int i = 0; i < 256; i++) {
-        //uint8_t rgb[3];
-        u32 rgba = ei->palette[i];
-        exotique_printf("%i %i %i\n", (rgba>>24)&0xFF, (rgba>>16)&0xFF, (rgba>>8)&0xFF);
-    }
-}
-
-void output_full_light_remap_table(ExotiqueInterface *ei) {
-    // for each color, output NUM_SHADES
-    // y index will be color
-    exotique_printf("P3\n256 %i\n255\n", NUM_SHADES);
-    for(int j = 0; j < NUM_SHADES; j++) {
-        for(int i = 0; i < 256; i++) {
-            u8 idx = full_light_remap_table[j][i];
-            u32 rgba = ei->palette[idx];
-            exotique_printf("%i %i %i\n", (rgba>>24)&0xFF, (rgba>>16)&0xFF, (rgba>>8)&0xFF);
-
-        }
-    }
-}
-
-void output_mixing_table(ExotiqueInterface *ei) {
-    exotique_printf("P3\n256 256\n255\n");
-    for(int j = 0; j < 256; j++) {
-        for(int i = 0; i < 256; i++) {
-            u8 idx = mix_table[(j<<8)|i];
-            u32 rgba = ei->palette[idx];
-            exotique_printf("%i %i %i\n", (rgba>>24)&0xFF, (rgba>>16)&0xFF, (rgba>>8)&0xFF);
-        }
-    }
-}
-
 
 //  DRAW CALLS, TILE FILLS, VERTEX SHADERS
 
@@ -1432,6 +1440,8 @@ f32 board_min_y, board_max_y;
 f32 board_top_min_x, board_top_max_x;
 f32 board_bot_min_x, board_bot_max_x;
 //#define AVX2
+
+int enable_supersampling = 1;
 
 void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile* t) {
     u32 i;
@@ -1455,7 +1465,7 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
 
     for(int y = 0; y < RENDER_TILE_SIZE; y += 2) {
         int global_y = (base_y + y);
-        //f32 y_portion = (f32)global_y / (f32)RENDER_HEIGHT;
+        //f32 y_portion = (f32)global_y / (f32)render_height;
         //int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
 
         if(global_y >= board_min_y && global_y < board_max_y-2) {
@@ -1467,7 +1477,7 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
                 (void)bkgd_idx;
                 int global_x = (base_x + x);
 
-                //f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
+                //f32 x_portion = (f32)global_x/(f32)render_width;
                 //int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
 
                 if(global_x >= (i32)left && global_x < (i32)right) {
@@ -1484,7 +1494,7 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
 
                 //int global_x = (base_x + x);
-                //f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
+                //f32 x_portion = (f32)global_x/(f32)render_width;
                 //int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
 
                 *zbuf_ptr++ = inv_far_vec;
@@ -1537,17 +1547,26 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
     for(int y = 0; y < RENDER_TILE_SIZE; y+=2) {
         int output_y = (base_y+y)>>1;
 
-        u8* output_row = &ei->screen[output_y*kScreenWidth+ (base_x>>1)];
+        u8* output_row = &ei->screen[output_y*output_width+ (base_x>>1)];
 
-        for(int x = 0; x < RENDER_TILE_SIZE; x+=2) {
-            u32 colors = *col_val_ptr++;
-            u16 top_two = (u16)(colors>>16);
-            u16 bot_two = (u16)colors;
-            u8 mixt = mix_table[top_two];
-            u8 mixb = mix_table[bot_two];
-            u8 mix = mix_table[(mixt<<8)|mixb];
+        if(enable_supersampling) {
+            for(int x = 0; x < RENDER_TILE_SIZE; x+=2) {
+                u32 colors = *col_val_ptr++;
+                u16 top_two = (u16)(colors>>16);
+                u16 bot_two = (u16)colors;
+                u8 mixt = mix_table[top_two];
+                u8 mixb = mix_table[bot_two];
+                u8 mix = mix_table[(mixt<<8)|mixb];
 
-            *output_row++ = mix;
+                *output_row++ = mix;
+            }
+        } else {
+            for(int x = 0; x < RENDER_TILE_SIZE; x+=2) {
+                u32 colors = *col_val_ptr++;
+
+                *output_row++ = colors&0xFF;
+            }
+
         }
     }
 }
@@ -1567,7 +1586,7 @@ void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
         int global_y = (base_y + y);
         int output_y = (base_y+y)>>1;
         
-        u8* output_row = &ei->screen[output_y*kScreenWidth+ (base_x>>1)];
+        u8* output_row = &ei->screen[output_y*output_width+ (base_x>>1)];
 
         if(global_y >= board_min_y && global_y < board_max_y-2) {
             f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
@@ -1577,7 +1596,7 @@ void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
                 u8 bkgd_idx;
                 int global_x = (base_x + x);
 
-                //f32 x_portion = (f32)global_x/(f32)RENDER_WIDTH;
+                //f32 x_portion = (f32)global_x/(f32)render_width;
                 //int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
 
                 if(global_x >= (i32)left && global_x < (i32)right) {
@@ -1614,19 +1633,19 @@ typedef struct {
 
 void rasterize_tiles(ExotiqueInterface *ei, u8 *color_buffer, u16 *z_buffer, int draw_tile_bmp) {
 
-    for(int y = 0; y < TILES_HIGH; y++) {
-        for(int x = 0; x < TILES_WIDE; x++) {
+    for(int y = 0; y < tiles_high; y++) {
+        for(int x = 0; x < tiles_wide; x++) {
             u8 bmp = (y&0b10)|((x&0b10)>>1);
             if(bmp != draw_tile_bmp) { continue; }
 
             //if(((x^y)&1) == draw_even_tiles) { continue; }
             
-            tile* t = &tiles[y*TILES_WIDE+x];
+            tile* t = &tiles[y*tiles_wide+x];
             
             if(t->num_tex_triangles || t->num_solid_triangles) {
-                rasterize_tile(ei, color_buffer, z_buffer, &tiles[y*TILES_WIDE+x]);
+                rasterize_tile(ei, color_buffer, z_buffer, &tiles[y*tiles_wide+x]);
             } else {
-                fill_background_for_tile(ei, &tiles[y*TILES_WIDE+x]);
+                fill_background_for_tile(ei, &tiles[y*tiles_wide+x]);
             }
         }
     }
@@ -1684,11 +1703,11 @@ void bin_triangle(
         f32 miny = MIN(v0->y, MIN(v1->y, v2->y));
         f32 maxy = MAX(v0->y, MAX(v1->y, v2->y));
 
-        i32 startX = CLAMP((int)fast_floor(minx), 0, RENDER_WIDTH-1);
-        i32 endX   = CLAMP((int)fast_ceil(maxx), 0, RENDER_WIDTH-1);
+        i32 startX = CLAMP((int)fast_floor(minx), 0, render_width-1);
+        i32 endX   = CLAMP((int)fast_ceil(maxx), 0, render_width-1);
 
-        i32 startY = CLAMP((int)fast_floor(miny), 0, RENDER_HEIGHT-1);
-        i32 endY   = CLAMP((int)fast_ceil(maxy), 0, RENDER_HEIGHT-1);
+        i32 startY = CLAMP((int)fast_floor(miny), 0, render_height-1);
+        i32 endY   = CLAMP((int)fast_ceil(maxy), 0, render_height-1);
 
         int tile_start_x = startX / RENDER_TILE_SIZE;
         int tile_start_y = startY / RENDER_TILE_SIZE;
@@ -1706,23 +1725,23 @@ void bin_triangle(
         for(int y = tile_start_y; y <= tile_end_y; y++) {
             for(int x = tile_start_x; x <= tile_end_x; x++) {
 
-                u32 num_tex_tris_in_tile = tiles[y*TILES_WIDE+x].num_tex_triangles;
-                u32 num_solid_tris_in_tile = tiles[y*TILES_WIDE+x].num_solid_triangles;
+                u32 num_tex_tris_in_tile = tiles[y*tiles_wide+x].num_tex_triangles;
+                u32 num_solid_tris_in_tile = tiles[y*tiles_wide+x].num_solid_triangles;
 
                 if(no_tmap) {
-                    if(num_solid_tris_in_tile == MAX_TILE_TRIS) {
+                    if(num_solid_tris_in_tile >= MAX_TILE_TRIS) {
                         continue;
                     }
                     rasterized_at_least_once = 1;
-                    tiles[y*TILES_WIDE+x].solid_tri_indexes[num_solid_tris_in_tile++] = total_triangles;
-                    tiles[y*TILES_WIDE+x].num_solid_triangles = num_solid_tris_in_tile;
+                    tiles[y*tiles_wide+x].solid_tri_indexes[num_solid_tris_in_tile++] = total_triangles;
+                    tiles[y*tiles_wide+x].num_solid_triangles = num_solid_tris_in_tile;
                 } else {
                     if(num_tex_tris_in_tile == MAX_TILE_TRIS) {
                         continue;
                     }
                     rasterized_at_least_once = 1;
-                    tiles[y*TILES_WIDE+x].tex_tri_indexes[num_tex_tris_in_tile++] = total_triangles;
-                    tiles[y*TILES_WIDE+x].num_tex_triangles = num_tex_tris_in_tile;
+                    tiles[y*tiles_wide+x].tex_tri_indexes[num_tex_tris_in_tile++] = total_triangles;
+                    tiles[y*tiles_wide+x].num_tex_triangles = num_tex_tris_in_tile;
                 }
                 triangles_rasterized++;
             }
@@ -2200,19 +2219,19 @@ u32 decompress_MP3(u8* raw_data, i16* output, u32 num_bytes) {
     ma_decoder_config decoder_config = ma_decoder_config_init(ma_format_s16, 1, 22050);
     ma_result decode_result = ma_decoder_init_memory(raw_data, num_bytes, &decoder_config, &decoder);
     if(decode_result != MA_SUCCESS) {
-        exotique_printf("error decoding MP3 audio\n");
+        LOG("AUDIO", "Error decoding MP3 audio");
         exit(1);
     }
     u64 num_frames;
     ma_result get_frames_result = ma_decoder_get_available_frames(&decoder, &num_frames);
     if(get_frames_result != MA_SUCCESS) {
-        exotique_printf("error getting MP3 num frames\n");
+        LOG("AUDIO", "Error getting MP3 num frames");
         exit(1);
     }
     u64 frames_read;
     ma_result read_frames_result = ma_decoder_read_pcm_frames(&decoder, output, num_frames, &frames_read);
     if(read_frames_result != MA_SUCCESS || frames_read != num_frames) {
-        exotique_printf("error reading MP3 data\n");
+        LOG("AUDIO", "Error reading MP3 data");
         exit(1);
     }
 
@@ -3542,8 +3561,8 @@ void disable_nagle(TCPsocket sock) {
     int res = setsockopt(int_sock->channel, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt));
     if(res != 0) {
         int err = WSAGetLastError();
-        exotique_printf("Error disabling nagle's algorithm on socket: %i\n", err);
-        exit(1);
+        LOG("NETWORK", "Error setting TCP_NODELAY on socket: %i", err);
+        //exit(1);
     }
 }
 
@@ -3585,7 +3604,7 @@ void server_get_connection() {
     }
     if(which == MAX_CLIENTS) {
         // another client is attempting to connect but we're already full
-        exotique_printf("we're already full\n");
+        LOG("NETWORK", "Already have enough clients");
         return;
     }
 
@@ -3608,16 +3627,16 @@ void server_get_connection() {
         }
     }
     if(client_info[which].player_num == -1) {
-        exotique_printf("All players are used even though we have a free network slot?\n");
+        LOG("NETWORK", "All players are used even though we have a free network slot?");
         exit(1);
     }
     int added_sock = SDLNet_TCP_AddSocket(socket_set, client_info[which].sock);
     if(added_sock == -1) {
-        exotique_printf("error adding socket to set\n");
+        LOG("NETWORK", "Error adding socket to set");
         exit(1);
     }
     num_socks_in_set = added_sock;
-    exotique_printf("Client connected at %i %i\n", client_info[which].peer.host, client_info[which].peer.port);
+    LOG("NETWORK", "Client connected at %i %i", client_info[which].peer.host, client_info[which].peer.port);
 }
 
 
@@ -3630,7 +3649,7 @@ typedef enum __attribute__((packed)) {
 
 void setup_host(int num_clients) {
     if(num_clients < 0 || num_clients > 3) {
-        exotique_printf("Please specify number of clients between 0 and 3, --num-clients [num]\n");
+        LOG("INIT", "Error: Please specify number of clients between 0 and 3, --num-clients [num]");
         exit(1);
     }
     
@@ -3646,26 +3665,26 @@ void setup_host(int num_clients) {
     }
     socket_set = SDLNet_AllocSocketSet(num_clients+1);
     if(socket_set == NULL) {
-        exotique_printf("Couldn't create socket set: %s\n", SDLNet_GetError());
+        LOG("NETWORK", "Error: Couldn't create socket set: %s", SDLNet_GetError());
         exit(1);
     }
 
     SDLNet_ResolveHost(&server_ip, NULL, JONG_PORT);
-    exotique_printf("Server IP: %x, %d\n", server_ip.host, SDLNet_Read16(&server_ip.port));
+    LOG("NETWORK", "Server IP: %x, %d", server_ip.host, SDLNet_Read16(&server_ip.port));
     serv_sock = SDLNet_TCP_Open(&server_ip);
     if ( serv_sock == NULL ) {
-        exotique_printf("Couldn't create server socket: %s\n",SDLNet_GetError());
+        LOG("NETWORK", "Error: Couldn't create server socket: %s",SDLNet_GetError());
         exit(1);
     }
     int added_sock = SDLNet_TCP_AddSocket(socket_set, serv_sock);
     if(added_sock == -1) {
-        exotique_printf("error adding socket to set\n");
+        LOG("NETWORK", "Error adding socket to set");
         exit(1);
     }
     num_socks_in_set = added_sock;
 
     // wait until clients connect
-    exotique_printf("Waiting for clients to connect to port %i\n", JONG_PORT);
+    LOG("NETWORK", "Waiting for clients to connect to port %i", JONG_PORT);
 
     while(1) {
         SDLNet_CheckSockets(socket_set, ~0);
@@ -3677,7 +3696,7 @@ void setup_host(int num_clients) {
             connected_clients += client_info[i].sock ? 1 : 0;
         }
         if(connected_clients == num_clients) {
-            exotique_printf("All clients connected.\n");
+             LOG("NETWORK", "All clients connected.");
             break;
         }
     }
@@ -3685,7 +3704,7 @@ void setup_host(int num_clients) {
     // remove server listen socket from socket set
     added_sock = SDLNet_TCP_DelSocket(socket_set, serv_sock);
     if(added_sock == -1) {
-        exotique_printf("error removing socket to set\n");
+        LOG("NETWORK", "Error removing socket from set");
         exit(1);
     }
     num_socks_in_set = added_sock;
@@ -3697,7 +3716,7 @@ u16 client_listen_port;
 void setup_client(char* server_address) {
     socket_set = SDLNet_AllocSocketSet(4);
     if(socket_set == NULL) {
-        exotique_printf("Couldn't create socket set: %s\n", SDLNet_GetError());
+        LOG("NETWORK", "Error: Couldn't create socket set: %s", SDLNet_GetError());
         exit(1);
     }
 
@@ -3706,32 +3725,31 @@ void setup_client(char* server_address) {
             client_listen_sock = SDLNet_TCP_Open(&client_ip);
 
             if(client_listen_sock != NULL) {
-                exotique_printf("Listening on port %i:%i / %i\n", SDLNet_Read32(&client_ip.host), SDLNet_Read16(&client_ip.port), listen_port);
+                LOG("NETWORK", "Listening on port %i:%i / %i", SDLNet_Read32(&client_ip.host), SDLNet_Read16(&client_ip.port), listen_port);
                 client_listen_port = client_ip.port;
                 break;
             }
         }
     }
     if(client_listen_sock == NULL) {
-        exotique_printf("Couldn't open listen socket\n");
+        LOG("NETWORK", "Error: Couldn't open listen socket");
         exit(1);
     }
 
-    exotique_printf("Attempting to connect to server @ %s:%i\n", server_address, JONG_PORT);
+    LOG("NETWORK", "Attempting to connect to server @ %s:%i", server_address, JONG_PORT);
     SDLNet_ResolveHost(&server_ip, server_address, JONG_PORT);
     if(server_ip.host == INADDR_NONE) {
-        exotique_printf("Couldn't resolve hostname\n");
+        LOG("NETWORK", "Error: Couldn't resolve hostname");
         exit(1);
     }
-    exotique_printf("Connecting to %s %i\n", server_address, JONG_PORT);
+    LOG("NETWORK", "Connecting to %s %i", server_address, JONG_PORT);
     while(1) {
         serv_sock = SDLNet_TCP_Open(&server_ip);
         if(serv_sock != NULL) {
             break;
-            //exotique_printf("Failed to connect :(\n");
             //exit(1);
         }
-        exotique_printf("Failed, retrying\n");
+        LOG("NETWORK", "Failed, retrying");
         int counter = 1000000;
         while(counter) { counter--; }
     }
@@ -3739,7 +3757,7 @@ void setup_client(char* server_address) {
 
     int added_sock = SDLNet_TCP_AddSocket(socket_set, serv_sock);
     if(added_sock == -1) {
-        exotique_printf("error adding socket to set\n");
+        LOG("NETWORK", "Error adding socket to set");
         exit(1);
     }
     num_socks_in_set = added_sock;
@@ -3768,11 +3786,11 @@ void send_packet_to_socket(TCPsocket sock, msg_type type, u32 num_bytes_after_ty
     memcpy(data_buf+1, src_buf, num_bytes_after_type);
     int sent = SDLNet_TCP_Send(sock, &data_buf, num_bytes_after_type+1);
     if(sent < 0) {
-        exotique_printf("Error: disconnected while sending %s\n", obj_type);
+        LOG("NETWORK", "Error: Disconnected while sending %s", obj_type);
         exit(1);
     }
     if(sent != (int)num_bytes_after_type+1) {
-        exotique_printf("Error sending %s (of %i bytes), only sent %i bytes\n", obj_type, num_bytes_after_type+1, sent);
+        LOG("NETWORK", "Error sending %s (of %i bytes), only sent %i bytes", obj_type, num_bytes_after_type+1, sent);
         exit(1);
     }
 }
@@ -3780,15 +3798,15 @@ void send_packet_to_socket(TCPsocket sock, msg_type type, u32 num_bytes_after_ty
 void receive_packet_from_socket(TCPsocket sock, msg_type type, u32 num_bytes_after_type, void* dst_buf, const char* obj_type) {
     int recvd = SDLNet_TCP_Recv(sock, data_buf, num_bytes_after_type+1);
     if(recvd < 0) {
-        exotique_printf("Error: disconnected while receiving %s :(\n", obj_type);
+        LOG("NETWORK", "Error: Disconnected while receiving %s :(", obj_type);
         exit(1);
     }
     if(recvd != (int)num_bytes_after_type+1) {
-        exotique_printf("Error receiving %s (of %i bytes), only received %i bytes\n", obj_type, num_bytes_after_type+1, recvd);
+        LOG("NETWORK", "Error receiving %s (of %i bytes), only received %i bytes", obj_type, num_bytes_after_type+1, recvd);
         exit(1);
     }
     if(data_buf[0] != type) {
-        exotique_printf("Got unexpected byte from client when waiting for %s: %i\n", obj_type, data_buf[0]);
+        LOG("NETWORK", "Got unexpected byte from client when waiting for %s: %i", obj_type, data_buf[0]);
         exit(1);
     }
     memcpy(dst_buf, data_buf+1, num_bytes_after_type);
@@ -3802,18 +3820,16 @@ void server_wait_for_listen_port_from_players() {
     
     for(int i = 0; i < MAX_CLIENTS; i++) {
         if(client_info[i].sock) {
-            exotique_printf("Waiting for listen port from %i:%i\n", SDLNet_Read32(&client_info[i].peer.host), SDLNet_Read16(&client_info[i].peer.port));
+            LOG("NETWORK", "Waiting for listen port from %i:%i", SDLNet_Read32(&client_info[i].peer.host), SDLNet_Read16(&client_info[i].peer.port));
             
             listen_port_t port;
             receive_packet_from_socket(client_info[i].sock, LISTEN_PORT, sizeof(listen_port_t), &port, "listen port");
             
             client_info[i].listen_port = port.listen_port;
-            exotique_printf("Client is listening on %i\n", port.listen_port);
+            LOG("NETWORK", "Client is listening on %i", port.listen_port);
         }
     }
 }
-
-
 
 
 void client_send_listen_port_to_server() {
@@ -3832,7 +3848,7 @@ void send_initial_state() {
         if(client_info[i].sock) {
             seed_info.clients_info[num_all_clients].ip = client_info[i].peer;
             seed_info.clients_info[num_all_clients].ip.port = client_info[i].listen_port;
-            exotique_printf("set listen port to %i\n", client_info[i].listen_port);
+            LOG("NETWORK", "Set listen port to %i", client_info[i].listen_port);
             seed_info.clients_info[num_all_clients++].player_num = client_info[i].player_num;
         }
     }
@@ -3850,7 +3866,7 @@ void send_initial_state() {
 }
 
 seed_and_player_info receive_initial_state() {
-    exotique_printf("Waiting for initial state\n");
+    LOG("GAME", "Waiting for initial state");
 
     seed_and_player_info start_info;    
     receive_packet_from_socket(serv_sock, RANDOM_SEED_AND_PLAYER_INFO, sizeof(seed_and_player_info), &start_info, "initial state");
@@ -3899,7 +3915,7 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
         game_data.player_types[i] = CONSERVATIVE_AI;
     }
 
-    exotique_printf("Connections to listen for %i, connections to open %i\n", connections_to_listen_for, connections_to_open);
+    LOG("NETWORK", "Connections to listen for %i, connections to open %i", connections_to_listen_for, connections_to_open);
     int connected_clients = 0;
 
     for(int i = initial_state.num_other_clients-1; i > our_index; i--) {
@@ -3913,13 +3929,13 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
             disable_nagle(new_sock);
 
             IPaddress *ipptr = SDLNet_TCP_GetPeerAddress(new_sock);
-            exotique_printf("got p2p connection from %i:%i\n", SDLNet_Read32(&ipptr->host), SDLNet_Read16(&ipptr->port));
+            LOG("NETWORK", "Got p2p connection from %i:%i", SDLNet_Read32(&ipptr->host), SDLNet_Read16(&ipptr->port));
         
 
             client_info[connected_clients].sock = new_sock;
             int added_sock = SDLNet_TCP_AddSocket(socket_set, client_info[connected_clients].sock);
             if(added_sock == -1) {
-                exotique_printf("error adding socket to set\n");
+                LOG("NETWORK", "Error adding socket to set");
                 exit(1);
             }
             num_socks_in_set = added_sock;
@@ -3930,20 +3946,20 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
     for(int i = our_index-1; i >= 0; i--) {
         // open connections to clients from the one before us to 0
         IPaddress p2p_ip = initial_state.clients_info[i].ip;
-        exotique_printf("Opening connection to %i:%i/%i\n", SDLNet_Read32(&p2p_ip.host), p2p_ip.port, SDLNet_Read16(&p2p_ip.port));
+        LOG("NETWORK", "Opening connection to %i:%i/%i", SDLNet_Read32(&p2p_ip.host), p2p_ip.port, SDLNet_Read16(&p2p_ip.port));
 
         TCPsocket p2p_sock = SDLNet_TCP_OpenClient(&p2p_ip);
         if(p2p_sock == NULL) {
-            exotique_printf("Couldn't open p2p socket to player %i: %s\n", initial_state.clients_info[i].player_num, SDLNet_GetError());
+            LOG("NETWORK", "Error: Couldn't open p2p socket to player %i: %s", initial_state.clients_info[i].player_num, SDLNet_GetError());
             exit(1);
         }
         disable_nagle(p2p_sock);
 
-        exotique_printf("opened p2p connection to player %i %i:%i\n", initial_state.clients_info[i].player_num, SDLNet_Read32(&p2p_ip.host), SDLNet_Read16(&p2p_ip.port));
+        LOG("NETWORK", "Opened p2p connection to player %i %i:%i", initial_state.clients_info[i].player_num, SDLNet_Read32(&p2p_ip.host), SDLNet_Read16(&p2p_ip.port));
         client_info[connected_clients].sock = p2p_sock;
         int added_sock = SDLNet_TCP_AddSocket(socket_set, client_info[connected_clients].sock);
         if(added_sock == -1) {
-            exotique_printf("error adding socket to set\n");
+            LOG("NETWORK", "Error adding socket to set");
             exit(1);
         }
         num_socks_in_set = added_sock;
@@ -4019,7 +4035,7 @@ player_action queue_peek() {
 player_action queue_pop() {
     //exotique_printf("QUEUE POP\n");
     if(queue_empty()) {
-        exotique_printf("ACTION QUEUE UNDERFLOW!\n");
+        LOG("GAME", "ACTION QUEUE UNDERFLOW!");
         exit(1);
     }
     player_action act = queue_peek();
@@ -4047,7 +4063,7 @@ int first_event_is_lesser(player_action act1, player_action act2) {
 
 void queue_push(player_action act) {
     if(queue_full()) {
-        exotique_printf("ACTION QUEUE OVERFLOW!\n");
+        LOG("NETWORK", "ACTION QUEUE OVERFLOW!");
         exit(1);
     }
     /*
@@ -4095,7 +4111,7 @@ void queue_push(player_action act) {
 void client_send_input_to_all_clients() {
     player_action this_action;
     if(queue_size() == 0) {
-        exotique_printf("Expected one entry (player input) in queue, but got 0\n");
+        LOG("GAME", "BUG - Expected one entry (player input) in queue, but got 0");
         exit(1);
     } else {
         this_action = queue_peek();
@@ -4121,10 +4137,10 @@ void client_wait_for_all_inputs() {
                 receive_packet_from_socket(client_info[i].sock, INPUT_FROM_CLIENT, sizeof(player_action), &action, "input");
 
                 if(action.player_num == human_player){
-                    exotique_printf("Error: corrupted packet claims to be from this client\n");
+                    LOG("NETWORK", "Error: Corrupted packet claims to be from this client");
                     exit(1);
                 }
-                exotique_printf("got an action from player %i\n", action.player_num);
+                LOG("NETWORK", "Got an action from player %i", action.player_num);
                 queue_push(action);
             }
         }
@@ -4132,9 +4148,19 @@ void client_wait_for_all_inputs() {
 }
 
 
-void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
+const int screen_modes[3][2] = {
+    {1280,720},
+    {1600,900},
+    {1920,1080}
+};
+
+
+ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     char* server_address = NULL;
     int num_clients = -1;
+
+    int screen_mode = 0;
+
     for(int i = 1; i < argc; i++) {
         if((strcmp(argv[i], "--host") == 0) || (strcmp(argv[i], "-h") == 0)) {
             is_host = 1;
@@ -4154,16 +4180,42 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
         }
         else if(strcmp(argv[i], "--num-clients") == 0 && argc > i+1) {
             char *endptr;
-            errno = 0;
             num_clients = strtol(argv[i+1],&endptr, 10);
             if(num_clients < 0 || num_clients > 3 || endptr == argv[i+1]) {
-                exotique_printf("Invalid number of clients %i\n", num_clients);
+                LOG("INIT", "Error: Invalid number of clients %i", num_clients);
                 exit(1);
             }
         }
+        else if(strcmp(argv[i], "--screen-mode") == 0 && argc > i+1) {
+            char *endptr;
+            screen_mode = strtol(argv[i+1],&endptr, 10);
+            if(screen_mode > 2 || screen_mode < 0) {
+                LOG("INIT", "Error: Supported screen modes are 0-2 [1280x720, 1600x900, 1920x1080]");
+                exit(1);
+            }
+        } else if (strcmp(argv[i], "--no-aa") == 0) {
+            enable_supersampling = 0;
+        }
     }
 
-        
+    ExotiqueOptions opts;
+    opts.screenWidth = TILE_ROUND(screen_modes[screen_mode][0]);
+    opts.screenHeight = TILE_ROUND(screen_modes[screen_mode][1]);
+
+
+    render_width = opts.screenWidth*2;
+    render_height = opts.screenHeight*2;
+    output_width = opts.screenWidth;
+    output_height = opts.screenHeight;
+
+    tiles_wide = render_width / RENDER_TILE_SIZE;
+    tiles_high = render_height / RENDER_TILE_SIZE;
+    tiles = calloc(tiles_wide*tiles_high, sizeof(tile));
+    clear_tile_bins();
+    setup_camera(render_width, render_height);
+
+    
+    LOG("INIT", "Setting up sound device");
     num_active_sounds = 0;
     ma_config = ma_device_config_init(ma_device_type_playback);
 
@@ -4179,16 +4231,18 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     
     ma_result dev_init_res = ma_device_init(NULL_PTR, &ma_config, &sound_device);
     if (dev_init_res != MA_SUCCESS) {
-        exotique_printf("miniaudio failed to init %i\n", dev_init_res);
-        return;  // Failed to initialize the device.
+        LOG("AUDIO", "Miniaudio failed to init %i", dev_init_res);
+        exit(1);  // Failed to initialize the device.
     }
     
     ma_result dev_start_res = ma_device_start(&sound_device);     // The device is sleeping by default so you'll need to start it manually.
     if(dev_start_res != MA_SUCCESS) {
-        exotique_printf("miniaudio failed to init %i\n", dev_start_res);
-        return;
+        LOG("AUDIO", "Miniaudio failed to init %i", dev_start_res);
+        exit(1);
     }
 
+    
+    LOG("INIT", "Setting up palette");
     int i;
     int last_used_pal_idx = 0;
 
@@ -4228,6 +4282,7 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     int free_slot = last_used_pal_idx+1+num_bkgd_pal_entries;
     ei->palette[free_slot] = 0xC45766FF;
     
+    LOG("INIT", "Setting up light remap table");
     for(int shade = 0; shade < NUM_SHADES; shade++) {
         for(int p = 0; p < 256; p++) {
             vert3f rgba = rgba_to_f32_rgb(ei->palette[p]);
@@ -4236,6 +4291,9 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
             full_light_remap_table[shade][p] = closest_overall_color_idx(ei, rgba);
         }
     }
+
+    
+    LOG("INIT", "Setting up color mixing table (for mips, aa)");
     for(i = 0; i < 256; i++) {
         vert3f c1 = rgba_to_f32_rgb(ei->palette[i]);
         for(int j = 0; j < 256; j++) {
@@ -4250,28 +4308,29 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
             }
         }
     }
+    
+    LOG("INIT", "Decompressing sounds");
     decompress_sounds();
+    LOG("INIT", "Decompressing textures");
     decompress_textures(ei);
 
     texture_board[0] = light_remap_table[NUM_SHADES/2-1][GREEN];
     
-    clear_tile_bins();
-
     tile_bbox = get_mesh_bbox(&mahjong_tile_mesh);
     board_bbox = get_mesh_bbox(&board_mesh);
 
     if(is_host && is_client) {
-        exotique_printf("Args suggest both client and host, invalid\n");
+        LOG("INIT", "Error: Args suggest both client and host, invalid");
         exit(1);
     } else if (is_host || is_client) {
         int net_init_error = SDLNet_Init();
         if(net_init_error != 0) {
-            exotique_printf("error initializing network stack %s\n", SDLNet_GetError());
+            LOG("NETWORK", "Error initializing network stack %s", SDLNet_GetError());
             SDLNet_Quit();
             exit(1);
         }
     } else {
-        exotique_printf("Running in host mode with zero clients\n");
+        LOG("INIT", "Running in host mode with zero clients");
         is_host = 1;
         num_clients = 0;
     }
@@ -4288,7 +4347,7 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
         seed_and_player_info initial_state = receive_initial_state();
         setup_connections_to_other_clients(initial_state);
     }
-    exotique_printf("Connections setup to %i total players\n", num_socks_in_set);
+    LOG("NETWORK", "Connections setup to %i total players", num_socks_in_set);
     reset_game();
 
     // setup rasterization contexts
@@ -4302,6 +4361,8 @@ void game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
         raster_contexts[i].z_buffer = z_buffers[i];
         raster_thread_handles[i] = (HANDLE)_beginthread(raster_worker, 0, &raster_contexts[i]);
     }
+
+    return opts;
 }
 
 
@@ -4555,7 +4616,7 @@ int get_best_discard(int player, hand* h) {
             // discard non-helpful wind first
             int idx = find_index_of_first_tile_in_hand(h, player_winds[i]);
             if(idx == -1) {
-                exotique_printf("BUG IN TILE DISCARD PRIORITIZATION, FOUND WIND TILE BUT DOESNT EXIST?\n");
+                LOG("GAME", "BUG IN TILE DISCARD PRIORITIZATION, FOUND WIND TILE BUT DOESNT EXIST?");
             }
             return idx;
         }
@@ -4565,7 +4626,7 @@ int get_best_discard(int player, hand* h) {
         if(count_tile_in_hand(h->tiles, h->num_closed_tiles, dragons[i]) == 1) {
             int idx = find_index_of_first_tile_in_hand(h, dragons[i]);
             if(idx == -1) {
-                exotique_printf("BUG IN TILE DISCARD PRIORITIZATION, FOUND WIND TILE BUT DOESNT EXIST?\n");
+                LOG("GAME", "BUG IN TILE DISCARD PRIORITIZATION, FOUND WIND TILE BUT DOESNT EXIST?");
             }
             return idx;
         }
@@ -4964,7 +5025,7 @@ call_info can_call(int player, hand_score_modifiers *mods) {
     tile_type tmp_full_hand[14];
     copy_hand_tiles_to_tmp(cur_hand, tmp_full_hand);
     if(cur_hand->num_closed_tiles + cur_hand->num_open_tiles != 13) {
-        exotique_printf("!!!EXPECTED 13 TILES, KAN OR BUG?\n");
+        LOG("GAME", "Bug: EXPECTED 13 TILES, KAN NOT SUPPORTED.  THIS SHOULD NOT OCCUR.");
         exit(1);
     }
 
@@ -5213,7 +5274,7 @@ int waiting_on_call_from(int player) {
 
 void remove_player_from_waiting_on_call_list(int player) {
     if(game_data.waiting_for_calls == 0) {
-        exotique_printf("Bug when trying to remove player %i from call list, list is empty\n", player);
+        LOG("GAME", "Bug: when trying to remove player %i from call list, list is empty", player);
         exit(1);
     }
     int idx = -1;
@@ -5224,7 +5285,7 @@ void remove_player_from_waiting_on_call_list(int player) {
         }
     }
     if(idx == -1) {
-        exotique_printf("Bug when trying to remove player from call wait list\n", player);
+        LOG("GAME", "Bug: when trying to remove player from call wait list", player);
         //return;
         exit(1);
     }
@@ -5236,13 +5297,13 @@ void remove_player_from_waiting_on_call_list(int player) {
 void add_player_to_waiting_on_call_list(int player) {
     for(int i = 0; i < game_data.waiting_for_calls; i++) {
         if(game_data.waiting_for_calls_players[i] == player) {
-            exotique_printf("Bug when trying to add player %i to waiting for call list, already in list\n", player);
+            LOG("GAME", "Bug: when trying to add player %i to waiting for call list, already in list", player);
             exit(1);
         }
     }
     game_data.waiting_for_calls_players[game_data.waiting_for_calls++] = player;
     if(game_data.waiting_for_calls > 4) {
-        exotique_printf("Bug when adding player to waiting for call list, have %i players!\n", game_data.waiting_for_calls);
+        LOG("GAME", "Bug: when adding player to waiting for call list, have %i players!", game_data.waiting_for_calls);
         exit(1);
     }
 }
@@ -5251,13 +5312,13 @@ void add_player_to_waiting_on_call_list(int player) {
 int step_frame = 0;
 char* step_reason = NULL;
 void advance_frame(const char* reason) {
-    exotique_printf("advancing frame to %i after %s\n", ++game_data.sim_frame, reason);
+    LOG("GAME", "Advancing frame to %i after %s", ++game_data.sim_frame, reason);
     step_frame = 0;
 }
 
 void stage_advance_frame(const char* reason) {
     if(step_frame) {
-        exotique_printf("TRYING TO ADVANCE FRAME TWICE!\n");
+        LOG("GAME", "BUG: TRYING TO ADVANCE FRAME TWICE!");
         exit(1);
     }
     step_frame = 1;
@@ -5361,7 +5422,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
             // we can execute MOVE_SELECTED_LEFT and MOVE_SELECTED_RIGHT packets, but everything else is ignored for now.
             // however, we still have to verify sim frames!
             if(action.sim_frame > game_data.sim_frame) {
-                exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
+                //exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
                 break;
             }
             switch(action.cmd) {
@@ -5411,7 +5472,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
 
                     
                     if(call.call == NO_CALL) {
-                        exotique_printf("GOT CALL FROM PLAYER WHO WE'RE WAITING ON, BUT CANNOT CALL DUE TO BUG?!\n");
+                        LOG("GAME", "BUG: GOT CALL FROM PLAYER WHO WE'RE WAITING ON, BUT CANNOT CALL!");
                         exit(1);
                     }
                     game_data.waiting_for_calls = 0;   
@@ -5453,14 +5514,14 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
         while(!queue_empty()) {
              player_action action = queue_peek();
             if(action.sim_frame > game_data.sim_frame) {
-                exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
+                //exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
                 break;
             }
 
             i8 this_player = action.player_num;
 
             if(action.sim_frame < game_data.sim_frame) {
-                exotique_printf("Ignoring old input!\n");
+                //exotique_printf("Ignoring old input!\n");
                 queue_pop();
                 continue;
                 //exotique_printf("RECEIVED OLD INPUT, MUST ADD SYNCHRONIZATION BARRIERS! (theirs %i, ours %i)\n", action.sim_frame, game_data.sim_frame);
@@ -5538,9 +5599,9 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                         switch_player();
                     } else {
                         
-                        exotique_printf("waiting for calls from: \n");
+                        LOG("GAME", "Waiting for calls from: ");
                         for(int i = 0; i < game_data.waiting_for_calls; i++) {
-                            exotique_printf("%i\n", game_data.waiting_for_calls_players[i]);
+                            LOG("GAME", "%i", game_data.waiting_for_calls_players[i]);
                         }
                         return whole_frame_block;
                     }
@@ -5551,7 +5612,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                     }
 
                     if(is_win(&game_data.hand_winner_mods, player_hand, this_player, 1)) {
-                        exotique_printf("TSUMO WIN !\n");
+                        LOG("GAME", "TSUMO WIN !");
                         add_sound(TSUMO, 0.25f);
                         game_data.hand_winner = this_player;
                         adjust_scores(0, -1);
@@ -5571,7 +5632,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
                     }
                     break;
                 default:
-                    exotique_printf("Unhandled event type %i\n", action.cmd);
+                    LOG("GAME", "Unhandled event type %i", action.cmd);
                     break;
             }
         }

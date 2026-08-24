@@ -1,0 +1,1 @@
+python -m nuitka --mode=onefile launcher.py

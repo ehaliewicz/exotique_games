@@ -13,6 +13,7 @@ class LauncherApp(tk.Tk):
         super().__init__()
         self.title("Mahjong Launcher")
         self.resizable(False, False)
+         
 
         pad = {"padx": 10, "pady": 5}
 
@@ -95,4 +96,5 @@ class LauncherApp(tk.Tk):
 
 if __name__ == "__main__":
     app = LauncherApp()
+    app.geometry("280x180")
     app.mainloop()

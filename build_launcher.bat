@@ -1,1 +1,1 @@
-python -m nuitka --mode=onefile launcher.py
+python -m nuitka --mode=onefile --mingw64 --enable-plugin=tk-inter --include-windows-runtime-dlls=yes --force-stdout-spec="%USERPROFILE%/Desktop/out.txt" --force-stderr-spec="%USERPROFILE%/Desktop/err.txt" launcher.py

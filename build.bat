@@ -13,6 +13,8 @@ REM If your zip has an x86_64-w64-mingw32\ sub-folder, append it here.
 SET SDL2_DIR=C:\Users\Erik\code\SDL2-2.32.10\x86_64-w64-mingw32
 SET SDL2_INC=%SDL2_DIR%\include\SDL2
 SET SDL2_LIB=%SDL2_DIR%\lib
+REM SET SDL2_LIB=C:\Users\Erik\code\SDL\build\build\.libs
+
 SET SDL2_NET_DIR=C:\Users\Erik\code\SDL2_net-devel-2.4.0-mingw\SDL2_net-2.4.0\x86_64-w64-mingw32
 SET SDL2_NET_INC=%SDL2_NET_DIR%\include\SDL2
 SET SDL2_NET_LIB=%SDL2_NET_DIR%\lib
@@ -42,7 +44,7 @@ SET GAME=%~n1
 REM ============================================================
 REM  Compile exotique.c
 REM ============================================================
-"%GCC%" -c %CFLAGS% -std=c2x -O2 -ggdb -march=haswell ^
+"%GCC%" -c %CFLAGS% -std=c2x -Og -ggdb -march=westmere -ffunction-sections  ^
     -I "%SDL2_INC%" -D_REENTRANT ^
     exotique.c
 IF ERRORLEVEL 1 (
@@ -61,7 +63,7 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c23 -O2 -ggdb -ffast-math -march=haswell -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding -ffunction-sections ^
+"%GCC%" -c %CFLAGS% -std=c23 -Og -ggdb -ffast-math -march=westmere -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding -ffunction-sections ^
     -I ".." -I %SDL2_INC% -I %SDL2_NET_INC% ^
     ^
     -D ARCH=%ARCH% ^
@@ -74,9 +76,12 @@ IF ERRORLEVEL 1 (
 REM ============================================================
 REM  Link
 REM ============================================================
-gcc -flto -Wl,--gc-sections ^
-    exotique.o miniaudio.o "%GAME%.o" ^
-    -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" -lSDL2 -lSDL2_net -latomic -lwsock32 ^
+gcc -Wl,--gc-sections -Og -ggdb  ^
+    exotique.o miniaudio.o "%GAME%.o"^
+     -Wl,-Map=game.map ^
+    -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" ^
+    -static -lSDL2 -lSDL2_net -lwsock32 ^
+    -lmingw32 -lSDL2main -lSDL2 -lm -ldinput8 -ldxguid -ldxerr8 -luser32 -lgdi32 -lwinmm -limm32 -lole32 -loleaut32 -lshell32 -lversion -luuid -static-libgcc -lsetupapi  -liphlpapi ^
     ^
     -o "%GAME%.exe"
 IF ERRORLEVEL 1 (

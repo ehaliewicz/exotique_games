@@ -79,7 +79,6 @@ typedef struct {
 } obj_mesh;
 
 #include "asset_headers/mesh_board.h"
-//#include "asset_headers/mesh_dragon.h"
 #include "asset_headers/mesh_dragon_low_poly.h"
 #include "asset_headers/mesh_mahjong_tile.h"
 #include "asset_headers/mesh_quad.h"
@@ -172,7 +171,7 @@ typedef enum {
 
 typedef struct {
     u8 palette[4]; // up to 4 colors in per-image palette.  these are indexes of the global palette (2 are shared)
-    u8 *compressed_packets;
+    const u8 *compressed_packets;
 } compressed_texture;
 
 typedef enum {
@@ -433,7 +432,7 @@ void rasterize_triangle_2x2_quad(
     }
 }
 
-
+__attribute__((target("avx2")))
 void rasterize_triangle_2x2_quad_no_tmap_avx2(
     u8 *restrict color_buffer,
     u16 *restrict zbuffer,
@@ -1169,7 +1168,7 @@ int tex_mip_3_used = 0;
 int tex_mip_4_used = 0;
 int tex_1x1_used = 0;
 
-u8 texture_mip_0_buffer[7][256*256] __attribute__((aligned(64)));
+u8 texture_mip_0_buffer[10][256*256] __attribute__((aligned(64)));
 u8 texture_mip_1_buffer[NUM_ALL_TEXTURE_TYPES][128*128] __attribute__((aligned(64)));
 u8 texture_mip_2_buffer[NUM_ALL_TEXTURE_TYPES][64*64] __attribute__((aligned(64)));
 u8 texture_mip_3_buffer[NUM_ALL_TEXTURE_TYPES][32*32] __attribute__((aligned(64)));
@@ -1234,8 +1233,9 @@ texture textures[NUM_ALL_TEXTURE_TYPES+1] = {
     }
 };
 
-void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_bytes, u8 default_pal_color) {
-    u8 *packets = comp_tex->compressed_packets;
+
+int decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_bytes, u8 default_pal_color) {
+    const u8 *packets = comp_tex->compressed_packets;
     u8 *local_palette = comp_tex->palette;
     int packet_idx = 0;
     int dst_idx = 0;
@@ -1261,7 +1261,7 @@ void decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byt
             dst[dst_idx++] = global_pal_idx;
         }
     }
-    return;
+    return packet_idx;
 }
 
 void translate_texture(u8* src, u8* dst,  int total_pixels, u8 base_color) {
@@ -1350,6 +1350,7 @@ void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size, i16 over
 }
 
 void decompress_textures(ExotiqueInterface *ei) {
+    u64 total_compressed_tex_bytes = 0;
 
     for(int i = 0; i < NUM_ALL_TEXTURE_TYPES; i++) {
 
@@ -1374,7 +1375,7 @@ void decompress_textures(ExotiqueInterface *ei) {
             } else if (i == WHITE_TENBOU) {
                 textures[i].comp_tex_ptr->palette[0] = textures[i].comp_tex_ptr->palette[0];
             }
-            decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height, textures[i].default_pal_idx);    
+            total_compressed_tex_bytes += decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height, textures[i].default_pal_idx);    
             
         } else if (textures[i].compressed == BASE_COLOR_INDEXES) {
             translate_texture(textures[i].texels[0], tex_buf, width*height, textures[i].default_pal_idx);
@@ -1429,7 +1430,8 @@ void decompress_textures(ExotiqueInterface *ei) {
         }
     }
 
-
+    LOG("INFO", "Total compressed texture bytes %i\n", total_compressed_tex_bytes);
+    //exit(1);
 }
 
 
@@ -1442,6 +1444,7 @@ f32 board_bot_min_x, board_bot_max_x;
 //#define AVX2
 
 int enable_supersampling = 1;
+int enable_avx = 1;
 
 void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile* t) {
     u32 i;
@@ -1513,23 +1516,18 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
 
     u32 num_tris = t->num_tex_triangles;
     u32 num_solid_tris = t->num_solid_triangles;
-
+      
     for(i = 0; i < num_solid_tris; i++) {
         u32 global_tri_idx = t->solid_tri_indexes[i];
         // drew_pix
-    #ifdef AVX2
-        rasterize_triangle_2x2_quad_no_tmap_avx2
-    #else
-        rasterize_triangle_2x2_quad_no_tmap
-    #endif
-        (
+        (enable_avx ? rasterize_triangle_2x2_quad_no_tmap_avx2 : rasterize_triangle_2x2_quad_no_tmap)(
             color_buffer, zbuffer,
             &global_tri_buffer[global_tri_idx],
             t->start_x, t->start_x+RENDER_TILE_SIZE,
             t->start_y, t->start_y+RENDER_TILE_SIZE
         );
-
     }
+    
 
     for(i = 0; i < num_tris; i++) {
         u32 global_tri_idx = t->tex_tri_indexes[i];
@@ -1751,7 +1749,6 @@ void bin_triangle(
             vert2i proj_v0 = {(i32)(v0->x*16.0f),(i32)(v0->y*16.0f)};
             vert2i proj_v1 = {(i32)(v1->x*16.0f),(i32)(v1->y*16.0f)};
             vert2i proj_v2 = {(i32)(v2->x*16.0f),(i32)(v2->y*16.0f)};
-            
 
             vert2f uv0 = *v0_uv;
             vert2f uv1 = *v1_uv;
@@ -2194,7 +2191,7 @@ typedef enum {
 } sound_compression_type;
 
 typedef struct {
-    void *compressed_raw_data;
+    const void *compressed_raw_data;
     i16* decompressed_data;
     u32 num_bytes, num_mono_samples;
     sound_compression_type comp_type;
@@ -2213,7 +2210,7 @@ sound_data sounds[NUM_SOUNDS] = {
 #endif
 };
 
-u32 decompress_MP3(u8* raw_data, i16* output, u32 num_bytes) {
+u32 decompress_MP3(const u8* raw_data, i16* output, const u32 num_bytes) {
 #ifdef ENABLE_MUSIC
     ma_decoder decoder;
     ma_decoder_config decoder_config = ma_decoder_config_init(ma_format_s16, 1, 22050);
@@ -2242,7 +2239,7 @@ u32 decompress_MP3(u8* raw_data, i16* output, u32 num_bytes) {
 #endif
 }
 
-u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
+u32 decompress_adpcm(const u8* raw, i16 *output, const u32 num_bytes) {
 
     static const int index_table[16] = {
         -1,-1,-1,-1, 2, 4, 6, 8, -1,-1,-1,-1, 2, 4, 6, 8
@@ -2298,6 +2295,7 @@ u32 decompress_adpcm(u8* raw, i16 *output, u32 num_bytes) {
 }
 
 void decompress_sounds() {
+    u64 total_compressed_sound_bytes = 0;
     for(int i = 0; i < NUM_SOUNDS; i++) {
         switch(sounds[i].comp_type) {
             case IMA_ADPCM:
@@ -2307,7 +2305,9 @@ void decompress_sounds() {
                 sounds[i].num_mono_samples = decompress_MP3(sounds[i].compressed_raw_data, sounds[i].decompressed_data, sounds[i].num_bytes);
                 break;
         }
+        total_compressed_sound_bytes += sounds[i].num_bytes;
     }
+    LOG("INFO", "Total compressed sound bytes %i\n", total_compressed_sound_bytes);
 }
 
 int num_active_sounds = 0;
@@ -2555,14 +2555,10 @@ typedef struct {
     player_type player_types[4];
     int waiting_for_calls; // 0 -> no calls necessary.  1+ waiting for calls
     int waiting_for_calls_players[4]; // player numbers that we are waiting for are in here
+    wall board_wall;
 } game_data_t;
 
 
-// NOTE: I extracted this from game_data
-// because I was considering sending periodic game state 
-// and figured I could omit the wall because it's generated from a RNG seed
-// but honestly it should probably go back
-wall board_wall = { 0 };
 
 
 game_data_t game_data = { 
@@ -2624,9 +2620,14 @@ game_data_t game_data = {
     // waiting for calls
     0,
     // players from which we are waiting for calls from
-    {-1, -1, -1, -1}
+    {-1, -1, -1, -1},
+    // board wall
+    { .tiles = { 0 } }
 };
 
+const player_type ai_select_order[4] = {
+    CONSERVATIVE_AI, AGGRESSIVE_AI, CHAOTIC_AI, CONSERVATIVE_AI
+};
 
 i8 human_player = 0; // default value for host, for clients this gets assigned to an initial player num in a packet from the host
 static u32 rotl(const u32 x, i32 k) {
@@ -2668,17 +2669,29 @@ const f32 wall_offsets_x[4] = {17.0f, 0.0f, -17.0f, 0.0f};
 const f32 wall_offsets_z[4] = {0.0f, 17.0f, 0.0, -17.0f};
 const f32 wall_y_rots[4] = {(f32)M_PI * 0.5f, 0.0f, -(f32)M_PI * 0.5f, (f32)M_PI};
 
+#define WALL_TO_HAND_DIST_SCALE (26.5f / 17.0f)
+
+
 typedef void (*timer_callback)(u64 callback_data);
+
+typedef enum __attribute__((packed)) {
+    RELEASE_ON_EXPIRE,
+    REPEAT_ON_EXPIRE,
+    NORMAL_TIMER
+} timer_type;
 
 typedef struct {
     const char *name;
     u64 callback_data;
     u64 start_ticks;
-    u64 end_ticks;
+    f32 duration_ms;
+    //u64 end_ticks;
     timer_callback expire_cb;
     u8 used:1;
     u8 finished:1;
-    u8 release_on_expire:1;
+    timer_type type:2;
+    //u8 release_on_expire:1;
+    //u8 repeats:1;
 } timer;
 
 #define MAX_NUM_TIMERS 128
@@ -2721,27 +2734,30 @@ void timer_release(int handle) {
     timers[handle].name = NULL;
 }
 
-void timer_start(int handle, f32 duration_seconds, int release_on_expire, timer_callback expire_cb, u64 callback_data) {
+void timer_start(
+    int handle, f32 duration_seconds, timer_type type, 
+    timer_callback expire_cb, u64 callback_data) {
     u64 start_ticks = exotique_get_ticks();
 
     timers[handle].start_ticks = start_ticks;
-    timers[handle].end_ticks = start_ticks + (u64)(duration_seconds*1000.0f);
+    //timers[handle].end_ticks = start_ticks + (u64)(duration_seconds*1000.0f);
+    timers[handle].duration_ms = duration_seconds*1000.0f;
     timers[handle].expire_cb = expire_cb;
     timers[handle].callback_data = callback_data;
     timers[handle].finished = 0;
-    timers[handle].release_on_expire = release_on_expire;
+    timers[handle].type = type;
 }
 
-void timer_start_no_callback(int handle, f32 duration_seconds, int release_on_expire) {
-    timer_start(handle, duration_seconds, release_on_expire, timer_null_callback, 0);
+void timer_start_no_callback(int handle, f32 duration_seconds, timer_type type) {
+    timer_start(handle, duration_seconds, type, timer_null_callback, 0);
 }
 
 f32 timer_get_progress(int handle) {
     if(handle < 0 || handle >= MAX_NUM_TIMERS) {
         return 1.0f;
     }
-    f32 end_ticks = timers[handle].end_ticks;
     f32 start_ticks = timers[handle].start_ticks;
+    f32 end_ticks = start_ticks + (timers[handle].duration_ms);
     f32 cur_ticks = exotique_get_ticks();
     f32 dur = end_ticks-start_ticks;
     f32 dtime = cur_ticks - start_ticks;
@@ -2754,14 +2770,24 @@ void timer_step(u64 cur_ticks) {
         if(timers[i].used == 0 || timers[i].finished) {
             continue;
         }
+        u64 start_ticks = timers[i].start_ticks;
+        f32 end_ticks = start_ticks + (u64)(timers[i].duration_ms);
 
-        if(cur_ticks >= timers[i].end_ticks) {
+        if(cur_ticks >= end_ticks) {
             timers[i].finished = 1;
             //exotique_printf("CALLING FINISH CALLBACK FOR %s\n", timers[i].name);
             timers[i].expire_cb(timers[i].callback_data);
-            if(timers[i].release_on_expire) {
-                timers[i].used = 0;
-                num_active_timers--;
+            switch(timers[i].type) {
+                case RELEASE_ON_EXPIRE:
+                    timers[i].used = 0;
+                    num_active_timers--;
+                    break;
+                case NORMAL_TIMER:
+                    break;
+                case REPEAT_ON_EXPIRE:
+                    timers[i].finished = 0;
+                    timers[i].start_ticks = cur_ticks;
+                    break;
             }
         }
     }
@@ -2808,6 +2834,14 @@ transform get_wall_transform(int i) {
     wall_trans.position.z = wall_offsets_z[i];
     wall_trans.rotation.y = wall_y_rots[i]; // - 0.05f;
     return wall_trans;
+}
+
+transform get_hand_transform(int i) {
+    transform hand_trans = identity_transform();
+    hand_trans.position.x = wall_offsets_x[i] * WALL_TO_HAND_DIST_SCALE;
+    hand_trans.position.z = wall_offsets_z[i] * WALL_TO_HAND_DIST_SCALE;
+    hand_trans.rotation.y = wall_y_rots[i]; // - 0.05f;
+    return hand_trans;
 }
 
 vert3f calc_wall_tile_global_position(wall* w, int tot_tile_idx) {
@@ -2909,6 +2943,7 @@ const f32 wall_z_tile_offsets[17] = {
     -0.03f, 0.0f, 0.03f, 0.0f, 0.05f,
 };
 
+
 vert3f calc_local_discard_position(hand *h, int discard_i) {
     int discard_row = discard_i/6;
     int pos_in_row = discard_i - (discard_row*6);
@@ -2974,7 +3009,6 @@ void draw_hand(
 
     /*
         draw open tiles
-
     */
     f32 row_poses[3][3] = {   
         {-20.0f, -22.6f, -24.6f}, // first is rotated
@@ -3064,22 +3098,15 @@ void draw_hand(
         wind_indicator_trans.position.x = -25.0f;
 
         wind_indicator_trans.rotation.z = game_data.cur_wind == EAST_WIND ? 0.0f : (f32)M_PI; 
-
-        if(use_dragon_model) {
-            wind_indicator_trans.rotation.y = (f32)game_data.frame/1024.0f;
-            wind_indicator_trans.scale = (vert3f){25.0f, 25.0f, 25.0f};
-        } else {
-            wind_indicator_trans.rotation.y = (f32)M_PI;
-            wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
-        }
+        wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
+        wind_indicator_trans.rotation.y = use_dragon_model ? (game_data.frame/1024.0f) : (f32)M_PI;
 
         matrix wind_indicator_to_hand_mat = transform_to_matrix(&wind_indicator_trans);
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED;
-        draw_calls[draw_idx].mesh = use_dragon_model ? &dragon_low_poly_mesh : &wind_indicator_mesh;
+        draw_calls[draw_idx].mesh = use_dragon_model ? &dragon_low_poly_cleaned_mesh : &wind_indicator_mesh;
         draw_calls[draw_idx].bounds = 0;
         draw_calls[draw_idx].texture = WIND_INDICATOR;
-        //draw_calls[draw_idx].model_to_world = mat_mul_mat(hand_to_world_matrix, &wind_indicator_to_hand_mat);
         draw_calls[draw_idx++].model_to_view = mat_mul_mat(hand_to_view_matrix, &wind_indicator_to_hand_mat);
     }
 
@@ -3207,39 +3234,19 @@ void draw_wall(game_state cur_state, wall *w, matrix *view_mat) {
 }
 
 void draw_riichi_game(game_state cur_state, int hand_winner, matrix* view_mat) {
-    transform t_east = identity_transform(); t_east.rotation.y = (f32)M_PI * 0.5f; t_east.position.x = 26.5f; // push 10 units to the right
-    transform t_south = identity_transform(); t_south.rotation.y = 0; t_south.position.z = 26.5f; // push 10 units down
-    transform t_west = identity_transform(); t_west.rotation.y = -(f32)M_PI * 0.5f; t_west.position.x = -26.5f; // push 10 units left
-    transform t_north = identity_transform(); t_north.rotation.y = (f32)M_PI; t_north.position.z = -26.5f;
-
-    matrix east_matrix = transform_to_matrix(&t_east);
-    matrix south_matrix = transform_to_matrix(&t_south);
-    matrix west_matrix = transform_to_matrix(&t_west);
-    matrix north_matrix = transform_to_matrix(&t_north);
-
-    matrix east_view_matrix = mat_mul_mat(view_mat, &east_matrix);
-    matrix south_view_matrix = mat_mul_mat(view_mat, &south_matrix);
-    matrix west_view_matrix = mat_mul_mat(view_mat, &west_matrix);
-    matrix north_view_matrix = mat_mul_mat(view_mat, &north_matrix);
-
-    matrix *hand_matrixes[4][2] = {
-        {&east_view_matrix, &east_matrix},
-        {&south_view_matrix, &south_matrix},
-        {&west_view_matrix, &west_matrix},
-        {&north_view_matrix, &north_matrix}
-    };
-
     for(int i = 0; i < 4; i++) {
+        transform trans = get_hand_transform(i);
+        matrix hand_mat = transform_to_matrix(&trans);
+        matrix hand_view_mat = mat_mul_mat(view_mat, &hand_mat);
         hand* this_hand = &game_data.hands[i];
-        draw_hand(&board_wall, this_hand, 
+        draw_hand(&game_data.board_wall, this_hand, 
             (i == game_data.cur_dealer), // draw wind indicator
             hand_winner == i,
-            hand_matrixes[i][0], hand_matrixes[i][1]
+            &hand_view_mat, &hand_mat
         );
-
     }
 
-    draw_wall(cur_state, &board_wall, view_mat);
+    draw_wall(cur_state, &game_data.board_wall, view_mat);
 }
 
 static obj_mesh board_sides;
@@ -3299,32 +3306,41 @@ void draw_board(matrix* view_mat) {
 
 #include "asset_headers/font.h"
 
-static void bit_draw(const u8 *sprite, i32 x, i32 y, i32 font_width, i32 font_height, u8 color, u8 bkgd_color, u8* tex, int tex_width, int tex_height) {
+
+static void bit_draw(const u8 *sprite, i32 x, i32 y, i32 font_width, i32 font_height, int scale, u8 color, u8* tex, int tex_width, int tex_height) {
     for (i32 row = 0; row < font_height; ++row) {
         for (i32 col = 0; col < font_width; ++col) {
             i32 bit_idx = row * font_width + col;
-            if ((x + col) >= 0 && (x + col < tex_width) && (y + row) >= 0 && (y + row) < tex_height) {
-                tex[(y + row) * tex_width + (x + col)] = (sprite[bit_idx >> 3] << (bit_idx & 7) & 0x80) ? color : bkgd_color;
+            int base_x = x+col*scale;
+            int base_y = y+row*scale;
+            if(sprite[bit_idx >> 3] << (bit_idx & 7) & 0x80) {            
+                for(int xx = base_x; xx < base_x+scale; xx++) {
+                    for(int yy = base_y; yy < base_y+scale; yy++) {
+                        if (xx >= 0 && xx < tex_width && yy >= 0 && yy < tex_height) {
+                            tex[yy * tex_width + xx] = color;
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-static void text_draw(const u8* font, i32 x, i32 y, i32 font_width, i32 font_height, u8 color, u8 bkgd_color, u8* tex, int tex_width, int tex_height, const char* str) {
+static void text_draw(const u8* font, i32 x, i32 y, i32 font_width, i32 font_height, int scale, u8 color, u8* tex, int tex_width, int tex_height, const char* str) {
   if (str) {
     for (i32 i = 0; str[i]; ++i) {
       i32 char_index = (i32)str[i] - 32;
       if (char_index >= 0 && char_index < 96) {
-        bit_draw(font+(char_index*font_height), x * font_width + (font_width * i), y * font_height, font_width, font_height, color, bkgd_color, tex, tex_width, tex_height);
+        bit_draw(font+(char_index*font_height), x + (font_width * scale * i), y, font_width, font_height, scale, color, tex, tex_width, tex_height);
       }
     }
   }
 }
 
 
-u8 score_tex[256*256];
-void draw_string_to_texture(char* str, int x, int y, u8 col, u8 bkgd_col, u8* texture) {
-      text_draw(twtr_8x8_font, x, y, 8, 8, col, bkgd_col, texture, 256, 256, str);
+//u8 score_tex[256*256];
+void draw_string(char* str, int x, int y, int scale, u8 col, u8* texture) {
+    text_draw(twtr_8x8_font, x, y, 8, 8, scale, col, texture, output_width, output_height, str);
 }
 
 
@@ -3365,6 +3381,10 @@ void game_draw(ExotiqueInterface* ei) {
             rasterize_tiles_parallel();
         END_TIMED_BLOCK(raster_block)
 
+        if(ei->input->select) {
+            draw_string("A - Draw | B - Discard | X - Call/Riichi | Y - Sort", 8, (output_height)-24, 2, light_remap_table[NUM_SHADES-1][WHITE], ei->screen);
+        }
+
     END_TIMED_BLOCK(whole_frame_block)
 
     if((game_data.frame & 31) == 0) {
@@ -3372,15 +3392,6 @@ void game_draw(ExotiqueInterface* ei) {
         //exotique_printf("used anim timers %i\n", num_active_timers);
         //exotique_printf("total %.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
         //exotique_printf("vcache misses %i, hits %i %.2f\n", vcache_misses, vcache_hits, (double)vcache_hits*100.0/(double)(vcache_misses+vcache_hits));
-        //for(int i = 0; i < MAX_NUM_TIMERS; i++) {
-        //    if(timers[i].used) {
-        //        if(timers[i].finished) {
-        //            exotique_printf("stale timer: %s\n", timers[i].name);
-        //        } else {
-        //            exotique_printf("active timer: %s\n", timers[i].name);
-        //        }
-        //    }
-        //}
     }
     
     meshes_transformed = 0;
@@ -3464,7 +3475,7 @@ void reset_ai_player_state(int idx) {
         int ai_reset_timer_handle = timer_get_handle("reset ai state");
         game_data.ai_player_timer_handles[idx] = ai_reset_timer_handle;
     }
-    timer_start(game_data.ai_player_timer_handles[idx], AI_PLAYER_SPEED, 0, reset_ai_player_state_callback, idx);
+    timer_start(game_data.ai_player_timer_handles[idx], AI_PLAYER_SPEED, NORMAL_TIMER, reset_ai_player_state_callback, idx);
 }
 
 void reset_queue();
@@ -3515,7 +3526,7 @@ void reset_game() {
             game_data.hands[i].score = score;
         }
     }
-    shuffle_deck(&board_wall);
+    shuffle_deck(&game_data.board_wall);
 
     game_data.next_deal_pos = 0;
     game_data.last_discard_player = -1;
@@ -3533,9 +3544,9 @@ int num_socks_in_set = 0;
 #define MAKE_NUM(A, B, C, D)    (((A+B)<<8)|(C+D))
 
 #define JONG_PORT MAKE_NUM('J','O','N','G')
-#define JONG_PORT1 MAKE_NUM('J','O','N','G')+1
-#define JONG_PORT2 MAKE_NUM('J','O','N','G')+2
-#define JONG_PORT3 MAKE_NUM('J','O','N','G')+3
+#define JONG_PORT1 JONG_PORT+1
+#define JONG_PORT2 JONG_PORT+2
+#define JONG_PORT3 JONG_PORT+3
 #define MAX_CLIENTS 3
 static struct {
     int active;
@@ -3647,6 +3658,10 @@ typedef enum __attribute__((packed)) {
     INPUT_FROM_CLIENT = 5,
 } msg_type;
 
+void host_timer_callback(u64 data) {
+    LOG("INFO", "host timer callback fired");
+}
+
 void setup_host(int num_clients) {
     if(num_clients < 0 || num_clients > 3) {
         LOG("INIT", "Error: Please specify number of clients between 0 and 3, --num-clients [num]");
@@ -3658,7 +3673,7 @@ void setup_host(int num_clients) {
         game_data.player_types[i] = NETWORK_HUMAN;
     }
     for(int i = num_clients+1; i < 4; i++) {
-        game_data.player_types[i] = CONSERVATIVE_AI;
+        game_data.player_types[i] = ai_select_order[i];
     }
     if(num_clients == 0) {
         return;  
@@ -3710,6 +3725,12 @@ void setup_host(int num_clients) {
     num_socks_in_set = added_sock;
 }
 
+void setup_host_timer() {
+    int host_timer_handle = timer_get_handle("host timer");
+    LOG("INFO", "setup host timer");
+    timer_start(host_timer_handle, 0.033f, REPEAT_ON_EXPIRE, host_timer_callback, 0);
+}
+
 IPaddress client_ip;
 TCPsocket client_listen_sock;
 u16 client_listen_port;
@@ -3747,7 +3768,6 @@ void setup_client(char* server_address) {
         serv_sock = SDLNet_TCP_Open(&server_ip);
         if(serv_sock != NULL) {
             break;
-            //exit(1);
         }
         LOG("NETWORK", "Failed, retrying");
         int counter = 1000000;
@@ -3912,7 +3932,7 @@ void setup_connections_to_other_clients(seed_and_player_info initial_state) {
     }
 
     for(int i = connections_to_listen_for+connections_to_open+2; i < 4; i++) {
-        game_data.player_types[i] = CONSERVATIVE_AI;
+        game_data.player_types[i] = ai_select_order[i];;
     }
 
     LOG("NETWORK", "Connections to listen for %i, connections to open %i", connections_to_listen_for, connections_to_open);
@@ -4066,18 +4086,6 @@ void queue_push(player_action act) {
         LOG("NETWORK", "ACTION QUEUE OVERFLOW!");
         exit(1);
     }
-    /*
-    exotique_printf(
-        "PUSH action: frame=%i player=%i cmd=%s | current frame=%i | head=%i tail=%i size=%i\n",
-        act.sim_frame,
-        act.player_num,
-        action_names[act.cmd],
-        game_data.sim_frame,
-        queue_head,
-        queue_tail,
-        queue_size()
-    );
-    */
 
     action_queue[queue_head&(MAX_PLAYER_EVENTS-1)] = act;
 
@@ -4092,20 +4100,6 @@ void queue_push(player_action act) {
         action_queue[cur_new_idx&(MAX_PLAYER_EVENTS-1)] = old;
         cur_new_idx--;
     }
-
-    /*
-    for (int i = queue_tail; i < queue_head; i++) {
-        player_action a = action_queue[i & (MAX_PLAYER_EVENTS - 1)];
-
-        exotique_printf(
-            "  [%i] frame=%i player=%i cmd=%s\n",
-            i,
-            a.sim_frame,
-            a.player_num,
-            action_names[a.cmd]
-        );
-    }
-    */
 }
 
 void client_send_input_to_all_clients() {
@@ -4147,19 +4141,16 @@ void client_wait_for_all_inputs() {
     }
 }
 
-
 const int screen_modes[3][2] = {
-    {1280,720},
-    {1600,900},
-    {1920,1080}
+    {1280,720}, {1600,900}, {1920,1080}
 };
-
 
 ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     char* server_address = NULL;
     int num_clients = -1;
 
     int screen_mode = 0;
+    
 
     for(int i = 1; i < argc; i++) {
         if((strcmp(argv[i], "--host") == 0) || (strcmp(argv[i], "-h") == 0)) {
@@ -4195,6 +4186,8 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
             }
         } else if (strcmp(argv[i], "--no-aa") == 0) {
             enable_supersampling = 0;
+        } else if (strcmp(argv[i], "--no-avx") == 0) {
+            enable_avx = 0;
         }
     }
 
@@ -4214,6 +4207,9 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     clear_tile_bins();
     setup_camera(render_width, render_height);
 
+    LOG("INIT", "Resolution %ix%i", output_width, output_height);
+    LOG("INIT", "2x2 Supersampling %s", enable_supersampling ? "enabled" : "disabled");
+    LOG("INIT", "AVX rasterization %s", enable_avx ? "enabled" : "disabled");
     
     LOG("INIT", "Setting up sound device");
     num_active_sounds = 0;
@@ -4349,6 +4345,9 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     }
     LOG("NETWORK", "Connections setup to %i total players", num_socks_in_set);
     reset_game();
+    if(is_host) {
+        setup_host_timer();
+    }
 
     // setup rasterization contexts
     for(int i = 0; i < NUM_RASTER_THREADS; i++) {
@@ -4372,12 +4371,12 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
 
 void tile_fall_callback(u64 tile_idx) {
     add_sound(TILE_CLICK, 0.085f);
-    board_wall.tile_fall_timer_handles[tile_idx] = -1;
+    game_data.board_wall.tile_fall_timer_handles[tile_idx] = -1;
 }
 
 void last_tile_fall_callback(u64 tile_idx) {
     add_sound(TILE_CLICK, 0.085f);
-    board_wall.tile_fall_timer_handles[tile_idx] = -1;
+    game_data.board_wall.tile_fall_timer_handles[tile_idx] = -1;
     game_data.cur_game_state = DEALING;
 }
 
@@ -4398,13 +4397,13 @@ void step_shuffle_and_setup(wall* w) {
     w->tile_fall_timer_handles[game_data.wall_rem] = handle;
     if(game_data.wall_rem+1 == TILES_IN_DECK) {
         // callback for last tile
-        timer_start(handle, TILE_FALL_DURATION, 1, last_tile_fall_callback, game_data.wall_rem);
+        timer_start(handle, TILE_FALL_DURATION, RELEASE_ON_EXPIRE, last_tile_fall_callback, game_data.wall_rem);
     } else {
-        timer_start(handle, TILE_FALL_DURATION, 1, tile_fall_callback, game_data.wall_rem);
+        timer_start(handle, TILE_FALL_DURATION, RELEASE_ON_EXPIRE, tile_fall_callback, game_data.wall_rem);
     }
     game_data.wall_rem++;
     game_data.shuffle_timer_handle = timer_get_handle("shuffle wait");
-    timer_start(game_data.shuffle_timer_handle, SHUFFLE_WAIT_DURATION, 1, shuffle_timer_callback, 0);
+    timer_start(game_data.shuffle_timer_handle, SHUFFLE_WAIT_DURATION, RELEASE_ON_EXPIRE, shuffle_timer_callback, 0);
 }
 
 void sort_tile_list(tile_type *hand_tiles, int num_tiles, int reverse) {
@@ -4479,10 +4478,10 @@ void step_deal() {
     for(int i = 0; i < cur_deal_count; i++) {
         int anim_handle = timer_get_handle("deal step finish");
         this_hand->draw_timer_handles[cur_num_tiles] = anim_handle;
-        timer_start(anim_handle, TILE_DEAL_DURATION, 1, deal_finish_callback, ((deal_or_draw_finish_info){.player=hand_index, .tile_idx=cur_num_tiles}).raw);
+        timer_start(anim_handle, TILE_DEAL_DURATION, RELEASE_ON_EXPIRE, deal_finish_callback, ((deal_or_draw_finish_info){.player=hand_index, .tile_idx=cur_num_tiles}).raw);
 
         this_hand->wall_index_for_tiles[cur_num_tiles] = --game_data.wall_rem;
-        this_hand->tiles[cur_num_tiles++] = board_wall.tiles[game_data.wall_rem];
+        this_hand->tiles[cur_num_tiles++] = game_data.board_wall.tiles[game_data.wall_rem];
 
     }
     this_hand->num_closed_tiles = cur_num_tiles;
@@ -4491,27 +4490,6 @@ void step_deal() {
     if(game_data.deal_steps == 17) {
         game_data.cur_game_state = IN_GAME;
         game_data.draw_state = DRAWN;
-        
-        /*
-        game_data.hands[0].tiles[0] = WHITE_DRAGON;
-        game_data.hands[0].tiles[1] = WHITE_DRAGON;
-        game_data.hands[1].tiles[0] = WHITE_DRAGON;
-
-        game_data.hands[0].tiles[0] = WHITE_DRAGON;
-        game_data.hands[0].tiles[1] = WHITE_DRAGON;
-        game_data.hands[0].tiles[2] = RED_DRAGON;
-        game_data.hands[0].tiles[3] = RED_DRAGON;
-        game_data.hands[0].tiles[4] = GREEN_DRAGON;
-        game_data.hands[0].tiles[5] = GREEN_DRAGON;
-        game_data.hands[0].tiles[6] = NORTH;
-        game_data.hands[0].tiles[7] = NORTH;
-        game_data.hands[0].tiles[8] = EAST;
-        game_data.hands[0].tiles[9] = EAST;
-        game_data.hands[0].tiles[10] = SOUTH;
-        game_data.hands[0].tiles[11] = SOUTH;
-        game_data.hands[0].tiles[12] = WEST;
-        game_data.hands[0].tiles[13] = WEST;
-        */
 
         game_data.switch_player_timer_handle = -1;
         
@@ -4519,7 +4497,7 @@ void step_deal() {
 
     int timer = timer_get_handle("deal wait");
     game_data.deal_timer_handle = timer;
-    timer_start(timer, DEAL_WAIT_DURATION, 1, step_deal_callback, 0);
+    timer_start(timer, DEAL_WAIT_DURATION, RELEASE_ON_EXPIRE, step_deal_callback, 0);
 }
 
 int last_start_pushed = 0, last_select_pushed = 0;
@@ -4548,7 +4526,7 @@ void discard_current_tile(i8 player, int riichi_discard) {
 
     int handle = timer_get_handle("discard");
     cur_player_hand->discard_timer_handles[discard_idx] = handle;
-    timer_start(handle, DISCARD_DURATION, 1, discard_finish_callback, ((deal_or_draw_finish_info){.player=player, .tile_idx=discard_idx}).raw);
+    timer_start(handle, DISCARD_DURATION, RELEASE_ON_EXPIRE, discard_finish_callback, ((deal_or_draw_finish_info){.player=player, .tile_idx=discard_idx}).raw);
 
     cur_player_hand->discard_from_hand_idx[discard_idx] = selected_tile_idx;
 
@@ -4574,10 +4552,10 @@ void draw_next_tile(int player) {
     game_data.draw_state = DRAWING;
 
     cur_player_hand->draw_timer_handles[cur_num_tiles] = timer_get_handle("draw");
-    timer_start(cur_player_hand->draw_timer_handles[cur_num_tiles], TILE_DEAL_DURATION, 1, deal_timer_expired, player);
+    timer_start(cur_player_hand->draw_timer_handles[cur_num_tiles], TILE_DEAL_DURATION, RELEASE_ON_EXPIRE, deal_timer_expired, player);
 
     cur_player_hand->wall_index_for_tiles[cur_num_tiles] = --game_data.wall_rem;
-    cur_player_hand->tiles[cur_num_tiles] = board_wall.tiles[game_data.wall_rem];
+    cur_player_hand->tiles[cur_num_tiles] = game_data.board_wall.tiles[game_data.wall_rem];
     //cur_player_hand->selected_tile_idx = cur_num_tiles;
 }
 
@@ -4718,7 +4696,6 @@ typedef enum {
     NO_CALL
 } call_type;
 
-
 int copy_hand_tiles_to_tmp(hand* h, tile_type tmp[14]) {
     for(int t = 0; t < h->num_closed_tiles; t++) {
         tmp[t] = h->tiles[t];
@@ -4728,7 +4705,6 @@ int copy_hand_tiles_to_tmp(hand* h, tile_type tmp[14]) {
     }
     return h->num_closed_tiles + h->num_open_tiles;
 }
-
 
 u32 is_unused(int idx, u32 unused_bmp) {
     return (unused_bmp & (u32)(1 << idx));
@@ -5116,8 +5092,6 @@ call_type attempt_call(int player, hand_score_modifiers *mods) {
 
     // chii or pon
 
-    //return call.call_type;
-
     hand* prev_hand = &game_data.hands[game_data.last_discard_player];
     hand* cur_hand = &game_data.hands[player];
     tile_type prev_discard = prev_hand->discards[prev_hand->num_discards-1];
@@ -5247,9 +5221,8 @@ void switch_player_callback(u64 callback_data) {
 void switch_player() {
     int handle = timer_get_handle("switch player");
     game_data.switch_player_timer_handle = handle;
-    timer_start(handle, SWITCH_PLAYER_DURATION, 1, switch_player_callback, 0);
+    timer_start(handle, SWITCH_PLAYER_DURATION, RELEASE_ON_EXPIRE, switch_player_callback, 0);
 }
-
 
 void show_winning_hand_finish_callback(u64 callback_data) {
     (void)callback_data;
@@ -5259,9 +5232,8 @@ void show_winning_hand_finish_callback(u64 callback_data) {
 void show_winning_hand() {
     game_data.cur_game_state = SHOW_WINNING_HAND;
     int handle = timer_get_handle("show winning hand");
-    timer_start(handle, SHOW_SCORE_DURATION, 1, show_winning_hand_finish_callback, 0);
+    timer_start(handle, SHOW_SCORE_DURATION, RELEASE_ON_EXPIRE, show_winning_hand_finish_callback, 0);
 }
-
 
 int waiting_on_call_from(int player) {
     for(int i = 0; i < game_data.waiting_for_calls; i++) {
@@ -5697,7 +5669,7 @@ void game_update(ExotiqueInterface* ei) {
         
         switch(game_data.cur_game_state) {
             case INITIAL_SHUFFLE_AND_SETUP:
-                step_shuffle_and_setup(&board_wall);
+                step_shuffle_and_setup(&game_data.board_wall);
                 break;
             case DEALING:
                 step_deal();

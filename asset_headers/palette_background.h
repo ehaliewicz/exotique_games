@@ -1,4 +1,4 @@
-u32 palette_background[] = {
+const u32 palette_background[] = {
     0x0f0f0c,
     0x181413,
     0x1b1610,

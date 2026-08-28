@@ -1,6 +1,6 @@
 #ifndef PALETTE_H
 #define PALETTE_H
-u32 palette[256] = {
+const u32 palette[256] = {
 0x000000,
 0x1c6e40,
 0xb09b0a,

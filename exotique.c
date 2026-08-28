@@ -479,7 +479,6 @@ exotique_update(GameManager* gm, ExotiqueInterface* ei)
     {
       continue;
     }
-    /*
     if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_UP))
     {
       ei->input[i].up = 1;
@@ -488,7 +487,6 @@ exotique_update(GameManager* gm, ExotiqueInterface* ei)
     {
       ei->input[i].down = 1;
     }
-    */
     if (SDL_GameControllerGetButton(pad, SDL_CONTROLLER_BUTTON_DPAD_LEFT))
     {
       ei->input[i].left = 1;

@@ -44,7 +44,7 @@ SET GAME=%~n1
 REM ============================================================
 REM  Compile exotique.c
 REM ============================================================
-"%GCC%" -c %CFLAGS% -std=c2x -Og -ggdb -march=westmere -ffunction-sections  ^
+"%GCC%" -c %CFLAGS% -std=c2x -Os -s -static -march=westmere -ffunction-sections  ^
     -I "%SDL2_INC%" -D_REENTRANT ^
     exotique.c
 IF ERRORLEVEL 1 (
@@ -63,11 +63,11 @@ REM ============================================================
 REM  Compile game file
 REM ============================================================
 REM 
-"%GCC%" -c %CFLAGS% -std=c23 -Og -ggdb -ffast-math -march=westmere -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding -ffunction-sections ^
+"%GCC%" -c %CFLAGS% -std=c23 -DEXOTIQUE -Os -s -static -ffast-math -march=westmere -fno-strict-aliasing -nostdlib -nodefaultlibs -nolibc -ffreestanding -ffunction-sections ^
     -I ".." -I %SDL2_INC% -I %SDL2_NET_INC% ^
     ^
     -D ARCH=%ARCH% ^
-    "%GAME%.c"
+    "%GAME%.c" exotique_platform.c
 IF ERRORLEVEL 1 (
     echo [FAILED] %GAME%.c
     exit /b 1
@@ -76,8 +76,8 @@ IF ERRORLEVEL 1 (
 REM ============================================================
 REM  Link
 REM ============================================================
-gcc -Wl,--gc-sections -Og -ggdb  ^
-    exotique.o miniaudio.o "%GAME%.o"^
+gcc -Wl,--gc-sections -Os -s -static  ^
+    exotique.o miniaudio.o exotique_platform.o "%GAME%.o"^
      -Wl,-Map=game.map ^
     -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" ^
     -static -lSDL2 -lSDL2_net -lwsock32 ^

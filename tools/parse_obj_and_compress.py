@@ -79,28 +79,47 @@ def sort_faces(verts, faces, vert_cache_size):
 
     return verts, res
 
-def quantize_norm(n):
-    return n
-    # normal should only go from 0 to 1.
-    # we'll scale it to 0 to 255
-    
-    #int(n * 255)
-    return float(int(n*255))/255
 
-def quantize_pos(n):
-    return n
-    #n / 1.7 # scaled down to 0->1 range
+def quantize_pos(pos):
+    scaled_pos = (pos * 32768/1.79) # scale down to -1,0.999 roughly :)
+    int_pos = int(scaled_pos)
+    assert int_pos > -32789 and int_pos < 32768, (int_pos, pos)
+    return int_pos
+
+def quantize_norm(norm):
+    (x,y,z) = norm
+    # 1. Project onto an octahedron (L1 norm normalization)
+    l1_norm = abs(x) + abs(y) + abs(z)
     
-    scaled_down = n / 1.7
-    quantized = int(scaled_down * 65536)
-    flt = (float(quantized)/65536)*1.7
-    return flt
+    if l1_norm > 0.0:
+        x /= l1_norm
+        y /= l1_norm
+    else:
+        x, y = 0.0, 0.0
+
+    # 2. If Z is negative, fold the corners of the octahedral square
+    if z < 0.0:
+        old_x = x
+        x = (1.0 - abs(y)) * (1.0 if old_x >= 0.0 else -1.0)
+        y = (1.0 - abs(old_x)) * (1.0 if y >= 0.0 else -1.0)
+
+    # 3. Map float [-1.0, 1.0] to float [0.0, 255.0] (for 8-bit unsigned space)
+    u_float = (x + 1.0) * 127.5
+    v_float = (y + 1.0) * 127.5
+
+    # 4. Quantize to 8-bit integers with rounding and clamping
+    u_8bit = max(0, min(255, round(u_float)))
+    v_8bit = max(0, min(255, round(v_float)))
+
+    # 5. Pack into a single 16-bit unsigned integer (U lower byte, V upper byte)
+    #packed_16bit = (v_8bit << 8) | u_8bit
+    return (u_8bit, v_8bit)
+
 
 
 def parse(file):
     verts = []
     vert_norms = []
-    vert_uvs = []
     faces = []
     
     unique_verts = {}
@@ -119,9 +138,12 @@ def parse(file):
             elif stripped.find("v ") == 0:
                 verts.append(tuple(quantize_pos(float(s)) for s in stripped.split(" ")[1:]))
             elif stripped.find("vn ") == 0:
-                vert_norms.append(tuple(quantize_norm(float(s)) for s in stripped.split(" ")[1:]))
+                norm_vec = tuple(float(s) for s in stripped.split(" ")[1:])
+                qnorm = quantize_norm(norm_vec)
+                vert_norms.append(qnorm)
             elif stripped.find("vt ") == 0:
-                vert_uvs.append(tuple(float(s) for s in stripped.split(" ")[1:]))
+                pass
+                #vert_uvs.append(tuple(float(s) for s in stripped.split(" ")[1:]))
             elif stripped.find("f ") == 0:
                
                 vert_combos = stripped.split(" ")[1:]
@@ -129,20 +151,20 @@ def parse(file):
                 
                 for vert_combo in vert_combos:
                     unique_vert = tuple(int(i) if i != '' else 0 for i in vert_combo.split("/"))
+                    vidx, _, nidx = unique_vert
+                    unique_vert = (vidx, nidx)
+
                     if unique_vert in unique_verts:
                         vert_idx = unique_verts[unique_vert]
                     else:
                         vert_idx = len(unique_verts)
                         unique_verts[unique_vert] = vert_idx
 
-                        (vidx, uvidx, nidx) = unique_vert
+                        (vidx, nidx) = unique_vert
                         rv = verts[vidx-1]
-                        ruv = (0.5, 0.5)#(0.333,0.216)
-                        if len(vert_uvs) > 0:
-                            ruv = vert_uvs[uvidx-1]
                         rn = vert_norms[nidx-1]
 
-                        output_verts.append((rv, ruv, rn))
+                        output_verts.append((rv, rn))
                         
                     this_face_verts.append(vert_idx)
                 if len(this_face_verts) == 4:
@@ -161,11 +183,11 @@ def parse(file):
 
 def format_triplet(tup):
     x,y,z = tup
-    return "{" + ".x = {}f, .y = {}f, .z = {}f".format(x,y,z) + "}"
+    return "{" + "{}, {}, {}".format(x,y,z) + "}"
 
 def format_double(tup):
     x,y = tup
-    return "{" + ".x = {}f, .y = {}f".format(x,y) + "}"
+    return "{" + "{}, {}".format(x,y) + "}"
 
 import sys
 if __name__ == '__main__':
@@ -176,12 +198,12 @@ if __name__ == '__main__':
 
     print("#ifndef {}_mesh_h".format(obj_name))
     print("#define {}_mesh_h".format(obj_name))
-    print("const obj_vertex {}_vertexes[{}]".format(obj_name, len(verts)) + " = {")
+    print("const compressed_obj_vertex {}_vertexes[{}]".format(obj_name, len(verts)) + " = {")
 
 
-    for (vert, uv, norm) in verts:
-        print("{" + ".pos = {}, .norm = {}, .uv = {}".format(
-            format_triplet(vert), format_triplet(norm), format_double(uv)
+    for (vert, norm) in verts:
+        print("{" + ".pos = {}, .norm = {}".format(
+            format_triplet(vert), format_double(norm), 
         ) + "},")
     print("};")
 
@@ -191,7 +213,7 @@ if __name__ == '__main__':
         print("{}, {}, {},".format(v0, v1, v2))
     print("};")
 
-    print("const obj_mesh {}_mesh".format(obj_name) + " = {")
+    print("const compressed_obj_mesh {}_mesh".format(obj_name) + " = {")
     print("  .vertexStream = {}_vertexes,".format(obj_name))
     print("  .indexStream = {}_indexes,".format(obj_name))
     print("  .vertexCount = {},".format(len(verts)))

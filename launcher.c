@@ -23,7 +23,6 @@
 /* ---- control IDs -------------------------------------------------- */
 #define IDC_RES_COMBO       1001
 #define IDC_AA_CHECK        1002
-#define IDC_AVX2_CHECK      1003
 #define IDC_HOSTMODE_CHECK  1004
 #define IDC_CLIENTS_LABEL   1005
 #define IDC_CLIENTS_COMBO   1006
@@ -33,7 +32,7 @@
 
 static HINSTANCE g_hInst;
 
-static HWND hResCombo, hAACheck, hAvx2Check, hHostModeCheck, hLaunchBtn;
+static HWND hResCombo, hAACheck, hHostModeCheck, hLaunchBtn;
 static HWND hClientsLabel, hClientsCombo, hHostAddrLabel, hHostAddrEdit;
 
 static const wchar_t *RESOLUTIONS[] = { L"1280x720", L"1600x900", L"1920x1080" };
@@ -81,9 +80,6 @@ static void LaunchGame(HWND hwnd)
     if (SendMessageW(hAACheck, BM_GETCHECK, 0, 0) != BST_CHECKED)
         lstrcatW(cmd, L" --no-aa");
 
-    /* --no-avx */
-    if (SendMessageW(hAvx2Check, BM_GETCHECK, 0, 0) != BST_CHECKED)
-        lstrcatW(cmd, L" --no-avx");
 
     if (SendMessageW(hHostModeCheck, BM_GETCHECK, 0, 0) == BST_CHECKED) {
         /* --host --num-clients <n> */
@@ -175,16 +171,11 @@ static HWND CreateMainWindow(void)
         SendMessageW(hResCombo, CB_ADDSTRING, 0, (LPARAM)RESOLUTIONS[i]);
     SendMessageW(hResCombo, CB_SETCURSEL, 0, 0);
 
-    /* row 1: [x] Antialiasing   [x] AVX2 Rendering */
+    /* row 1: [x] Antialiasing  */
     hAACheck = CreateWindowExW(
         0, L"BUTTON", L"Antialiasing", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
         10, 42, 110, 20, hwnd, (HMENU)IDC_AA_CHECK, g_hInst, NULL);
     SendMessageW(hAACheck, BM_SETCHECK, BST_CHECKED, 0);
-
-    hAvx2Check = CreateWindowExW(
-        0, L"BUTTON", L"AVX2 Rendering", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-        130, 42, 130, 20, hwnd, (HMENU)IDC_AVX2_CHECK, g_hInst, NULL);
-    SendMessageW(hAvx2Check, BM_SETCHECK, BST_CHECKED, 0);
 
     /* row 2: [x] Host Mode */
     hHostModeCheck = CreateWindowExW(

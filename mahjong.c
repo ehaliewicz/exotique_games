@@ -1,5 +1,14 @@
 #define WIN32_LEAN_AND_MEAN
+
+#ifdef EXOTIQUE
 #include "exotique.h"
+#include "exotique_platform.h"
+#elif RGFW
+#include "rgfw_platform.h"
+#endif
+
+#include "platform.h"
+
 #include "miniaudio.h"
 
 #include "mahjong_common.h"
@@ -21,37 +30,36 @@ u8 *color_buffers[4] = {color_buffer0, color_buffer1, color_buffer2, color_buffe
 u16 *z_buffers[4] = {zbuf0, zbuf1, zbuf2, zbuf3};
 
 
-
-#define LOG(module, fmt, ...) exotique_printf("%s: " fmt "\n", module, ##__VA_ARGS__)
+#define LOG(module, fmt, ...) sys_printf("%s: " fmt "\n", module, ##__VA_ARGS__)
 
 //#define ENABLE_MUSIC
 
 #include "mahjong_block_timing.h"
-
 #include "mahjong_vec_types.h"
-
 #include "mahjong_math.h"
-
 #include "mahjong_matrix.h"
-
 
 // RENDERING
 
-#define MAX_GLOBAL_TRIS 1000000
+#define MAX_GLOBAL_TRIS 100000
 typedef struct {
     vert2i proj_v0, proj_v1, proj_v2; // 24 bytes
     f32 inv_z0, inv_z1, inv_z2;       // 12 bytes
     vert2f uv0_over_z, uv1_over_z, uv2_over_z; // 24 bytes
     f32 b0, b1, b2;
-    u8 tex, mip_level_or_color; u8 colorkey;
+    u8 tex, mip_level_or_color; 
 } transformed_tri;
 
-#define MAX_TILE_TRIS 16384
+#define MAX_TILE_TRIS 1024
 typedef struct {
-    i16 start_x; i16 start_y;
-    u32 num_tex_triangles, num_solid_triangles;
     u32 tex_tri_indexes[MAX_TILE_TRIS]; // up to 2048 triangles per tile
     u32 solid_tri_indexes[MAX_TILE_TRIS];
+    u16 num_tex_triangles, num_solid_triangles;
+    i16 start_x; i16 start_y;
+    // it only really helps to mark one fully covering triangle maximum
+    u32 solid_fully_covering_tri_indexes[1];
+    u16 num_fully_cover_solid_triangles;
+    u8 fully_covered; // NOTE: we do not detect fully covered TEXTURED triangles
 } tile;
 
 int tiles_wide, tiles_high;
@@ -66,20 +74,84 @@ typedef struct {
     vert2f uv;
 } obj_vertex;
 
-typedef struct {
-    vert3f *pos, *norm;
-    vert2f *uv;
-} obj_vertex_stream;
+typedef struct __attribute__((packed)) {
+    i16 pos[3];
+    i8 norm[2];
+} compressed_obj_vertex;
+
+// 12 bytes vs 32 bytes
 
 typedef struct {
-    const obj_vertex *vertexStream;
+    obj_vertex *vertexStream;
     const u16 *indexStream; 
-
     int vertexCount, indexCount;
 } obj_mesh;
 
+typedef struct {
+    const compressed_obj_vertex *vertexStream;
+    const u16 *indexStream;
+    vert2f uv;
+    int vertexCount, indexCount;
+} compressed_obj_mesh;
+
 #include "asset_headers/mesh_board.h"
 #include "asset_headers/mesh_dragon_low_poly.h"
+
+obj_vertex dragon_vertexes_full_uv[1094];
+obj_mesh dragon_mesh = {
+    .vertexStream = dragon_vertexes_full_uv,
+    .vertexCount = 1094,
+    .indexStream = dragon_low_poly_cleaned_indexes,
+    .indexCount = 6552
+};
+
+vert3f compressed_pos_to_full_pos(const i16 pos[3]) {
+    f32 pos_x = ((f32)pos[0])/32768.0f;
+    f32 pos_y = ((f32)pos[1])/32768.0f;
+    f32 pos_z = ((f32)pos[2])/32768.0f;
+    return (vert3f){.x = pos_x, .y = pos_y, .z = pos_z};
+}
+
+vert3f compressed_norm_to_full_norm(const i8 norm[2]) {
+     // 1. Extract the two 8-bit components
+    u8 raw_u = norm[0];
+    u8 raw_v = norm[1];
+
+    // 2. Convert 8-bit unsigned integer back to float [-1.0, 1.0]
+    f32 u = ((f32)raw_u / 127.5f) - 1.0f;
+    f32 v = ((f32)raw_v / 127.5f) - 1.0f;
+
+    vert3f n;
+    n.x = u;
+    n.y = v;
+    n.z = 1.0f - (fabsf(u) + fabsf(v));
+
+    // 3. Fold the lower hemisphere corners if Z is negative
+    if (n.z < 0.0f) {
+        f32 old_x = n.x;
+        n.x = (1.0f - fabsf(n.y)) * (old_x >= 0.0f ? 1.0f : -1.0f);
+        n.y = (1.0f - fabsf(old_x)) * (v >= 0.0f ? 1.0f : -1.0f);
+    }
+
+    // 4. Renormalize back onto the true unit sphere surface
+    f32 length = my_sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (length > 0.0f) {
+        n.x /= length;
+        n.y /= length;
+        n.z /= length;
+    }
+
+    return n;
+}
+
+void expand_no_uv_mesh(const compressed_obj_mesh *input, obj_mesh *output) {
+    for(int i = 0; i < input->vertexCount; i++) {
+        output->vertexStream[i].pos = compressed_pos_to_full_pos(input->vertexStream[i].pos);
+        output->vertexStream[i].norm = compressed_norm_to_full_norm(input->vertexStream[i].norm);
+        output->vertexStream[i].uv = input->uv;
+    }
+}
+
 #include "asset_headers/mesh_mahjong_tile.h"
 #include "asset_headers/mesh_quad.h"
 #include "asset_headers/mesh_tenbou.h"
@@ -109,7 +181,6 @@ u8 light_remap_table[NUM_SHADES][NUM_BASE_COLORS];
 u8 full_light_remap_table[NUM_SHADES][256];
 
 vert3f light = { 1.0f, 1.0f, -.5f};
-
 
 
 static inline u32 parallel_pixel_shader(
@@ -196,7 +267,7 @@ void rasterize_triangle_2x2_quad(
     i32 start_x, i32 end_x,
     i32 start_y, i32 end_y
 ) {
-    int colorkey = tri_attributes->colorkey;
+    //int colorkey = 0;//tri_attributes->colorkey;
     // swap everything for first two vertexes (actual vertex positions and attributes)
     f32 iz0 = tri_attributes->inv_z1;
     f32 iz1 = tri_attributes->inv_z0;
@@ -269,7 +340,6 @@ void rasterize_triangle_2x2_quad(
 
     b1 = (b1 - b0) * recip_area;
     b2 = (b2 - b0) * recip_area;
-
     
     f32_vec iz0_vec = broadcast_f32_vec(iz0);
     f32_vec iz1_vec = broadcast_f32_vec(iz1);
@@ -278,9 +348,6 @@ void rasterize_triangle_2x2_quad(
     f32_vec b1_vec = broadcast_f32_vec(b1);
     f32_vec b2_vec = broadcast_f32_vec(b2);
 
-    
-
-    
     // bounding box of triangle (not so good for larger triangles)
     i32 minx = MIN(x0, MIN(x1, x2));
     i32 maxx = MAX(x0, MAX(x1, x2));
@@ -397,28 +464,7 @@ void rasterize_triangle_2x2_quad(
                     brightness_vec
                     //lit_pal_ptr
                 );
-                // if any of the bytes in lit_color_qw are zeros, they shouldn't be drawn either
-                if(colorkey) {
-                    u32 zero_bits =
-                        (lit_color_qw - 0x01010101u) &
-                        ~lit_color_qw &
-                        0x80808080u;
 
-                    // Turn each 0x80 flag into 0xFF in that byte.
-                    u32 zero_mask =
-                        zero_bits |
-                        (zero_bits >> 1) |
-                        (zero_bits >> 2) |
-                        (zero_bits >> 3) |
-                        (zero_bits >> 4) |
-                        (zero_bits >> 5) |
-                        (zero_bits >> 6) |
-                        (zero_bits >> 7);
-
-                    zero_mask &= 0xFFFFFFFFu;
-
-                    mask_bytes &= ~zero_mask;
-                }
                 u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
                 *col_buf_ptr = masked_color;
 
@@ -432,13 +478,11 @@ void rasterize_triangle_2x2_quad(
     }
 }
 
-__attribute__((target("avx2")))
-void rasterize_triangle_2x2_quad_no_tmap_avx2(
+void rasterize_triangle_2x2_quad_no_tmap_sse2(
     u8 *restrict color_buffer,
     u16 *restrict zbuffer,
     transformed_tri *restrict tri_attributes,
-    i32 start_x, i32 end_x, i32 start_y, i32 end_y
-) {
+    i32 start_x, i32 end_x, i32 start_y, i32 end_y) {
     u8 color = tri_attributes->mip_level_or_color;
     // swap everything for first two vertexes (actual vertex positions and attributes)
     f32 iz0 = tri_attributes->inv_z1;
@@ -494,12 +538,6 @@ void rasterize_triangle_2x2_quad_no_tmap_avx2(
     __m128 b0_vec = _mm_set1_ps(b0);
     __m128 b1_vec = _mm_set1_ps(b1);
     __m128 b2_vec = _mm_set1_ps(b2);
-
-    //iz1_vec = _mm_mul_ps(_mm_sub_ps(iz1_vec, iz0_vec), recip_area);
-    //iz2_vec = _mm_mul_ps(_mm_sub_ps(iz2_vec, iz0_vec), recip_area);
-
-    //b1_vec = _mm_mul_ps(_mm_sub_ps(b1_vec, b0_vec), recip_area);
-    //b2_vec = _mm_mul_ps(_mm_sub_ps(b2_vec, b0_vec), recip_area);
 
     
     // bounding box of triangle (not so good for larger triangles)
@@ -589,7 +627,7 @@ void rasterize_triangle_2x2_quad_no_tmap_avx2(
 
             u32 cbuf_val = *col_buf_ptr;
                         
-            __m128 zbuf_val_vec = decode_u64_inv_z_vec_avx2(*zbuf_ptr);
+            __m128 zbuf_val_vec = decode_u64_inv_z_vec_sse2(*zbuf_ptr);
 
             __m128 w1_vec = _mm_cvtepi32_ps(cx20_vec); 
             __m128 w2_vec = _mm_cvtepi32_ps(cx01_vec);
@@ -627,13 +665,23 @@ void rasterize_triangle_2x2_quad_no_tmap_avx2(
             // man if this palette is ordered, or we had 32-bit color this could be way better, oh well
             
             __m128i lit_pal_indexes = _mm_slli_epi32(_mm_cvtps_epi32(brightness_vec), 8);
-
-
             __m128i color_indexes = _mm_add_epi32(lit_pal_indexes, _mm_set1_epi32(color));
-            __m128i colors = _mm_i32gather_epi32((int*)full_light_remap_table, color_indexes, 1); // we're loading a full 32-bit value per color, but that's okay
 
-            __m128i shuffled = _mm_shuffle_epi8(colors, low_bytes_mask);
-            u32 lit_color_qw = (u32)_mm_cvtsi128_si32(shuffled);
+            u32 lit_color_qw;
+            u32 color_indexes_qws[4];
+            _mm_store_si128((__m128i*)color_indexes_qws, color_indexes);
+            lit_color_qw = (
+                ((u32)(((u8*)full_light_remap_table)[color_indexes_qws[0]]) << 0) |
+                ((u32)(((u8*)full_light_remap_table)[color_indexes_qws[1]]) << 8) |
+                ((u32)(((u8*)full_light_remap_table)[color_indexes_qws[2]]) << 16) |
+                ((u32)(((u8*)full_light_remap_table)[color_indexes_qws[3]]) << 24)
+            );
+
+
+            // avx2 version (gather (load full 32-bits per each 8-bit color and shuffle low bytes)
+            //__m128i colors = _mm_i32gather_epi32((int*)full_light_remap_table, color_indexes, 1); // we're loading a full 32-bit value per color, but that's okay
+            //__m128i shuffled = _mm_shuffle_epi8(colors, low_bytes_mask);
+            //lit_color_qw = (u32)_mm_cvtsi128_si32(shuffled);
 
 
             u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
@@ -642,19 +690,24 @@ void rasterize_triangle_2x2_quad_no_tmap_avx2(
 
             __m128 new_zbuf_vec = (__m128)_mm_or_si128(_mm_and_si128(in_tri_and_unoccluded, (__m128i)inv_z_vec), _mm_andnot_si128(in_tri_and_unoccluded, (__m128i)zbuf_val_vec));
 
-            u64 new_zbuf_val =  encode_float_inv_z_vec_avx2(new_zbuf_vec);
+            u64 new_zbuf_val =  encode_float_inv_z_vec_sse2(new_zbuf_vec);
             *zbuf_ptr = new_zbuf_val;
         }
     }
 }
 
 
-void rasterize_triangle_2x2_quad_no_tmap(
+/* 
+    this version does not load or compare zbuffer values in the tile buffers, 
+    it also doesn't test for coverage
+    it simply writes the z and color values we interpolate over the triangle
+    used when we know that a polygon fully covers a tile
+*/
+void rasterize_triangle_2x2_quad_no_tmap_sse2_fully_covered(
     u8 *restrict color_buffer,
     u16 *restrict zbuffer,
     transformed_tri *restrict tri_attributes,
-    i32 start_x, i32 end_x, i32 start_y, i32 end_y
-) {
+    i32 start_x, i32 end_x, i32 start_y, i32 end_y) {
     u8 color = tri_attributes->mip_level_or_color;
     // swap everything for first two vertexes (actual vertex positions and attributes)
     f32 iz0 = tri_attributes->inv_z1;
@@ -668,7 +721,6 @@ void rasterize_triangle_2x2_quad_no_tmap(
     f32 b0 = tri_attributes->b1;
     f32 b1 = tri_attributes->b0;
     f32 b2 = tri_attributes->b2;
-
 
     // 28.4 fixed point
     const i32 x0 = v0.x;
@@ -687,32 +739,30 @@ void rasterize_triangle_2x2_quad_no_tmap(
     const i32 dx20 = x2 - x0;
     const i32 dy20 = y2 - y0;
 
-    const i32_vec dy01_shifted_vec = broadcast_i32_vec(dy01<<5);
-    const i32_vec dy12_shifted_vec = broadcast_i32_vec(dy12<<5);
-    const i32_vec dy20_shifted_vec = broadcast_i32_vec(dy20<<5);
-    const i32_vec dx01_shifted_vec = broadcast_i32_vec(dx01<<5);
-    const i32_vec dx12_shifted_vec = broadcast_i32_vec(dx12<<5);
-    const i32_vec dx20_shifted_vec = broadcast_i32_vec(dx20<<5); // shift by 4 for subpixel, but double again because we're using 2x2 quad blocks now 
+    const __m128i dy01_shifted_vec = _mm_set1_epi32(dy01<<5);
+    const __m128i dy12_shifted_vec = _mm_set1_epi32(dy12<<5);
+    const __m128i dy20_shifted_vec = _mm_set1_epi32(dy20<<5);
+    const __m128i dx01_shifted_vec = _mm_set1_epi32(dx01<<5);
+    const __m128i dx12_shifted_vec = _mm_set1_epi32(dx12<<5);
+    const __m128i dx20_shifted_vec = _mm_set1_epi32(dx20<<5); // shift by 4 for subpixel, but double again because we're using 2x2 quad blocks now 
 
 
     i32 area = (dx01 * dy20 - dy01 * dx20);
     // barycentric weights weights (scaled by area)
     f32 recip_area = 1.0f / (f32)area;
+
     iz1 = (iz1 - iz0) * recip_area;
     iz2 = (iz2 - iz0) * recip_area;
-
     b1 = (b1 - b0) * recip_area;
     b2 = (b2 - b0) * recip_area;
-    //b1_vec = (b1_vec - b0_vec) * recip_area;
-    //b2_vec = (b2_vec - b0_vec) * recip_area;
 
     
-    f32_vec iz0_vec = broadcast_f32_vec(iz0);
-    f32_vec iz1_vec = broadcast_f32_vec(iz1);
-    f32_vec iz2_vec = broadcast_f32_vec(iz2);
-    f32_vec b0_vec = broadcast_f32_vec(b0);
-    f32_vec b1_vec = broadcast_f32_vec(b1);
-    f32_vec b2_vec = broadcast_f32_vec(b2);
+    __m128 iz0_vec = _mm_set1_ps(iz0);
+    __m128 iz1_vec = _mm_set1_ps(iz1);
+    __m128 iz2_vec = _mm_set1_ps(iz2);
+    __m128 b0_vec = _mm_set1_ps(b0);
+    __m128 b1_vec = _mm_set1_ps(b1);
+    __m128 b2_vec = _mm_set1_ps(b2);
 
     
     // bounding box of triangle (not so good for larger triangles)
@@ -754,30 +804,30 @@ void rasterize_triangle_2x2_quad_no_tmap(
     i32 startY = miny << 4;
     #define FIXED_ONE_PX 16
 
-    i32_vec cy01_vec = (i32_vec){
+    __m128i cy01_vec = _mm_setr_epi32(
         c01 + dx01 * startY - dy01 * startX,
         c01 + dx01 * startY - dy01 * (startX+FIXED_ONE_PX),
         c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * startX,
         c01 + dx01 * (startY+FIXED_ONE_PX) - dy01 * (startX+FIXED_ONE_PX)
-    };
-    i32_vec cy12_vec = (i32_vec){
+    );
+    __m128i cy12_vec = _mm_setr_epi32(
         c12 + dx12 * startY - dy12 * startX,
         c12 + dx12 * startY - dy12 * (startX+FIXED_ONE_PX),
         c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * startX,
         c12 + dx12 * (startY+FIXED_ONE_PX) - dy12 * (startX+FIXED_ONE_PX)
-    };
-    i32_vec cy20_vec = (i32_vec){
+    );
+    __m128i cy20_vec = _mm_setr_epi32(
         c20 + dx20 * startY - dy20 * startX,
         c20 + dx20 * startY - dy20 * (startX+FIXED_ONE_PX),
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * startX,
         c20 + dx20 * (startY+FIXED_ONE_PX) - dy20 * (startX+FIXED_ONE_PX)
-    };
+    );
 
-    for (i32 y = miny; y < maxy; y += 2, cy01_vec += dx01_shifted_vec, cy12_vec += dx12_shifted_vec, cy20_vec += dx20_shifted_vec) {
+    for (i32 y = miny; y < maxy; y += 2, cy01_vec = _mm_add_epi32(cy01_vec, dx01_shifted_vec), cy12_vec = _mm_add_epi32(cy12_vec, dx12_shifted_vec), cy20_vec = _mm_add_epi32(cy20_vec, dx20_shifted_vec)) {
 
-        i32_vec cx01_vec = cy01_vec;
-        i32_vec cx12_vec = cy12_vec;
-        i32_vec cx20_vec = cy20_vec;
+        __m128i cx01_vec = cy01_vec;
+        __m128i cx12_vec = cy12_vec;
+        __m128i cx20_vec = cy20_vec;
 
         int in_tile_y = y-start_y;
         int in_tile_x = minx-start_x;
@@ -787,54 +837,51 @@ void rasterize_triangle_2x2_quad_no_tmap(
         u64 *zbuf_ptr = __builtin_assume_aligned(&zbuffer[tile_idx], 8);
 
 
-        for (i32 x = minx; x < maxx; x += 2, cx01_vec -= dy01_shifted_vec, cx12_vec -= dy12_shifted_vec, cx20_vec -= dy20_shifted_vec, col_buf_ptr++, zbuf_ptr++) {
-            i32_vec covered_vec = ~((cx01_vec|cx12_vec|cx20_vec)>>31);
+        for (i32 x = minx; x < maxx; x += 2, cx01_vec = _mm_sub_epi32(cx01_vec, dy01_shifted_vec), cx12_vec = _mm_sub_epi32(cx12_vec, dy12_shifted_vec), cx20_vec = _mm_sub_epi32(cx20_vec, dy20_shifted_vec), col_buf_ptr++, zbuf_ptr++) {
+                                    
+            __m128 w1_vec = _mm_cvtepi32_ps(cx20_vec); 
+            __m128 w2_vec = _mm_cvtepi32_ps(cx01_vec);
 
-            int coverage_mask = i32_vec_any(covered_vec);
+            __m128 inv_z_vec = _mm_add_ps(
+                iz0_vec, 
+                _mm_add_ps(
+                    _mm_mul_ps(w1_vec, iz1_vec),
+                    _mm_mul_ps(w2_vec, iz2_vec)
+                )
+            );
 
-            // skip completely uncovered quads
-            if(coverage_mask == 0x00) {
-                continue;
-            }
-            u32 cbuf_val = *col_buf_ptr;
-            u64 zbuf_val_vec_u64 = *zbuf_ptr;
-            f32_vec zbuf_val_vec = decode_u64_inv_z_vec(zbuf_val_vec_u64);
+            __m128 brightness_vec = _mm_add_ps(b0_vec, _mm_add_ps(_mm_mul_ps(w1_vec, b1_vec), _mm_mul_ps(w2_vec, b2_vec)));
+            brightness_vec = _mm_max_ps(_mm_set1_ps(0), brightness_vec);
+            brightness_vec = _mm_min_ps(_mm_set1_ps((f32)(NUM_SHADES-1)), brightness_vec);
 
-            f32_vec w1_vec = i32_vec_convert_f32(cx20_vec);
-            f32_vec w2_vec = i32_vec_convert_f32(cx01_vec);
-            f32_vec inv_z_vec = (iz0_vec + 
-                                (w1_vec * iz1_vec) +
-                                (w2_vec * iz2_vec));
+            // 256 bytes per each of the 25 top level indexes.
+            // so essentially we need to multiply those brightness by 256.
 
+            // man if this palette is ordered, or we had 32-bit color this could be way better, oh well
+            
+            __m128i lit_pal_indexes = _mm_slli_epi32(_mm_cvtps_epi32(brightness_vec), 8);
+            __m128i color_indexes = _mm_add_epi32(lit_pal_indexes, _mm_set1_epi32(color));
 
-            f32_vec brightness_vec = f32_vec_clamp(b0_vec + (w1_vec * b1_vec) + (w2_vec * b2_vec), 0, (f32)(NUM_SHADES-1));
-
-
-            i32_vec unoccluded = inv_z_vec >= zbuf_val_vec;
-            i32_vec in_tri_and_unoccluded = unoccluded & covered_vec;
-
-            u32 mask_bytes = i32_vec_extract_bytes(in_tri_and_unoccluded);
-
-
-            if(mask_bytes != 0) {
-                u8 *lit_pal_ptr0 = full_light_remap_table[(u8)(brightness_vec[0])];
-                u8 *lit_pal_ptr1 = full_light_remap_table[(u8)(brightness_vec[1])];
-                u8 *lit_pal_ptr2 = full_light_remap_table[(u8)(brightness_vec[2])];
-                u8 *lit_pal_ptr3 = full_light_remap_table[(u8)(brightness_vec[3])];
-                u8 lit_color0 = lit_pal_ptr0[color];
-                u8 lit_color1 = lit_pal_ptr1[color];
-                u8 lit_color2 = lit_pal_ptr2[color];
-                u8 lit_color3 = lit_pal_ptr3[color];
-                u32 lit_color_qw = ((u32)lit_color0<<24)|((u32)lit_color1<<16)|((u32)lit_color2<<8)|(u32)lit_color3;
+            u32 lit_color_qw;
+            u32 color_indexes_qws[4];
+            _mm_store_si128((__m128i*)color_indexes_qws, color_indexes);
+            lit_color_qw = (
+                ((u32)(((u8*)full_light_remap_table)[color_indexes_qws[0]]) << 0) |
+                ((u32)(((u8*)full_light_remap_table)[color_indexes_qws[1]]) << 8) |
+                ((u32)(((u8*)full_light_remap_table)[color_indexes_qws[2]]) << 16) |
+                ((u32)(((u8*)full_light_remap_table)[color_indexes_qws[3]]) << 24)
+            );
 
 
-                u32 masked_color = (cbuf_val & (~mask_bytes)) | (lit_color_qw & mask_bytes);
-                *col_buf_ptr = masked_color;
+            // avx2 version (gather (load full 32-bits per each 8-bit color and shuffle low bytes)
+            //__m128i colors = _mm_i32gather_epi32((int*)full_light_remap_table, color_indexes, 1); // we're loading a full 32-bit value per color, but that's okay
+            //__m128i shuffled = _mm_shuffle_epi8(colors, low_bytes_mask);
+            //lit_color_qw = (u32)_mm_cvtsi128_si32(shuffled);
 
-                f32_vec new_zbuf_vec = (f32_vec)((in_tri_and_unoccluded & (i32_vec)inv_z_vec) | ((~in_tri_and_unoccluded) & (i32_vec)zbuf_val_vec));
-                
-                *zbuf_ptr = encode_float_inv_z_vec(new_zbuf_vec);
-            }
+            *col_buf_ptr = lit_color_qw;
+
+            u64 new_zbuf_val =  encode_float_inv_z_vec_sse2(inv_z_vec);
+            *zbuf_ptr = new_zbuf_val;
         }
     }
 }
@@ -847,6 +894,7 @@ void clear_tile_bins() {
             tiles[y*tiles_wide+x].num_solid_triangles = 0;
             tiles[y*tiles_wide+x].start_y = (i16)(y * RENDER_TILE_SIZE);
             tiles[y*tiles_wide+x].start_x = (i16)(x * RENDER_TILE_SIZE);
+            tiles[y*tiles_wide+x].fully_covered = 0;
         }
     }
 }
@@ -863,12 +911,15 @@ typedef enum {
     //UNLIT_UNTEXTURED,
     UNLIT_TEXTURED,
     LIT_TEXTURED,
-    LIT_TEXTURED_COLORKEY,
+    //LIT_TEXTURED_COLORKEY,
     //LIT_UNTEXTURED
 } shader;
 
+
+
 typedef struct {
     const obj_mesh* mesh; 
+    
     bbox* bounds;
     u8 texture;
     matrix model_to_view;
@@ -1143,19 +1194,19 @@ const char* tile_names[NUM_TILES] = {
 };
 
 
-int is_honor_tile[NUM_TILES] = {
+u8 is_honor_tile[NUM_TILES] = {
 #define X(tile_name, lowercase_name, sort_val, is_terminal, is_honor) is_honor,
     TILE_LIST
 #undef X
 };
 
-int is_terminal_tile[NUM_TILES] = {
+u8 is_terminal_tile[NUM_TILES] = {
 #define X(tile_name, lowercase_name, sort_val, is_terminal, is_honor) is_terminal,
     TILE_LIST
 #undef X
 };
 
-int tile_sort_val[NUM_TILES] = {
+u16 tile_sort_val[NUM_TILES] = {
 #define X(tile_name, lowercase_name, sort_val, is_terminal, is_honor) sort_val,
     TILE_LIST
 #undef X
@@ -1308,7 +1359,7 @@ f32 color_dist(vert3f c1, vert3f c2) {
     return dist;
 }
 
-u8 closest_overall_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
+u8 closest_overall_color_idx(PlatformInterface *ei, vert3f target_rgb) {
 
     f32 best_dist = 1024024.0f;
     int best_dist_idx = 0;
@@ -1328,7 +1379,7 @@ u8 closest_overall_color_idx(ExotiqueInterface *ei, vert3f target_rgb) {
 // maps 2 palette indexes to a palette index referencing the closest color to a 50:50 mix
 u8 mix_table[256*256] __attribute__((aligned(64)));
 
-void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size, i16 override_color) {
+void mip_texture(PlatformInterface *ei, u8 *src, u8 *dst, int src_size, i16 override_color) {
     (void)ei;
     int dst_size = src_size>>1;
     for(int y = 0; y < src_size; y+=2) {
@@ -1349,7 +1400,7 @@ void mip_texture(ExotiqueInterface *ei, u8 *src, u8 *dst, int src_size, i16 over
     }
 }
 
-void decompress_textures(ExotiqueInterface *ei) {
+void decompress_textures(PlatformInterface *ei) {
     u64 total_compressed_tex_bytes = 0;
 
     for(int i = 0; i < NUM_ALL_TEXTURE_TYPES; i++) {
@@ -1430,31 +1481,20 @@ void decompress_textures(ExotiqueInterface *ei) {
         }
     }
 
-    LOG("INFO", "Total compressed texture bytes %i\n", total_compressed_tex_bytes);
+    LOG("INFO", "Total compressed texture bytes %i", total_compressed_tex_bytes);
     //exit(1);
 }
 
 
 //  DRAW CALLS, TILE FILLS, VERTEX SHADERS
 
-int got_board_min_max_coords = 0;
-f32 board_min_y, board_max_y;
-f32 board_top_min_x, board_top_max_x;
-f32 board_bot_min_x, board_bot_max_x;
-//#define AVX2
-
 int enable_supersampling = 1;
-int enable_avx = 1;
 
-void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile* t) {
+void rasterize_tile(PlatformInterface *ei, u8 *color_buffer, u16 *zbuffer, tile* t) {
     u32 i;
 
     int base_x = t->start_x;
     int base_y = t->start_y;
-
-    f32 left_dx_per_dy = (board_bot_min_x - board_top_min_x) / (board_max_y-board_min_y);
-    f32 right_dx_per_dy = (board_bot_max_x - board_top_max_x) / (board_max_y-board_min_y);
-
 
     /* clear zbuffer for this tile, fill with background, OR game board */
     u32 *col_val_ptr = __builtin_assume_aligned(&color_buffer[0], 4);
@@ -1466,61 +1506,41 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
     board_col_idx |= (board_col_idx<<8);
     board_col_idx |= (board_col_idx<<16);
 
-    for(int y = 0; y < RENDER_TILE_SIZE; y += 2) {
-        int global_y = (base_y + y);
-        //f32 y_portion = (f32)global_y / (f32)render_height;
-        //int tex_y_coord = (int)(y_portion * (f32)BACKGROUND_TEX_HEIGHT);
+    u32 bkgd_idx = 126 + 4; 
+    bkgd_idx = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
 
-        if(global_y >= board_min_y && global_y < board_max_y-2) {
-            f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
-            f32 right = board_top_max_x + right_dx_per_dy * ((f32) global_y - board_min_y);
+    u32 num_tris = t->num_tex_triangles;
+    u32 num_solid_tris = t->num_solid_triangles;
+
+
+    int fully_covered = t->fully_covered;
+
+    if(fully_covered) {
+        u32 global_tri_idx = t->solid_fully_covering_tri_indexes[0];
+        rasterize_triangle_2x2_quad_no_tmap_sse2_fully_covered(
+            color_buffer, zbuffer,
+            &global_tri_buffer[global_tri_idx],
+            t->start_x, t->start_x+RENDER_TILE_SIZE,
+            t->start_y, t->start_y+RENDER_TILE_SIZE
+        );
+    } else {
+        for(int y = 0; y < RENDER_TILE_SIZE; y += 2) {
             for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
                 *zbuf_ptr++ = inv_far_vec;
-                u32 bkgd_idx;
-                (void)bkgd_idx;
-                int global_x = (base_x + x);
 
-                //f32 x_portion = (f32)global_x/(f32)render_width;
-                //int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
-
-                if(global_x >= (i32)left && global_x < (i32)right) {
-                    bkgd_idx = board_col_idx;
-                } else {
-                    bkgd_idx = 126 + 4; 
-                    //bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                    bkgd_idx = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
-                }
-                *col_val_ptr++ = bkgd_idx;
-            
-            }
-        } else {
-            for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
-
-                //int global_x = (base_x + x);
-                //f32 x_portion = (f32)global_x/(f32)render_width;
-                //int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
-
-                *zbuf_ptr++ = inv_far_vec;
-
-                
                 u32 bkgd_idx = 126 + 4;
-                //bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                (void)bkgd_idx;
-
                 *col_val_ptr++ = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
             }
         }
     }
-
+    
     //int drew_pix = 0;
 
-    u32 num_tris = t->num_tex_triangles;
-    u32 num_solid_tris = t->num_solid_triangles;
-      
     for(i = 0; i < num_solid_tris; i++) {
+
         u32 global_tri_idx = t->solid_tri_indexes[i];
         // drew_pix
-        (enable_avx ? rasterize_triangle_2x2_quad_no_tmap_avx2 : rasterize_triangle_2x2_quad_no_tmap)(
+        rasterize_triangle_2x2_quad_no_tmap_sse2(
             color_buffer, zbuffer,
             &global_tri_buffer[global_tri_idx],
             t->start_x, t->start_x+RENDER_TILE_SIZE,
@@ -1561,7 +1581,6 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
         } else {
             for(int x = 0; x < RENDER_TILE_SIZE; x+=2) {
                 u32 colors = *col_val_ptr++;
-
                 *output_row++ = colors&0xFF;
             }
 
@@ -1569,48 +1588,18 @@ void rasterize_tile(ExotiqueInterface *ei, u8 *color_buffer, u16 *zbuffer, tile*
     }
 }
 
-void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
+void fill_background_for_tile(PlatformInterface *ei, tile* t) {
 
     int base_x = t->start_x;
     int base_y = t->start_y;
     
-    f32 left_dx_per_dy = (board_bot_min_x - board_top_min_x) / (board_max_y-board_min_y);
-    f32 right_dx_per_dy = (board_bot_max_x - board_top_max_x) / (board_max_y-board_min_y);
-
-
-    u32 board_col_idx = light_remap_table[7][GREEN];
-
     for(int y = 0; y < RENDER_TILE_SIZE; y+=2) {
-        int global_y = (base_y + y);
         int output_y = (base_y+y)>>1;
         
         u8* output_row = &ei->screen[output_y*output_width+ (base_x>>1)];
 
-        if(global_y >= board_min_y && global_y < board_max_y-2) {
-            f32 left = board_top_min_x + left_dx_per_dy * ((f32)global_y - board_min_y);
-            f32 right = board_top_max_x + right_dx_per_dy * ((f32) global_y - board_min_y);
-            for(int x = 0; x < RENDER_TILE_SIZE; x += 2) {
-                //*zbuf_ptr++ = inv_far_vec;
-                u8 bkgd_idx;
-                int global_x = (base_x + x);
-
-                //f32 x_portion = (f32)global_x/(f32)render_width;
-                //int tex_x_coord = (int)(x_portion * (f32)BACKGROUND_TEX_WIDTH);
-
-                if(global_x >= (i32)left && global_x < (i32)right) {
-                    bkgd_idx = board_col_idx;
-                } else {
-                    bkgd_idx = 126 + 4; 
-                    //bkgd_idx = texture_background[tex_y_coord*BACKGROUND_TEX_WIDTH+tex_x_coord];
-                    //bkgd_idx = (bkgd_idx<<24)|(bkgd_idx<<16)|(bkgd_idx<<8)|bkgd_idx;
-                }
-                *output_row++ = bkgd_idx;
-            
-            }
-        } else {
-            for(int x = 0; x < RENDER_TILE_SIZE; x+=2) {
-                *output_row++ = 130;
-            }
+        for(int x = 0; x < RENDER_TILE_SIZE; x+=2) {
+            *output_row++ = 130;
         }
     }
 }
@@ -1621,7 +1610,7 @@ void fill_background_for_tile(ExotiqueInterface *ei, tile* t) {
 typedef struct {
     u8* color_buffer;
     u16* z_buffer;
-    ExotiqueInterface *ei;
+    PlatformInterface *ei;
     u8 draw_tile_bmp;
     HANDLE start_event; // Signal from Main to Worker: "Wake up and work!"
     HANDLE done_event;  // Signal from Worker to Main: "I am finished!"
@@ -1629,18 +1618,16 @@ typedef struct {
 } RasterThreadCtx;
 
 
-void rasterize_tiles(ExotiqueInterface *ei, u8 *color_buffer, u16 *z_buffer, int draw_tile_bmp) {
+void rasterize_tiles(PlatformInterface *ei, u8 *color_buffer, u16 *z_buffer, int draw_tile_bmp, int draw_all_tiles) {
 
     for(int y = 0; y < tiles_high; y++) {
         for(int x = 0; x < tiles_wide; x++) {
             u8 bmp = (y&0b10)|((x&0b10)>>1);
-            if(bmp != draw_tile_bmp) { continue; }
+            if(bmp != draw_tile_bmp && (!draw_all_tiles)) { continue; }
 
-            //if(((x^y)&1) == draw_even_tiles) { continue; }
-            
             tile* t = &tiles[y*tiles_wide+x];
             
-            if(t->num_tex_triangles || t->num_solid_triangles) {
+            if(t->fully_covered || t->num_tex_triangles || t->num_solid_triangles) {
                 rasterize_tile(ei, color_buffer, z_buffer, &tiles[y*tiles_wide+x]);
             } else {
                 fill_background_for_tile(ei, &tiles[y*tiles_wide+x]);
@@ -1648,6 +1635,21 @@ void rasterize_tiles(ExotiqueInterface *ei, u8 *color_buffer, u16 *z_buffer, int
         }
     }
 }
+
+void visualize_tiles(PlatformInterface *ei) {
+    for(int y = 0; y < tiles_high; y++) {
+        for(int x = 0; x < tiles_wide; x++) {
+
+            int base_y = y*RENDER_TILE_SIZE/2;
+            int base_x = x*RENDER_TILE_SIZE/2;
+            for(int tx = 0; tx < RENDER_TILE_SIZE/2; tx++) {
+                ei->screen[base_y*output_width+base_x+tx] = 0x00;
+                ei->screen[(base_y+tx)*output_width+base_x] = 0x00;
+            }
+        }
+    }
+}
+
 #define NUM_RASTER_THREADS 4
 HANDLE raster_thread_handles[NUM_RASTER_THREADS];
 RasterThreadCtx raster_contexts[NUM_RASTER_THREADS];
@@ -1661,15 +1663,18 @@ void raster_worker(void *arg) {
         }
 
         // otherwise, 
-        rasterize_tiles(ctx->ei, ctx->color_buffer, ctx->z_buffer, ctx->draw_tile_bmp);
+        rasterize_tiles(ctx->ei, ctx->color_buffer, ctx->z_buffer, ctx->draw_tile_bmp, 0);
 
         SetEvent(ctx->done_event);
     }
     _endthread();
 }
 
-void rasterize_tiles_parallel() {
+void rasterize_tiles_parallel(PlatformInterface *ei) {
+    (void)ei;
+    //rasterize_tiles(ei, color_buffer0, zbuf0, 0, 1);
 
+    //return;
     for(int i = 0; i < NUM_RASTER_THREADS; i++) {
         SetEvent(raster_contexts[i].start_event);
     }
@@ -1680,9 +1685,7 @@ void rasterize_tiles_parallel() {
         completion_events[i] = raster_contexts[i].done_event;
     }
     WaitForMultipleObjects(NUM_RASTER_THREADS, completion_events, TRUE, INFINITE);
-
 }
-
 
 
 int triangles_rasterized;
@@ -1696,16 +1699,23 @@ void bin_triangle(
             return;
         }
 
+
+        // get vertexes projected to screen space
+        // determine simple AABB and bin that way
         f32 minx = MIN(v0->x, MIN(v1->x, v2->x));
         f32 maxx = MAX(v0->x, MAX(v1->x, v2->x));
         f32 miny = MIN(v0->y, MIN(v1->y, v2->y));
         f32 maxy = MAX(v0->y, MAX(v1->y, v2->y));
 
+        f32 A0 = v0->y - v1->y, B0 = v1->x - v0->x, C0 = v0->x*v1->y - v1->x*v0->y;
+        f32 A1 = v1->y - v2->y, B1 = v2->x - v1->x, C1 = v1->x*v2->y - v2->x*v1->y;
+        f32 A2 = v2->y - v0->y, B2 = v0->x - v2->x, C2 = v2->x*v0->y - v0->x*v2->y;
+
         i32 startX = CLAMP((int)fast_floor(minx), 0, render_width-1);
-        i32 endX   = CLAMP((int)fast_ceil(maxx), 0, render_width-1);
+        i32 endX   = CLAMP((int)fast_floor(maxx), 0, render_width-1);
 
         i32 startY = CLAMP((int)fast_floor(miny), 0, render_height-1);
-        i32 endY   = CLAMP((int)fast_ceil(maxy), 0, render_height-1);
+        i32 endY   = CLAMP((int)fast_floor(maxy), 0, render_height-1);
 
         int tile_start_x = startX / RENDER_TILE_SIZE;
         int tile_start_y = startY / RENDER_TILE_SIZE;
@@ -1726,13 +1736,52 @@ void bin_triangle(
                 u32 num_tex_tris_in_tile = tiles[y*tiles_wide+x].num_tex_triangles;
                 u32 num_solid_tris_in_tile = tiles[y*tiles_wide+x].num_solid_triangles;
 
+                f32 tminx = tiles[y*tiles_wide+x].start_x;
+                f32 tminy = tiles[y*tiles_wide+x].start_y;
+                f32 tmaxx = tminx + (RENDER_TILE_SIZE-1);
+                f32 tmaxy = tminy + (RENDER_TILE_SIZE-1);
+
+                // for each edge, test the corner LEAST likely to be inside;
+                // if that one still passes, the whole tile is covered
+                f32 tx0 = (A0 >= 0.0f) ? tminx : tmaxx, ty0 = (B0 >= 0.0f) ? tminy : tmaxy;
+                f32 tx1 = (A1 >= 0.0f) ? tminx : tmaxx, ty1 = (B1 >= 0.0f) ? tminy : tmaxy;
+                f32 tx2 = (A2 >= 0.0f) ? tminx : tmaxx, ty2 = (B2 >= 0.0f) ? tminy : tmaxy;
+
+                f32 rx0 = (A0 >= 0.0f) ? tmaxx : tminx, ry0 = (B0 >= 0.0f) ? tmaxy : tminy;
+                f32 rx1 = (A1 >= 0.0f) ? tmaxx : tminx, ry1 = (B1 >= 0.0f) ? tmaxy : tminy;
+                f32 rx2 = (A2 >= 0.0f) ? tmaxx : tminx, ry2 = (B2 >= 0.0f) ? tmaxy : tminy;
+
+                int trivially_outside =
+                    (A0*rx0 + B0*ry0 + C0 < 0.0f) ||
+                    (A1*rx1 + B1*ry1 + C1 < 0.0f) ||
+                    (A2*rx2 + B2*ry2 + C2 < 0.0f);
+
+                if (trivially_outside) {
+                    continue; // triangle's AABB touches this tile, triangle itself doesn't
+                }
+
+                // NOTE: ONLY FULLY COVERED NON-TEXTURED TRIANGLES ARE DETECTED!
+                int fully_covered = 
+                    (A0*tx0 + B0*ty0 + C0 >= 0.0f) &&
+                    (A1*tx1 + B1*ty1 + C1 >= 0.0f) &&
+                    (A2*tx2 + B2*ty2 + C2 >= 0.0f);
+                
+                int prev_fully_covered = tiles[y*tiles_wide+x].fully_covered;
+                //tiles[y*tiles_wide+x].fully_covered = prev_fully_covered || fully_covered;
+
                 if(no_tmap) {
                     if(num_solid_tris_in_tile >= MAX_TILE_TRIS) {
                         continue;
                     }
                     rasterized_at_least_once = 1;
-                    tiles[y*tiles_wide+x].solid_tri_indexes[num_solid_tris_in_tile++] = total_triangles;
-                    tiles[y*tiles_wide+x].num_solid_triangles = num_solid_tris_in_tile;
+                    if(fully_covered && !prev_fully_covered) {
+                        // pop this in the single fully covered solid triangle slot
+                        tiles[y*tiles_wide+x].fully_covered = 1;
+                        tiles[y*tiles_wide+x].solid_fully_covering_tri_indexes[0] = total_triangles;
+                    } else {
+                        tiles[y*tiles_wide+x].solid_tri_indexes[num_solid_tris_in_tile++] = total_triangles;
+                        tiles[y*tiles_wide+x].num_solid_triangles = num_solid_tris_in_tile;
+                    }
                 } else {
                     if(num_tex_tris_in_tile == MAX_TILE_TRIS) {
                         continue;
@@ -1760,8 +1809,6 @@ void bin_triangle(
             f32 inv_z0 = 1.0f/v0->z;
             f32 inv_z1 = 1.0f/v1->z;
             f32 inv_z2 = 1.0f/v2->z;
-
-
 
             u8 mip_level = 0;
             int tex_width = textures[texture_id].width;
@@ -1834,8 +1881,7 @@ void bin_triangle(
             
             global_tri_buffer[total_triangles].inv_z0 = inv_z0;
             global_tri_buffer[total_triangles].inv_z1 = inv_z1;
-            global_tri_buffer[total_triangles].inv_z2 = inv_z2;
-            global_tri_buffer[total_triangles++].colorkey = (cur_shader == LIT_TEXTURED_COLORKEY);
+            global_tri_buffer[total_triangles++].inv_z2 = inv_z2;
         }
 }
 
@@ -1886,49 +1932,14 @@ int vcache_rem() {
     return VCACHE_SIZE - vcache_idx;
 }
 
-void vertex_shader(const int cache_tag_idx, const obj_vertex *vertex_stream, const matrix *model_to_view, const vert3f object_space_light_dir, const shader cur_shader) {
-
-    i16 v_idx = vert_cache_tags[cache_tag_idx];
-    const obj_vertex* in_vert = &vertex_stream[v_idx];
-
-
-    // Move in front of the camera.
-    vert3f rot_vert = mat_mul_vert3(model_to_view, &in_vert->pos);
-    vert3f proj_vert = project_coord(rot_vert);
-    
-
-    vertexes_transformed += 1;
-
-    const vert3f *n0 = &in_vert->norm;
-    float hemi = n0->y * 0.5f + 0.5f;
-
-    float ambient = lerp(0.20f, 0.40f, hemi);
-    //float ambient = lerp(0.40f, 0.80f, hemi);
-    f32 l0;
-    if(cur_shader == UNLIT_TEXTURED) {
-        l0 = ambient;
-    } else {
-        // Rotate normals into world space (not view)
-        f32 dot_light = dot(*n0, object_space_light_dir);
-        l0 = dot_light + ambient;
-    }
-
-    f32 c0 = CLAMP(l0, 0.0f, 1.0f);
-    f32 diffuse = CLAMP(c0, 0.0f, 1.0f);
-    f32 scaled_brightness = (diffuse * (NUM_SHADES-1));
-
-    vert_cache.brightness[cache_tag_idx] = scaled_brightness;
-    vert_cache.rotv[cache_tag_idx] = proj_vert;
-    vert_cache.uv[cache_tag_idx] = in_vert->uv;
-}
-
 void process_vertex_batch(const int batch_tag_idx, 
     const f32_vec vert_poses_soa[3], 
     const vert2f vert_uvs[4], 
     const f32_vec vert_norms_soa[3],
     const matrix* model_to_view,
     const vert3f obj_space_light_dir,
-    const shader cur_shader) {
+    const shader cur_shader,
+    int num_vertexes_in_bunch) {
 
     f32_vec rot_vert_comps[3];
 
@@ -1956,7 +1967,7 @@ void process_vertex_batch(const int batch_tag_idx,
     f32_vec scaled_brightness = (diffuse * (NUM_SHADES-1));
 
     // we can load 
-    for(int i = 0; i < 4; i++) {
+    for(int i = 0; i < num_vertexes_in_bunch; i++) {
         vert_cache.brightness[batch_tag_idx+i] = scaled_brightness[i]; //(quantized_brightness[i]);
         vert_cache.rotv[batch_tag_idx+i] = s0[i];
         vert_cache.uv[batch_tag_idx+i] = vert_uvs[i];
@@ -1966,14 +1977,20 @@ void process_vertex_batch(const int batch_tag_idx,
 void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream, const matrix* model_to_view, const vert3f obj_space_light_dir, const shader cur_shader) {
     
     int num_bunches = num_verts/4;
+    // process an extra batch, with less than 4 vertexes in it
+    if(num_bunches*4 < num_verts) {
+        num_bunches++;
+    }
     for(int bunch = 0; bunch < num_bunches; bunch++) {
         int batch_tag_idx = bunch*4;
 
+        int total_verts_by_now = bunch*4;
+        int verts_in_bunch = MIN(4, num_verts-total_verts_by_now);
         vert2f vert_uvs[4];
         f32_vec norms_soa[3]; // xxxx, yyyy, zzzz
         f32_vec poses_soa[3]; // xxxx, yyyy, zzzz
 
-        for(int i = 0; i < 4; i++) {
+        for(int i = 0; i < verts_in_bunch; i++) {
             i16 idx = vert_cache_tags[batch_tag_idx+i];
             poses_soa[0][i] = vertex_stream[idx].pos.x;
             poses_soa[1][i] = vertex_stream[idx].pos.y;
@@ -1983,15 +2000,10 @@ void parallel_vertex_shader(const int num_verts, const obj_vertex* vertex_stream
             norms_soa[2][i] = vertex_stream[idx].norm.z;
             vert_uvs[i] = vertex_stream[idx].uv;
         }
-        process_vertex_batch(batch_tag_idx, poses_soa, vert_uvs, norms_soa, model_to_view, obj_space_light_dir, cur_shader);
+        process_vertex_batch(batch_tag_idx, poses_soa, vert_uvs, norms_soa, model_to_view, obj_space_light_dir, cur_shader, verts_in_bunch);
 
     }
-    
-    for(int i = num_bunches*4; i < num_verts; i++) {
-        vertex_shader(
-            i, vertex_stream, model_to_view, obj_space_light_dir, cur_shader
-        );
-    }
+
 }
 
 static inline int triangle_backfacing(vert3f *v0, vert3f *v1, vert3f *v2) {
@@ -2022,9 +2034,6 @@ int vcache_hits;
 void submit_mesh_draw_call(mesh_draw_call* mdc) {
     const obj_mesh *m = mdc->mesh;
     matrix *model_to_view = &mdc->model_to_view;
-    //matrix *model_to_world = &mdc->model_to_world;
-    //matrix world_to_model = mat_inverse_affine(model_to_world);
-    //vert3f obj_space_light_dir = mat_mul_normal(&world_to_model, &light);
 
     matrix view_to_model = mat_inverse_affine(model_to_view);
     vert3f obj_space_light_dir = mat_mul_normal(&view_to_model, &light);
@@ -2123,7 +2132,6 @@ void submit_mesh_draw_call(mesh_draw_call* mdc) {
             f32 b1 = vert_cache.brightness[v1_cache_idx];
             f32 b2 = vert_cache.brightness[v2_cache_idx];
 
-
             bin_triangle(
                 rotv0, rotv1, rotv2,
                 uv0, uv1, uv2,
@@ -2186,7 +2194,7 @@ i16 decompressed_music_buffer[5260800*2];
 #endif
 
 typedef enum {
-    IMA_ADPCM, // used for sfx
+    QOA, // used for sfx
     MP3 // used for music
 } sound_compression_type;
 
@@ -2199,12 +2207,13 @@ typedef struct {
 
 
 sound_data sounds[NUM_SOUNDS] = {
-    {tile_click_4b_raw_data, decompressed_sound_buffer[0], TILE_CLICK_NUM_BYTES, 0, IMA_ADPCM},
-    {pon_4b_raw_data, decompressed_sound_buffer[1], PON_NUM_BYTES, 0, IMA_ADPCM},
-    {chii_4b_raw_data, decompressed_sound_buffer[2], CHII_NUM_BYTES, 0, IMA_ADPCM},
-    {riichi_4b_raw_data, decompressed_sound_buffer[3], RIICHI_NUM_BYTES, 0, IMA_ADPCM},
-    {tsumo_4b_raw_data, decompressed_sound_buffer[4], TSUMO_NUM_BYTES, 0, IMA_ADPCM},
-    {ron_4b_raw_data, decompressed_sound_buffer[5], RON_NUM_BYTES, 0, IMA_ADPCM},
+    {tile_click_qoa_raw_data, decompressed_sound_buffer[0], TILE_CLICK_NUM_BYTES, 0, QOA},
+    {pon_qoa_raw_data, decompressed_sound_buffer[1], PON_NUM_BYTES, 0, QOA},
+    {chii_qoa_raw_data, decompressed_sound_buffer[2], CHII_NUM_BYTES, 0, QOA},
+    {riichi_qoa_raw_data, decompressed_sound_buffer[3], RIICHI_NUM_BYTES, 0, QOA},
+
+    {tsumo_qoa_raw_data, decompressed_sound_buffer[4], TSUMO_NUM_BYTES, 0, QOA},
+    {ron_qoa_raw_data, decompressed_sound_buffer[5], RON_NUM_BYTES, 0, QOA},
 #ifdef ENABLE_MUSIC
     {music_mp3_raw_dat, decompressed_music_buffer, MUSIC_NUM_BYTES, 0, MP3}
 #endif
@@ -2239,67 +2248,50 @@ u32 decompress_MP3(const u8* raw_data, i16* output, const u32 num_bytes) {
 #endif
 }
 
-u32 decompress_adpcm(const u8* raw, i16 *output, const u32 num_bytes) {
+#define QOA_IMPLEMENTATION
+#define QOA_NO_STDIO
+#include "qoa.h"
+u32 decompress_qoa(const u8* raw, i16 *output, const u32 size) {
+    qoa_desc desc;
 
-    static const int index_table[16] = {
-        -1,-1,-1,-1, 2, 4, 6, 8, -1,-1,-1,-1, 2, 4, 6, 8
-    };
-    static const int step_table[89] = {
-           7,      8,     9,    10,    11,    12,    13,    14,
-          16,     17,    19,    21,    23,    25,    28,    31,
-          34,     37,    41,    45,    50,    55,    60,    66,
-          73,     80,    88,    97,   107,   118,   130,   143,
-         157,    173,   190,   209,   230,   253,   279,   307,
-         337,    371,   408,   449,   494,   544,   598,   658,
-         724,    796,   876,   963,  1060,  1166,  1282,  1411,
-        1552,   1707,  1878,  2066,  2272,  2499,  2749,  3024,
-        3327,   3660,  4026,  4428,  4871,  5358,  5894,  6484,
-        7132,   7845,  8630,  9493, 10442, 11487, 12635, 13899,
-        15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
-        32767
-    };
+    unsigned int p = qoa_decode_header(raw, size, &desc);
+	if (!p) {
+		return 0;
+	}
 
-    u32 num_blocks = num_bytes / 512;
-    i16 *out = output;
-    for(u32 blk = 0; blk < num_blocks; blk++) {
-        int predictor = (i16)(raw[0]|(raw[1]<<8));
-        raw += 2;
-        int step_index = *raw++;
-        raw++; // skip over reserved;
-        *out++ = (i16)predictor;
-        for(u32 byte_in_block = 0; byte_in_block < 508; byte_in_block++) {
-            u8 byte = *raw++;
-            // loop twice to output two samples for one byte
-            for(int i = 0; i < 2; i++) {
-                int code = (byte>>(4*i)) & 0xF;
-                int step = step_table[step_index];
-                int diff = step >> 3;
+	/* Calculate the required size of the sample buffer and allocate, round up to full frames */
+	unsigned long long num_frames = ((unsigned long long)desc.samples + QOA_FRAME_LEN - 1) / QOA_FRAME_LEN;
+	unsigned long long total_samples_ull = num_frames * QOA_FRAME_LEN * (unsigned long long)desc.channels;
 
-                if (code & 1) diff += step >> 2;
-                if (code & 2) diff += step >> 1;
-                if (code & 4) diff += step;
+	//if (total_samples_ull > 0x7fffffff) { return 0; }
 
-                if (code & 8) {
-                    predictor -= diff;
-                } else {
-                    predictor += diff;
-                }
-                predictor = CLAMP(predictor, -32768, 32767);
-                step_index += index_table[code];
-                step_index = CLAMP(step_index, 0, 88);
-                *out++ = (i16)predictor;
-            } 
-        }
-    }
-    return (u32)(out-output);
+	unsigned int total_samples = (unsigned int)total_samples_ull;
+	//short *sample_data = QOA_MALLOC(total_samples * sizeof(short));
+	//if (!sample_data) { return NULL; }
+
+	unsigned int sample_index = 0;
+	unsigned int frame_len;
+	unsigned int frame_size;
+
+	/* Decode all frames */
+	do {
+		short *sample_ptr = output + sample_index * desc.channels;
+		frame_size = qoa_decode_frame(raw + p, size - p, &desc, sample_ptr, &frame_len);
+
+		p += frame_size;
+		sample_index += frame_len;
+	} while (frame_len == QOA_FRAME_LEN && sample_index < desc.samples);
+
+	desc.samples = sample_index;
+    return desc.samples;
 }
 
 void decompress_sounds() {
     u64 total_compressed_sound_bytes = 0;
     for(int i = 0; i < NUM_SOUNDS; i++) {
         switch(sounds[i].comp_type) {
-            case IMA_ADPCM:
-                sounds[i].num_mono_samples = decompress_adpcm(sounds[i].compressed_raw_data, sounds[i].decompressed_data, sounds[i].num_bytes);
+            case QOA:
+                sounds[i].num_mono_samples = decompress_qoa(sounds[i].compressed_raw_data, sounds[i].decompressed_data, sounds[i].num_bytes);
                 break;
             case MP3:                
                 sounds[i].num_mono_samples = decompress_MP3(sounds[i].compressed_raw_data, sounds[i].decompressed_data, sounds[i].num_bytes);
@@ -2307,7 +2299,7 @@ void decompress_sounds() {
         }
         total_compressed_sound_bytes += sounds[i].num_bytes;
     }
-    LOG("INFO", "Total compressed sound bytes %i\n", total_compressed_sound_bytes);
+    LOG("INFO", "Total compressed sound bytes %i", total_compressed_sound_bytes);
 }
 
 int num_active_sounds = 0;
@@ -2382,7 +2374,6 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
             u32 playback_offset = snd.playback_offset;
             u32 num_smples = sounds[snd.voice].num_mono_samples;
             
-
             if(playback_offset >= num_smples) {
                 num_active_sounds--;
                 if(sound_idx == num_active_sounds) {
@@ -2411,7 +2402,6 @@ void stop_device_callback(ma_device* pDevice) {
 ma_device_config ma_config;
 ma_device sound_device;
 
-
 // WORLD AND HAND DRAWING/TRANSFORMS
 
 #define MAX_DISCARDS 18
@@ -2431,7 +2421,7 @@ ma_device sound_device;
 // gap between player deals on hand start
 #define DEAL_WAIT_DURATION 0.50f
 
-typedef struct __attribute__((packed)) {
+typedef struct {
     i8 num_closed_tiles;
     tile_type tiles[MAX_CLOSED_TILES];
     //u32 deal_frame_for_tiles[14];
@@ -2451,13 +2441,13 @@ typedef struct __attribute__((packed)) {
     int sorted;
 } hand;
 
-typedef struct __attribute__((packed)) {
+typedef struct {
     int tile_fall_timer_handles[TILES_IN_DECK];
     tile_type tiles[TILES_IN_DECK];
 } wall;
 
 
-typedef enum __attribute__((packed)) {
+typedef enum {
     STARTUP,
     INITIAL_SHUFFLE_AND_SETUP,
     DEALING,
@@ -2466,7 +2456,7 @@ typedef enum __attribute__((packed)) {
     NUM_GAME_STATES
 } game_state;
 
-typedef enum __attribute__((packed)) {
+typedef enum {
     EAST_WIND = 0,
     SOUTH_WIND = 1
 } game_wind;
@@ -2557,8 +2547,6 @@ typedef struct {
     int waiting_for_calls_players[4]; // player numbers that we are waiting for are in here
     wall board_wall;
 } game_data_t;
-
-
 
 
 game_data_t game_data = { 
@@ -2737,7 +2725,7 @@ void timer_release(int handle) {
 void timer_start(
     int handle, f32 duration_seconds, timer_type type, 
     timer_callback expire_cb, u64 callback_data) {
-    u64 start_ticks = exotique_get_ticks();
+    u64 start_ticks = get_ticks();
 
     timers[handle].start_ticks = start_ticks;
     //timers[handle].end_ticks = start_ticks + (u64)(duration_seconds*1000.0f);
@@ -2758,7 +2746,7 @@ f32 timer_get_progress(int handle) {
     }
     f32 start_ticks = timers[handle].start_ticks;
     f32 end_ticks = start_ticks + (timers[handle].duration_ms);
-    f32 cur_ticks = exotique_get_ticks();
+    f32 cur_ticks = get_ticks();
     f32 dur = end_ticks-start_ticks;
     f32 dtime = cur_ticks - start_ticks;
 
@@ -2775,7 +2763,7 @@ void timer_step(u64 cur_ticks) {
 
         if(cur_ticks >= end_ticks) {
             timers[i].finished = 1;
-            //exotique_printf("CALLING FINISH CALLBACK FOR %s\n", timers[i].name);
+            //sys_printf("CALLING FINISH CALLBACK FOR %s\n", timers[i].name);
             timers[i].expire_cb(timers[i].callback_data);
             switch(timers[i].type) {
                 case RELEASE_ON_EXPIRE:
@@ -3098,13 +3086,13 @@ void draw_hand(
         wind_indicator_trans.position.x = -25.0f;
 
         wind_indicator_trans.rotation.z = game_data.cur_wind == EAST_WIND ? 0.0f : (f32)M_PI; 
-        wind_indicator_trans.scale = (vert3f){2.0f, 2.0f, 2.0f};
+        wind_indicator_trans.scale = use_dragon_model ? (vert3f){3.58f, 3.58f, 3.58f} : (vert3f){2.0f, 2.0f, 2.0f};
         wind_indicator_trans.rotation.y = use_dragon_model ? (game_data.frame/1024.0f) : (f32)M_PI;
 
         matrix wind_indicator_to_hand_mat = transform_to_matrix(&wind_indicator_trans);
 
         draw_calls[draw_idx].shdr = LIT_TEXTURED;
-        draw_calls[draw_idx].mesh = use_dragon_model ? &dragon_low_poly_cleaned_mesh : &wind_indicator_mesh;
+        draw_calls[draw_idx].mesh = use_dragon_model ? &dragon_mesh : &wind_indicator_mesh;
         draw_calls[draw_idx].bounds = 0;
         draw_calls[draw_idx].texture = WIND_INDICATOR;
         draw_calls[draw_idx++].model_to_view = mat_mul_mat(hand_to_view_matrix, &wind_indicator_to_hand_mat);
@@ -3113,7 +3101,7 @@ void draw_hand(
     {
         /* draw tenbou */
         
-        f32 stick_poses[10][4] = {
+        const f32 stick_poses[10][4] = {
             {0.01f, 0.0f, 0.0f},{-0.01f, 0.0f, 0.5f},{-0.02f, 0.0f, 1.0f},{0.0f, 0.0f, 1.5f},
                  {0.0f, 0.4f, 0.25f},{0.0f, 0.4f, 0.75f},{0.0f, 0.4f, 1.25f},
                         {0.0f, 0.8f, 0.5f},{0.0f, 0.8f, 1.0f},
@@ -3121,9 +3109,9 @@ void draw_hand(
         };
         
 
-        tile_type tenbou_colors[4] = {RED_TENBOU, GOLD_TENBOU, BLUE_TENBOU, WHITE_TENBOU};
+        const tile_type tenbou_colors[4] = {RED_TENBOU, GOLD_TENBOU, BLUE_TENBOU, WHITE_TENBOU};
         int num_tenbou[4] = {0,0,0,0}; // 1x10,000 2x5000 (20000) 4x1000 (4000) 10x100 (1000)
-        int tenbou_vals[4] = {10000, 5000, 1000, 100};
+        const u16 tenbou_vals[4] = {10000, 5000, 1000, 100};
         int score = h->score;
 
         for(int i = 0; i < 4; i++) {
@@ -3249,7 +3237,6 @@ void draw_riichi_game(game_state cur_state, int hand_winner, matrix* view_mat) {
     draw_wall(cur_state, &game_data.board_wall, view_mat);
 }
 
-static obj_mesh board_sides;
 void draw_board(matrix* view_mat) {
     mesh_draw_call draw_board_call;
     transform board_transform = identity_transform();
@@ -3258,48 +3245,11 @@ void draw_board(matrix* view_mat) {
     matrix board_matrix = transform_to_matrix(&board_transform);
     matrix board_to_view_matrix = mat_mul_mat(view_mat, &board_matrix);
     
-    draw_board_call.shdr = UNLIT_TEXTURED;
+    draw_board_call.shdr = LIT_TEXTURED;
     draw_board_call.bounds = &board_bbox;
     draw_board_call.model_to_view = board_to_view_matrix;
-    //draw_board_call.model_to_world = board_matrix;
     draw_board_call.texture = BOARD;
-
-    board_sides.indexCount = board_mesh.indexCount - 12;
-    board_sides.indexStream = board_mesh.indexStream + 12;
-    board_sides.vertexCount = board_mesh.vertexCount;
-    board_sides.vertexStream = board_mesh.vertexStream;
-    draw_board_call.mesh = &board_sides;
-    
-    if(!got_board_min_max_coords) {
-        vert3f board_verts[8];
-        got_board_min_max_coords = 1;
-
-        project_bounding_box(&board_bbox, &board_to_view_matrix, board_verts);
-        f32 min_y = board_verts[0].y, max_y = board_verts[0].y;
-        for(int i = 0; i < 8; i++) {
-            min_y = MIN(min_y, board_verts[i].y);
-            max_y = MAX(max_y, board_verts[i].y);
-        }
-        f32 top_min_x = 100000.0f, top_max_x = -100000.0f;
-        f32 bot_min_x = 100000.0f, bot_max_x = -100000.0f;
-        for(int i = 0; i < 8; i++) {
-            if(fabsf(board_verts[i].y-min_y) < 4.0f) {
-                top_min_x = MIN(top_min_x, board_verts[i].x);
-                top_max_x = MAX(top_max_x, board_verts[i].x);
-            }
-
-            if(fabsf(board_verts[i].y-max_y) < 4.0f) {
-                bot_min_x = MIN(bot_min_x, board_verts[i].x);
-                bot_max_x = MAX(bot_max_x, board_verts[i].x);
-            }
-        }
-        board_min_y = min_y;
-        board_max_y = max_y;
-        board_top_min_x = top_min_x;
-        board_top_max_x = top_max_x;
-        board_bot_min_x = bot_min_x-2.0f;
-        board_bot_max_x = bot_max_x+2.0f;
-    }
+    draw_board_call.mesh = &board_mesh;
 
     submit_draw_calls(&draw_board_call, 1, FRUSTUM_CULL);
 }
@@ -3350,7 +3300,11 @@ static u64 prev_frame_ticks = 0;
 
 void look_at_yx(transform *cam, vert3f position, vert3f target);
 
-void game_draw(ExotiqueInterface* ei) {
+vert3f orbit_camera_position(float yaw, float pitch, float radius);
+
+
+void mahjong_draw(PlatformInterface* ei) {
+
 
     u64 cur_frame_ticks = ei->ticks;
 
@@ -3362,7 +3316,7 @@ void game_draw(ExotiqueInterface* ei) {
     vcache_misses = 0;
     vcache_hits = 0;
     total_triangles = 0;
-
+    
     static block whole_frame_block = ROOT_TIMED_BLOCK(whole_frame_block, "draw frame")
         matrix view_matrix = transform_to_view_matrix(&cam_view_trans);
         static block clear_tiles_block = START_TIMED_BLOCK(clear_tiles_block, "clear buf", whole_frame_block)
@@ -3378,9 +3332,10 @@ void game_draw(ExotiqueInterface* ei) {
         END_TIMED_BLOCK(board_block)
 
         static block raster_block = START_TIMED_BLOCK(raster_block, "rast. tiles", whole_frame_block)
-            rasterize_tiles_parallel();
+            rasterize_tiles_parallel(ei);
         END_TIMED_BLOCK(raster_block)
 
+        //visualize_tiles(ei);
         if(ei->input->select) {
             draw_string("A - Draw | B - Discard | X - Call/Riichi | Y - Sort", 8, (output_height)-24, 2, light_remap_table[NUM_SHADES-1][WHITE], ei->screen);
         }
@@ -3388,10 +3343,10 @@ void game_draw(ExotiqueInterface* ei) {
     END_TIMED_BLOCK(whole_frame_block)
 
     if((game_data.frame & 31) == 0) {
-        //print_and_reset_root_block(&whole_frame_block);
-        //exotique_printf("used anim timers %i\n", num_active_timers);
-        //exotique_printf("total %.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
-        //exotique_printf("vcache misses %i, hits %i %.2f\n", vcache_misses, vcache_hits, (double)vcache_hits*100.0/(double)(vcache_misses+vcache_hits));
+        print_and_reset_root_block(&whole_frame_block);
+        //sys_printf("used anim timers %i\n", num_active_timers);
+        //sys_printf("total %.2f ms\n", (double)(prev_ms_per_frame + ms_per_frame) / 2.0);
+        //sys_printf("vcache misses %i, hits %i %.2f\n", vcache_misses, vcache_hits, (double)vcache_hits*100.0/(double)(vcache_misses+vcache_hits));
     }
     
     meshes_transformed = 0;
@@ -3457,7 +3412,7 @@ void shuffle_deck(wall *game_wall) {
 void init_seeds() {
     game_data.seeds[3] = game_data.seeds[2];
     game_data.seeds[1] = game_data.seeds[0];
-    game_data.seeds[0] = (u32)exotique_get_perf_counter();
+    game_data.seeds[0] = (u32)get_perf_counter();
 }
 
 tile_type player_winds[4] = {
@@ -3533,462 +3488,9 @@ void reset_game() {
     is_not_first_game = 1;
 }
 
-
-#include "SDL_net.h"
-
-static TCPsocket serv_sock = NULL;
-IPaddress server_ip;
-SDLNet_SocketSet socket_set;
-int num_socks_in_set = 0;
-
-#define MAKE_NUM(A, B, C, D)    (((A+B)<<8)|(C+D))
-
-#define JONG_PORT MAKE_NUM('J','O','N','G')
-#define JONG_PORT1 JONG_PORT+1
-#define JONG_PORT2 JONG_PORT+2
-#define JONG_PORT3 JONG_PORT+3
-#define MAX_CLIENTS 3
-static struct {
-    int active;
-    int player_num;
-    TCPsocket sock;
-    IPaddress peer; // host and port used to connect to server
-    u16 listen_port; // port this client is listening on
-    Uint8 name[256+1];
-} client_info[MAX_CLIENTS];
-
-
-typedef struct {
-    int ready;
-    SOCKET channel; // actual socket fd
-    IPaddress remoteAddress;
-    IPaddress localAddress;
-    int sflag;
-} internal_TCPsocket;
-
-void disable_nagle(TCPsocket sock) {
-    internal_TCPsocket *int_sock = (internal_TCPsocket*)sock;
-    int opt = 1;
-    int res = setsockopt(int_sock->channel, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt));
-    if(res != 0) {
-        int err = WSAGetLastError();
-        LOG("NETWORK", "Error setting TCP_NODELAY on socket: %i", err);
-        //exit(1);
-    }
-}
-
-TCPsocket SDLNet_TCP_Open_NODELAY(IPaddress *ip) {
-    TCPsocket sock = SDLNet_TCP_Open(ip);
-    //disable_nagle(sock);
-    return sock;
-}
-
-
-TCPsocket SDLNet_TCP_OpenClient_NODELAY(IPaddress *ip) {
-    TCPsocket sock = SDLNet_TCP_OpenClient(ip);
-    disable_nagle(sock);
-    return sock;
-}
-
-
-TCPsocket SDLNet_TCP_Accept_NODELAY(TCPsocket sock) {
-    TCPsocket new_sock = SDLNet_TCP_Accept(sock);
-    disable_nagle(new_sock);
-    return new_sock;
-}
-
-
-void server_get_connection() {
-    TCPsocket new_sock;
-    int which;
-
-    new_sock = SDLNet_TCP_Accept_NODELAY(serv_sock);
-    if(new_sock == NULL) {
-        return;
-    }
-
-    // look for unconnected person slot
-    for(which = 0; which < MAX_CLIENTS; which++) {
-        if(!client_info[which].sock) {
-            break;
-        }
-    }
-    if(which == MAX_CLIENTS) {
-        // another client is attempting to connect but we're already full
-        LOG("NETWORK", "Already have enough clients");
-        return;
-    }
-
-    client_info[which].sock = new_sock;
-    client_info[which].peer = *SDLNet_TCP_GetPeerAddress(new_sock);
-    client_info[which].player_num = -1;
-    for(int i = 0; i < 4; i++) {
-        if(game_data.player_types[i] == NETWORK_HUMAN) {
-            int already_used = 0;
-            for(int j = 0; j < MAX_CLIENTS; j++) {
-                if(client_info[j].sock && client_info[j].player_num == i) {
-                    already_used = 1;
-                    break;
-                }
-            }
-            if(already_used == 0) {
-                client_info[which].player_num = i;
-                break;
-            }
-        }
-    }
-    if(client_info[which].player_num == -1) {
-        LOG("NETWORK", "All players are used even though we have a free network slot?");
-        exit(1);
-    }
-    int added_sock = SDLNet_TCP_AddSocket(socket_set, client_info[which].sock);
-    if(added_sock == -1) {
-        LOG("NETWORK", "Error adding socket to set");
-        exit(1);
-    }
-    num_socks_in_set = added_sock;
-    LOG("NETWORK", "Client connected at %i %i", client_info[which].peer.host, client_info[which].peer.port);
-}
-
-
-
-typedef enum __attribute__((packed)) {
-    LISTEN_PORT = 1,
-    RANDOM_SEED_AND_PLAYER_INFO = 3,
-    INPUT_FROM_CLIENT = 5,
-} msg_type;
-
 void host_timer_callback(u64 data) {
-    LOG("INFO", "host timer callback fired");
-}
-
-void setup_host(int num_clients) {
-    if(num_clients < 0 || num_clients > 3) {
-        LOG("INIT", "Error: Please specify number of clients between 0 and 3, --num-clients [num]");
-        exit(1);
-    }
-    
-    game_data.player_types[0] = HUMAN;
-    for(int i = 1; i <= num_clients; i++) {
-        game_data.player_types[i] = NETWORK_HUMAN;
-    }
-    for(int i = num_clients+1; i < 4; i++) {
-        game_data.player_types[i] = ai_select_order[i];
-    }
-    if(num_clients == 0) {
-        return;  
-    }
-    socket_set = SDLNet_AllocSocketSet(num_clients+1);
-    if(socket_set == NULL) {
-        LOG("NETWORK", "Error: Couldn't create socket set: %s", SDLNet_GetError());
-        exit(1);
-    }
-
-    SDLNet_ResolveHost(&server_ip, NULL, JONG_PORT);
-    LOG("NETWORK", "Server IP: %x, %d", server_ip.host, SDLNet_Read16(&server_ip.port));
-    serv_sock = SDLNet_TCP_Open(&server_ip);
-    if ( serv_sock == NULL ) {
-        LOG("NETWORK", "Error: Couldn't create server socket: %s",SDLNet_GetError());
-        exit(1);
-    }
-    int added_sock = SDLNet_TCP_AddSocket(socket_set, serv_sock);
-    if(added_sock == -1) {
-        LOG("NETWORK", "Error adding socket to set");
-        exit(1);
-    }
-    num_socks_in_set = added_sock;
-
-    // wait until clients connect
-    LOG("NETWORK", "Waiting for clients to connect to port %i", JONG_PORT);
-
-    while(1) {
-        SDLNet_CheckSockets(socket_set, ~0);
-        if(SDLNet_SocketReady(serv_sock)) {
-            server_get_connection();
-        }
-        int connected_clients = 0;
-        for(int i = 0; i < MAX_CLIENTS; i++) {
-            connected_clients += client_info[i].sock ? 1 : 0;
-        }
-        if(connected_clients == num_clients) {
-             LOG("NETWORK", "All clients connected.");
-            break;
-        }
-    }
-    
-    // remove server listen socket from socket set
-    added_sock = SDLNet_TCP_DelSocket(socket_set, serv_sock);
-    if(added_sock == -1) {
-        LOG("NETWORK", "Error removing socket from set");
-        exit(1);
-    }
-    num_socks_in_set = added_sock;
-}
-
-void setup_host_timer() {
-    int host_timer_handle = timer_get_handle("host timer");
-    LOG("INFO", "setup host timer");
-    timer_start(host_timer_handle, 0.033f, REPEAT_ON_EXPIRE, host_timer_callback, 0);
-}
-
-IPaddress client_ip;
-TCPsocket client_listen_sock;
-u16 client_listen_port;
-void setup_client(char* server_address) {
-    socket_set = SDLNet_AllocSocketSet(4);
-    if(socket_set == NULL) {
-        LOG("NETWORK", "Error: Couldn't create socket set: %s", SDLNet_GetError());
-        exit(1);
-    }
-
-    for(int listen_port = JONG_PORT+1; listen_port < JONG_PORT+100; listen_port++) {
-        if(SDLNet_ResolveHost(&client_ip, NULL, listen_port) == 0) {
-            client_listen_sock = SDLNet_TCP_Open(&client_ip);
-
-            if(client_listen_sock != NULL) {
-                LOG("NETWORK", "Listening on port %i:%i / %i", SDLNet_Read32(&client_ip.host), SDLNet_Read16(&client_ip.port), listen_port);
-                client_listen_port = client_ip.port;
-                break;
-            }
-        }
-    }
-    if(client_listen_sock == NULL) {
-        LOG("NETWORK", "Error: Couldn't open listen socket");
-        exit(1);
-    }
-
-    LOG("NETWORK", "Attempting to connect to server @ %s:%i", server_address, JONG_PORT);
-    SDLNet_ResolveHost(&server_ip, server_address, JONG_PORT);
-    if(server_ip.host == INADDR_NONE) {
-        LOG("NETWORK", "Error: Couldn't resolve hostname");
-        exit(1);
-    }
-    LOG("NETWORK", "Connecting to %s %i", server_address, JONG_PORT);
-    while(1) {
-        serv_sock = SDLNet_TCP_Open(&server_ip);
-        if(serv_sock != NULL) {
-            break;
-        }
-        LOG("NETWORK", "Failed, retrying");
-        int counter = 1000000;
-        while(counter) { counter--; }
-    }
-    disable_nagle(serv_sock);
-
-    int added_sock = SDLNet_TCP_AddSocket(socket_set, serv_sock);
-    if(added_sock == -1) {
-        LOG("NETWORK", "Error adding socket to set");
-        exit(1);
-    }
-    num_socks_in_set = added_sock;
-}
-
-typedef struct {
-    int player_num;
-    IPaddress ip; // address and port on which they are going to listen
-} player_conn_info;
-
-typedef struct {
-    u32 seeds[4];
-    u32 num_other_clients;
-    player_conn_info clients_info[3];
-
-    IPaddress your_ip; 
-    int player_num;
-} seed_and_player_info;
-
-#define MAX_PACKET_SIZE (sizeof(seed_and_player_info)+1)
-
-char data_buf[MAX_PACKET_SIZE];
-
-void send_packet_to_socket(TCPsocket sock, msg_type type, u32 num_bytes_after_type, void* src_buf, const char* obj_type) {
-    data_buf[0] = type;
-    memcpy(data_buf+1, src_buf, num_bytes_after_type);
-    int sent = SDLNet_TCP_Send(sock, &data_buf, num_bytes_after_type+1);
-    if(sent < 0) {
-        LOG("NETWORK", "Error: Disconnected while sending %s", obj_type);
-        exit(1);
-    }
-    if(sent != (int)num_bytes_after_type+1) {
-        LOG("NETWORK", "Error sending %s (of %i bytes), only sent %i bytes", obj_type, num_bytes_after_type+1, sent);
-        exit(1);
-    }
-}
-
-void receive_packet_from_socket(TCPsocket sock, msg_type type, u32 num_bytes_after_type, void* dst_buf, const char* obj_type) {
-    int recvd = SDLNet_TCP_Recv(sock, data_buf, num_bytes_after_type+1);
-    if(recvd < 0) {
-        LOG("NETWORK", "Error: Disconnected while receiving %s :(", obj_type);
-        exit(1);
-    }
-    if(recvd != (int)num_bytes_after_type+1) {
-        LOG("NETWORK", "Error receiving %s (of %i bytes), only received %i bytes", obj_type, num_bytes_after_type+1, recvd);
-        exit(1);
-    }
-    if(data_buf[0] != type) {
-        LOG("NETWORK", "Got unexpected byte from client when waiting for %s: %i", obj_type, data_buf[0]);
-        exit(1);
-    }
-    memcpy(dst_buf, data_buf+1, num_bytes_after_type);
-}
-
-typedef struct {
-    u16 listen_port;
-} listen_port_t;
-
-void server_wait_for_listen_port_from_players() {
-    
-    for(int i = 0; i < MAX_CLIENTS; i++) {
-        if(client_info[i].sock) {
-            LOG("NETWORK", "Waiting for listen port from %i:%i", SDLNet_Read32(&client_info[i].peer.host), SDLNet_Read16(&client_info[i].peer.port));
-            
-            listen_port_t port;
-            receive_packet_from_socket(client_info[i].sock, LISTEN_PORT, sizeof(listen_port_t), &port, "listen port");
-            
-            client_info[i].listen_port = port.listen_port;
-            LOG("NETWORK", "Client is listening on %i", port.listen_port);
-        }
-    }
-}
-
-
-void client_send_listen_port_to_server() {
-    listen_port_t dat; dat.listen_port = client_listen_port;
-    send_packet_to_socket(serv_sock, LISTEN_PORT, sizeof(listen_port_t), &dat, "listen port");
-}
-
-
-void send_initial_state() {
-    seed_and_player_info seed_info;
-
-    int num_all_clients = 0;
-    memcpy(seed_info.seeds, game_data.seeds, sizeof(u32)*4);
-
-    for(int i = 0; i < MAX_CLIENTS; i++) {
-        if(client_info[i].sock) {
-            seed_info.clients_info[num_all_clients].ip = client_info[i].peer;
-            seed_info.clients_info[num_all_clients].ip.port = client_info[i].listen_port;
-            LOG("NETWORK", "Set listen port to %i", client_info[i].listen_port);
-            seed_info.clients_info[num_all_clients++].player_num = client_info[i].player_num;
-        }
-    }
-    seed_info.num_other_clients = num_all_clients;
-
-    for(int i = 0; i < MAX_CLIENTS; i++) {
-        if(client_info[i].sock) {
-            seed_info.your_ip = client_info[i].peer;
-            seed_info.your_ip.port = client_info[i].listen_port;
-            seed_info.player_num = client_info[i].player_num;
-
-            send_packet_to_socket(client_info[i].sock, RANDOM_SEED_AND_PLAYER_INFO, sizeof(seed_and_player_info), &seed_info, "initial state");
-        }
-    }
-}
-
-seed_and_player_info receive_initial_state() {
-    LOG("GAME", "Waiting for initial state");
-
-    seed_and_player_info start_info;    
-    receive_packet_from_socket(serv_sock, RANDOM_SEED_AND_PLAYER_INFO, sizeof(seed_and_player_info), &start_info, "initial state");
-
-    human_player = start_info.player_num;
-    memcpy(&game_data.seeds, start_info.seeds, sizeof(u32)*4);
-
-    return start_info;
-}
-int is_host = 0, is_client = 0;
-
-
-SDLNet_SocketSet client_socket_set;
-IPaddress client_to_client_ips[3];
-TCPsocket client_to_client_sockets[3];
-
-
-void setup_connections_to_other_clients(seed_and_player_info initial_state) {
-
-    int our_index = -1;
-    for(u32 i = 0; i < initial_state.num_other_clients; i++) {
-        // sub-connections to wait for 
-        
-        if(initial_state.clients_info[i].player_num == initial_state.player_num) {
-            // this is us!!
-            our_index = i;
-        }
-    }
-
-    int connections_to_open = our_index;
-
-    int connections_to_listen_for = initial_state.num_other_clients-1 - our_index;
-
-    // now setup player types
-    game_data.player_types[0] = NETWORK_HUMAN;
-    for(int i = 0; i < connections_to_open; i++) {
-        game_data.player_types[i+1] = NETWORK_HUMAN;
-    }
-    game_data.player_types[1+connections_to_open] = HUMAN;
-    
-    for(int i = connections_to_open; i < connections_to_open+connections_to_listen_for; i++) {
-        game_data.player_types[i+2] = NETWORK_HUMAN;
-    }
-
-    for(int i = connections_to_listen_for+connections_to_open+2; i < 4; i++) {
-        game_data.player_types[i] = ai_select_order[i];;
-    }
-
-    LOG("NETWORK", "Connections to listen for %i, connections to open %i", connections_to_listen_for, connections_to_open);
-    int connected_clients = 0;
-
-    for(int i = initial_state.num_other_clients-1; i > our_index; i--) {
-        // wait for connections from last client to next after our index
-        while(1) {
-            TCPsocket new_sock = SDLNet_TCP_Accept(client_listen_sock);
-            if(new_sock == NULL) {
-                // just try again
-                continue;
-            }
-            disable_nagle(new_sock);
-
-            IPaddress *ipptr = SDLNet_TCP_GetPeerAddress(new_sock);
-            LOG("NETWORK", "Got p2p connection from %i:%i", SDLNet_Read32(&ipptr->host), SDLNet_Read16(&ipptr->port));
-        
-
-            client_info[connected_clients].sock = new_sock;
-            int added_sock = SDLNet_TCP_AddSocket(socket_set, client_info[connected_clients].sock);
-            if(added_sock == -1) {
-                LOG("NETWORK", "Error adding socket to set");
-                exit(1);
-            }
-            num_socks_in_set = added_sock;
-            client_info[connected_clients++].player_num = initial_state.clients_info[i].player_num;
-            break;
-        }
-    }
-    for(int i = our_index-1; i >= 0; i--) {
-        // open connections to clients from the one before us to 0
-        IPaddress p2p_ip = initial_state.clients_info[i].ip;
-        LOG("NETWORK", "Opening connection to %i:%i/%i", SDLNet_Read32(&p2p_ip.host), p2p_ip.port, SDLNet_Read16(&p2p_ip.port));
-
-        TCPsocket p2p_sock = SDLNet_TCP_OpenClient(&p2p_ip);
-        if(p2p_sock == NULL) {
-            LOG("NETWORK", "Error: Couldn't open p2p socket to player %i: %s", initial_state.clients_info[i].player_num, SDLNet_GetError());
-            exit(1);
-        }
-        disable_nagle(p2p_sock);
-
-        LOG("NETWORK", "Opened p2p connection to player %i %i:%i", initial_state.clients_info[i].player_num, SDLNet_Read32(&p2p_ip.host), SDLNet_Read16(&p2p_ip.port));
-        client_info[connected_clients].sock = p2p_sock;
-        int added_sock = SDLNet_TCP_AddSocket(socket_set, client_info[connected_clients].sock);
-        if(added_sock == -1) {
-            LOG("NETWORK", "Error adding socket to set");
-            exit(1);
-        }
-        num_socks_in_set = added_sock;
-        client_info[connected_clients++].player_num = initial_state.clients_info[i].player_num;
-    }
-
-    // add server socket to client info
-    client_info[connected_clients].player_num = 0;
-    client_info[connected_clients].sock = serv_sock;
+    (void)data;
+    //LOG("INFO", "host timer callback fired");
 }
 
 #define ACTIONS             \
@@ -4053,7 +3555,7 @@ player_action queue_peek() {
 }
 
 player_action queue_pop() {
-    //exotique_printf("QUEUE POP\n");
+    //sys_printf("QUEUE POP\n");
     if(queue_empty()) {
         LOG("GAME", "ACTION QUEUE UNDERFLOW!");
         exit(1);
@@ -4102,55 +3604,26 @@ void queue_push(player_action act) {
     }
 }
 
-void client_send_input_to_all_clients() {
-    player_action this_action;
-    if(queue_size() == 0) {
-        LOG("GAME", "BUG - Expected one entry (player input) in queue, but got 0");
-        exit(1);
-    } else {
-        this_action = queue_peek();
-    }
-
-    for(int i = 0; i < MAX_CLIENTS; i++) {
-        if(client_info[i].sock && client_info[i].player_num != human_player) {
-            send_packet_to_socket(client_info[i].sock, INPUT_FROM_CLIENT, sizeof(player_action), &this_action, "action");
-        }
-    }
-}
-
-void client_wait_for_all_inputs() {
-    player_action action;
-
-    while(socket_set != NULL && SDLNet_CheckSockets(socket_set, 0)) {
-        for(int i = 0; i < MAX_CLIENTS; i++) {
-            if(client_info[i].sock && client_info[i].player_num != human_player) {
-                if(!SDLNet_SocketReady(client_info[i].sock)) {
-                    continue;
-                }
-
-                receive_packet_from_socket(client_info[i].sock, INPUT_FROM_CLIENT, sizeof(player_action), &action, "input");
-
-                if(action.player_num == human_player){
-                    LOG("NETWORK", "Error: Corrupted packet claims to be from this client");
-                    exit(1);
-                }
-                LOG("NETWORK", "Got an action from player %i", action.player_num);
-                queue_push(action);
-            }
-        }
-    }
-}
-
 const int screen_modes[3][2] = {
     {1280,720}, {1600,900}, {1920,1080}
 };
 
-ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
-    char* server_address = NULL;
+int is_host = 0, is_client = 0;
+//#define ENABLE_NETWORK
+#ifdef ENABLE_NETWORK
+#include "mahjong_network.h"
+#endif
+
+void setup_host_timer() {
+    int host_timer_handle = timer_get_handle("host timer");
+    LOG("INFO", "setup host timer");
+    timer_start(host_timer_handle, 0.033f, REPEAT_ON_EXPIRE, host_timer_callback, 0);
+}
+
+PlatformOptions mahjong_load(PlatformInterface* ei, int argc, const char* argv[]) {
     int num_clients = -1;
 
     int screen_mode = 0;
-    
 
     for(int i = 1; i < argc; i++) {
         if((strcmp(argv[i], "--host") == 0) || (strcmp(argv[i], "-h") == 0)) {
@@ -4160,7 +3633,9 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
             is_client = 1;
             if(argc > i+1) {
                 // next arg is address and port
+#ifdef ENABLE_NETWORK
                 server_address = (char*)argv[i+1];
+#endif
             }
         }
         else if(strcmp(argv[i], "--no-music") == 0) {
@@ -4186,12 +3661,10 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
             }
         } else if (strcmp(argv[i], "--no-aa") == 0) {
             enable_supersampling = 0;
-        } else if (strcmp(argv[i], "--no-avx") == 0) {
-            enable_avx = 0;
         }
     }
 
-    ExotiqueOptions opts;
+    PlatformOptions opts;
     opts.screenWidth = TILE_ROUND(screen_modes[screen_mode][0]);
     opts.screenHeight = TILE_ROUND(screen_modes[screen_mode][1]);
 
@@ -4209,7 +3682,6 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
 
     LOG("INIT", "Resolution %ix%i", output_width, output_height);
     LOG("INIT", "2x2 Supersampling %s", enable_supersampling ? "enabled" : "disabled");
-    LOG("INIT", "AVX rasterization %s", enable_avx ? "enabled" : "disabled");
     
     LOG("INIT", "Setting up sound device");
     num_active_sounds = 0;
@@ -4237,7 +3709,6 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
         exit(1);
     }
 
-    
     LOG("INIT", "Setting up palette");
     int i;
     int last_used_pal_idx = 0;
@@ -4262,11 +3733,11 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
                 u32 byte_b = (u32)CLAMP(((f32)bb)*scale, 0.0f, 255.0f);
                 last_used_pal_idx = base+i;
                 ei->palette[base+i] = (byte_r<<24)|(byte_g<<16)|(byte_b<<8)|0xFF;
+
                 light_remap_table[shade][i] = (u8)(base+i);
             }
         }
     }
-
     // load background texture entries into palette
     int num_bkgd_pal_entries = sizeof(palette_background)/sizeof(u32);
 
@@ -4310,6 +3781,9 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     LOG("INIT", "Decompressing textures");
     decompress_textures(ei);
 
+    LOG("INIT", "Decompressing models");
+    expand_no_uv_mesh(&dragon_low_poly_cleaned_mesh, &dragon_mesh);
+
     texture_board[0] = light_remap_table[NUM_SHADES/2-1][GREEN];
     
     tile_bbox = get_mesh_bbox(&mahjong_tile_mesh);
@@ -4319,12 +3793,14 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
         LOG("INIT", "Error: Args suggest both client and host, invalid");
         exit(1);
     } else if (is_host || is_client) {
+#ifdef ENABLE_NETWORK
         int net_init_error = SDLNet_Init();
         if(net_init_error != 0) {
             LOG("NETWORK", "Error initializing network stack %s", SDLNet_GetError());
             SDLNet_Quit();
             exit(1);
         }
+#endif
     } else {
         LOG("INIT", "Running in host mode with zero clients");
         is_host = 1;
@@ -4332,6 +3808,7 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
     }
 
 
+#ifdef ENABLE_NETWORK
     if(is_host) {
         setup_host(num_clients);
         server_wait_for_listen_port_from_players();
@@ -4344,6 +3821,7 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
         setup_connections_to_other_clients(initial_state);
     }
     LOG("NETWORK", "Connections setup to %i total players", num_socks_in_set);
+#endif
     reset_game();
     if(is_host) {
         setup_host_timer();
@@ -4363,7 +3841,6 @@ ExotiqueOptions game_load(ExotiqueInterface* ei, int argc, const char* argv[]) {
 
     return opts;
 }
-
 
 // grab a timer handle for each falling tile
 // release on expire
@@ -4797,7 +4274,7 @@ int is_chiitoitsu(tile_type hand_tiles[14]) {
 // if a dealer wins
 
 // tsumo vs ron (for tsumo all players pay in, otherwise just the called player)
-const int dealer_score_tables[9][2] = {
+const u16 dealer_score_tables[9][2] = {
     {  500,  1500},
     { 1000,  2900},
     { 2000,  5800},
@@ -4809,7 +4286,7 @@ const int dealer_score_tables[9][2] = {
     {16000, 48000}
 };
 
-const int nondealer_score_tables[9][3] = {
+const u16 nondealer_score_tables[9][3] = {
     {   300,   500,  1000},
     {   500,  1000,  2000},
     {  1000,  2000,  3900},
@@ -4983,7 +4460,7 @@ void copy_tile_index_to_open(hand* h, int idx) {
         h->tiles[i] = h->tiles[i+1];
     }
     h->num_closed_tiles--;
-    //exotique_printf("copied tile idx %i to open tiles, now %i closed_tiles and %i open tiles\n", idx, h->num_closed_tiles, h->num_open_tiles);
+    //sys_printf("copied tile idx %i to open tiles, now %i closed_tiles and %i open tiles\n", idx, h->num_closed_tiles, h->num_open_tiles);
 }
 
 typedef struct {
@@ -5318,7 +4795,7 @@ int player_can_draw(int player_num) {
     return player_can_perform_action_and_is_in_draw_state(player_num, UNDRAWN);
 }
 
-block run_game(ExotiqueInterface *ei, block whole_frame_block) {
+block run_game(PlatformInterface *ei, block whole_frame_block) {
     int pushed_y = ei->input->y && !last_y_pushed;
     int pushed_x = ei->input->x && !last_x_pushed;
     int pushed_a = ei->input->a && !last_a_pushed;
@@ -5330,6 +4807,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
     int human_can_riichi_or_tsumo = human_can_discard;
 
     int send_input = 0;
+    (void)send_input;
     if(waiting_on_call_from(human_player)) {
         // waiting on a call
         // only allow X or B
@@ -5342,7 +4820,6 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
         } else if (pushed_y) {
             queue_push(make_player_action(human_player, SORT_HAND));
             send_input = 1;
-            //sort_hand(human_player);
         }
     } else {
         // not waiting, don't allow CALLs
@@ -5364,10 +4841,10 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
         } else if (pushed_y) {
             queue_push(make_player_action(human_player, SORT_HAND));
             send_input = 1;
-            //sort_hand(human_player);
         }
     }
 
+#ifdef ENABLE_NETWORK
     static block network_send_block = START_TIMED_BLOCK(network_send_block, "send input", whole_frame_block)
     if(send_input) {
         client_send_input_to_all_clients();
@@ -5377,7 +4854,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
     static block network_receive_block = START_TIMED_BLOCK(network_receive_block, "recv inputs", whole_frame_block)
         client_wait_for_all_inputs();
     END_TIMED_BLOCK(network_receive_block);
-
+#endif
     // all clients run AI
     for(i8 i = 0; i < 4; i++) {
         if(game_data.player_types[i] != HUMAN && game_data.player_types[i] != NETWORK_HUMAN) {
@@ -5394,7 +4871,7 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
             // we can execute MOVE_SELECTED_LEFT and MOVE_SELECTED_RIGHT packets, but everything else is ignored for now.
             // however, we still have to verify sim frames!
             if(action.sim_frame > game_data.sim_frame) {
-                //exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
+                //sys_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
                 break;
             }
             switch(action.cmd) {
@@ -5486,22 +4963,21 @@ block run_game(ExotiqueInterface *ei, block whole_frame_block) {
         while(!queue_empty()) {
              player_action action = queue_peek();
             if(action.sim_frame > game_data.sim_frame) {
-                //exotique_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
+                //sys_printf("NEXT EVENT IS AHEAD OF OUR CURRENT SIM FRAME (THEIRS %i, OURS %i), BAILING OUT OF EVENT LOOP FOR NOW\n", action.sim_frame, game_data.sim_frame);
                 break;
             }
 
             i8 this_player = action.player_num;
 
             if(action.sim_frame < game_data.sim_frame) {
-                //exotique_printf("Ignoring old input!\n");
+                //sys_printf("Ignoring old input!\n");
                 queue_pop();
                 continue;
-                //exotique_printf("RECEIVED OLD INPUT, MUST ADD SYNCHRONIZATION BARRIERS! (theirs %i, ours %i)\n", action.sim_frame, game_data.sim_frame);
+                //sys_printf("RECEIVED OLD INPUT, MUST ADD SYNCHRONIZATION BARRIERS! (theirs %i, ours %i)\n", action.sim_frame, game_data.sim_frame);
                 //exit(1);
             }
 
             queue_pop();
-
             
             // if switching, we can do a call, but nothing else
             int can_draw = player_can_draw(this_player);
@@ -5632,9 +5108,9 @@ void look_at_yx(transform *cam, vert3f position, vert3f target) {
     cam->position = position;
 }
 
-void game_update(ExotiqueInterface* ei) {
+void mahjong_update(PlatformInterface* ei) {
 
-    timer_step(exotique_get_ticks());
+    timer_step(get_ticks());
     int cur_start_pushed = ei->input->start;
     int cur_select_pushed = ei->input->select;
 
@@ -5642,30 +5118,14 @@ void game_update(ExotiqueInterface* ei) {
 
     f32 abs_cam_rot_y = wall_y_rots[human_player];
 
-    camera_rot_x = CLAMP(camera_rot_x, 0.0f, 1.568f);
-    f32 use_camera_rot_x = camera_rot_x;
-    f32 lerped_cam_dist = camera_radius;
-
     static block whole_frame_block = ROOT_TIMED_BLOCK(whole_frame_block, "sim frame")
 
-        vert3f cam_pos = orbit_camera_position(abs_cam_rot_y, use_camera_rot_x, lerped_cam_dist);
+        vert3f cam_pos = orbit_camera_position(abs_cam_rot_y, camera_rot_x, camera_radius);
         look_at_yx(&cam_view_trans, cam_pos, (vert3f){0.0f,0.0f,0.0f});
-
-        //vert3f world_light = {0, 1, 0};
-        //matrix view_matrix = transform_to_view_matrix(&cam_view_trans);
-        //light = mat_mul_normal(&view_matrix, &world_light);
-        
 
         vert3f forward = {0, 0, -1};
 
-        //matrix rx = rotation_x_matrix(.95f);
-        //matrix ry = rotation_y_matrix(cam_view_trans.rotation.y);
-        //matrix rot = mat_mul_mat(&ry, &rx); // inverse of your view rotation
-
-        //light = normalize(mat_mul_vert3(&rot, &forward));
         light = forward;
-
-
         
         switch(game_data.cur_game_state) {
             case INITIAL_SHUFFLE_AND_SETUP:
@@ -5690,7 +5150,7 @@ void game_update(ExotiqueInterface* ei) {
     game_data.frame++;
 
     if((game_data.frame & 31) == 0) {
-        //print_and_reset_root_block(&whole_frame_block);
+        print_and_reset_root_block(&whole_frame_block);
     }
     
     last_select_pushed = cur_select_pushed;

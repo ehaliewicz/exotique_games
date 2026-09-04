@@ -29,7 +29,7 @@ static inline u64 encode_float_inv_z_vec(f32_vec inv_z) {
     );
     return res;
 }
-static inline u64 encode_float_inv_z_vec_avx2(__m128 inv_z) {
+static inline u64 encode_float_inv_z_vec_sse2(__m128 inv_z) {
     __m128 scaled = _mm_mul_ps(inv_z, _mm_set1_ps(65536.0f)); // we now have 4 32-bit floats scaled into a 0->65536 range
     __m128i scaled_ints = _mm_cvtps_epi32(scaled); // now 4 32-bit integers in the same range
 
@@ -48,7 +48,7 @@ static inline f32_vec decode_u64_inv_z_vec(u64 inv_z) {
     return scaled / 65536.0f;
 }
 
-static inline __m128 decode_u64_inv_z_vec_avx2(u64 inv_z) {
+static inline __m128 decode_u64_inv_z_vec_sse2(u64 inv_z) {
     __m128 recip_divisor = _mm_set1_ps(1.0f/65536.0f);
     __m128 scaled = _mm_setr_ps(
         (f32)(inv_z&0xFFFF), 

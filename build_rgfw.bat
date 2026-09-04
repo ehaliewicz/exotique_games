@@ -27,7 +27,6 @@ REM -static -flto=8
 "%GCC%" -fno-common -Os -s -static -flto=8 -std=c23 -DRGFW -march=westmere ^
     -I ".." ^
     -D ARCH=%ARCH% ^
-     -Wl,-Map=game.map,--no-print-map-discarded ^
     rgfw_platform.c miniaudio.c "%GAME%.c" -lwsock32 -lgdi32 -o "%GAME%_rgfw.exe"
 IF ERRORLEVEL 1 (
     echo [FAILED] %GAME%.c

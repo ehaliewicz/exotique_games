@@ -76,7 +76,7 @@ IF ERRORLEVEL 1 (
 REM ============================================================
 REM  Link
 REM ============================================================
-gcc -Wl,--gc-sections -Os -s -static  ^
+gcc -Wl,--gc-sections -Os -s  ^
     exotique.o miniaudio.o exotique_platform.o "%GAME%.o"^
      -Wl,-Map=game.map ^
     -L "%SDL2_LIB%" -L "%SDL2_NET_LIB%" ^

@@ -82,7 +82,7 @@ typedef struct __attribute__((packed)) {
 // 12 bytes vs 32 bytes
 
 typedef struct {
-    obj_vertex *vertexStream;
+    const obj_vertex *vertexStream;
     const u16 *indexStream; 
     int vertexCount, indexCount;
 } obj_mesh;
@@ -105,17 +105,15 @@ obj_mesh dragon_mesh = {
     .indexCount = 6552
 };
 
-vert3f compressed_pos_to_full_pos(const i16 pos[3]) {
-    f32 pos_x = ((f32)pos[0])/32768.0f;
-    f32 pos_y = ((f32)pos[1])/32768.0f;
-    f32 pos_z = ((f32)pos[2])/32768.0f;
-    return (vert3f){.x = pos_x, .y = pos_y, .z = pos_z};
-}
+obj_vertex compressed_vertex_to_full_vertex(const compressed_obj_vertex vert, vert2f uv) {
+    f32 pos_x = ((f32)vert.pos[0])/32768.0f;
+    f32 pos_y = ((f32)vert.pos[1])/32768.0f;
+    f32 pos_z = ((f32)vert.pos[2])/32768.0f;
+    vert3f pos = (vert3f){.x = pos_x, .y = pos_y, .z = pos_z};
 
-vert3f compressed_norm_to_full_norm(const i8 norm[2]) {
      // 1. Extract the two 8-bit components
-    u8 raw_u = norm[0];
-    u8 raw_v = norm[1];
+    u8 raw_u = vert.norm[0];
+    u8 raw_v = vert.norm[1];
 
     // 2. Convert 8-bit unsigned integer back to float [-1.0, 1.0]
     f32 u = ((f32)raw_u / 127.5f) - 1.0f;
@@ -141,14 +139,12 @@ vert3f compressed_norm_to_full_norm(const i8 norm[2]) {
         n.z /= length;
     }
 
-    return n;
+    return (obj_vertex){.pos = pos, .norm = n, .uv = uv};
 }
 
-void expand_no_uv_mesh(const compressed_obj_mesh *input, obj_mesh *output) {
+void decompress_mesh(const compressed_obj_mesh *input, obj_vertex *output, vert2f uv) {
     for(int i = 0; i < input->vertexCount; i++) {
-        output->vertexStream[i].pos = compressed_pos_to_full_pos(input->vertexStream[i].pos);
-        output->vertexStream[i].norm = compressed_norm_to_full_norm(input->vertexStream[i].norm);
-        output->vertexStream[i].uv = input->uv;
+        output[i] = compressed_vertex_to_full_vertex(input->vertexStream[i], uv);
     }
 }
 
@@ -1315,7 +1311,8 @@ int decompress_texture(compressed_texture* comp_tex, u8* dst, int num_total_byte
     return packet_idx;
 }
 
-void translate_texture(u8* src, u8* dst,  int total_pixels, u8 base_color) {
+i32 translate_texture(u8* src, u8* dst,  int total_pixels, u8 base_color) {
+    u8* start_dst = dst;
     for(int i = 0; i < total_pixels; i++) {
         u8 col = *src++;
         if(col != WHITE) {
@@ -1325,6 +1322,7 @@ void translate_texture(u8* src, u8* dst,  int total_pixels, u8 base_color) {
         }
         *dst++ = light_remap_table[NUM_SHADES-1][col];
     }
+    return dst-start_dst;
 }
 
 vert3f rgba_to_f32_rgb(u32 rgba) {
@@ -1402,6 +1400,7 @@ void mip_texture(PlatformInterface *ei, u8 *src, u8 *dst, int src_size, i16 over
 
 void decompress_textures(PlatformInterface *ei) {
     u64 total_compressed_tex_bytes = 0;
+    u64 total_uncompressed_tex_bytes = 0;
 
     for(int i = 0; i < NUM_ALL_TEXTURE_TYPES; i++) {
 
@@ -1429,9 +1428,10 @@ void decompress_textures(PlatformInterface *ei) {
             total_compressed_tex_bytes += decompress_texture(textures[i].comp_tex_ptr, tex_buf, width*height, textures[i].default_pal_idx);    
             
         } else if (textures[i].compressed == BASE_COLOR_INDEXES) {
-            translate_texture(textures[i].texels[0], tex_buf, width*height, textures[i].default_pal_idx);
+            total_uncompressed_tex_bytes += translate_texture(textures[i].texels[0], tex_buf, width*height, textures[i].default_pal_idx);
         } else {
             tex_buf = textures[i].texels[0];
+            //total_tex_bytes += textures[i].
 
         }
         textures[i].texels[0] = tex_buf;
@@ -1482,6 +1482,7 @@ void decompress_textures(PlatformInterface *ei) {
     }
 
     LOG("INFO", "Total compressed texture bytes %i", total_compressed_tex_bytes);
+    LOG("INFO", "Total uncompressed texture bytes %i", total_uncompressed_tex_bytes);
     //exit(1);
 }
 
@@ -2299,7 +2300,7 @@ void decompress_sounds() {
         }
         total_compressed_sound_bytes += sounds[i].num_bytes;
     }
-    LOG("INFO", "Total compressed sound bytes %i", total_compressed_sound_bytes);
+    LOG("INFO", "Total sound bytes %i", total_compressed_sound_bytes);
 }
 
 int num_active_sounds = 0;
@@ -3782,7 +3783,8 @@ PlatformOptions mahjong_load(PlatformInterface* ei, int argc, const char* argv[]
     decompress_textures(ei);
 
     LOG("INIT", "Decompressing models");
-    expand_no_uv_mesh(&dragon_low_poly_cleaned_mesh, &dragon_mesh);
+    decompress_mesh(&dragon_low_poly_cleaned_mesh, dragon_vertexes_full_uv, dragon_low_poly_cleaned_mesh.uv);
+    
 
     texture_board[0] = light_remap_table[NUM_SHADES/2-1][GREEN];
     

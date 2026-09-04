@@ -41,6 +41,45 @@ uint64_t get_ticks() {
     return (u64)(((float)counter * 1000.0f) / (float)freq);
 }
 
+
+void handle_keymod(PlatformInterface *pi, RGFW_event event, int playerNum, int set) {
+    PlayerInput *pii = &pi->input[playerNum];
+    switch(event.key.value) {
+        case RGFW_keyLeft:
+            pii->left = set;
+            break;
+        case RGFW_keyRight:
+            pii->right = set;
+            break;
+        case RGFW_keyA:
+            pii->a = set;
+            break;
+        case RGFW_keyB:
+            pii->b = set;
+            break;
+        case RGFW_keyX:
+            pii->x = set;
+            break;
+        case RGFW_keyY:
+            pii->y = set;
+            break;
+        case RGFW_keySpace:
+            pii->select = set;
+            break;
+        case RGFW_keyReturn:
+            pii->start = set;
+            break;
+    }
+}
+
+void handle_keyrelease(PlatformInterface *pi, RGFW_event event, int playerNum) {
+    handle_keymod(pi, event, playerNum, 0);
+}
+
+void handle_keypress(PlatformInterface *pi, RGFW_event event, int playerNum) {
+    handle_keymod(pi, event, playerNum, 1);
+}
+
 int main(int argc, const char* argv[]) {
 
     pi.palette = malloc(sizeof(u32)*256);
@@ -74,7 +113,17 @@ int main(int argc, const char* argv[]) {
         RGFW_event event;
         while (RGFW_window_checkEvent(win, &event)) { 
             //RGFW_window_getMouse(win, &mouseX, &mouseY);
+            switch(event.type) {
+                case RGFW_keyPressed:
+                    handle_keypress(&pi, event, 0);
+                    break;
+                case RGFW_keyReleased:
+                    handle_keyrelease(&pi, event, 0);
+                    break;
+
+            }
         }
+
 
         mahjong_update(&pi);
         mahjong_draw(&pi);

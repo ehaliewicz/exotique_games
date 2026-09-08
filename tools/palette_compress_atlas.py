@@ -3,6 +3,8 @@ from PIL import Image
 import sys
 WHITE_IDX = 3
 
+
+
 def un_rle(packets,unique_color_rev_map):
 
     output = []
@@ -55,7 +57,7 @@ def rle(colors, unique_color_map, max_run_len, max_white_run_len):
                     #packet_output.append((adj_run_len<<1)|0)
                 else:
                     color_bit = unique_color_map[cur_run_color]
-                    assert color_bit in [0,1]
+                    assert color_bit in [0,1,2]
                     packet_output.append((adj_run_len<<2)|(color_bit<<1)|1)
             cur_run_len = 1
             cur_run_color = col
@@ -70,13 +72,49 @@ def rle(colors, unique_color_map, max_run_len, max_white_run_len):
 
         else:
             color_bit = unique_color_map[cur_run_color]
-            assert color_bit in [0,1]
+            assert color_bit in [0,1,2]
             packet_output.append((adj_run_len<<2)|(color_bit<<1)|1)
     
     return packet_output
 
 
+def gather_colors_in_block(img, blk_x, blk_y, w, h):
+    uniq_colors = set()
+    for x in range(blk_x*w, blk_x*w+w):
+        for y in range(blk_y*h, blk_y*h+h):
+            uniq_colors.add(img.getpixel((x,y)))
+    return uniq_colors
+
 def process_quantized_image(img, tex_name):
+
+    (x,y) = img.size
+    print(img)
+    print(img.getpalette())
+    blocks_x = x//128
+    blocks_y = y//128
+    assert blocks_x * 128 == x
+    assert blocks_y * 128 == y
+    cur_palette = None
+    for by in range(blocks_y):
+        for bx in range(blocks_x):
+
+            pixels = []
+            palette = set()
+            for y in range(by*128, by*128+128):
+                for x in range(bx*128, bx*128+128):
+                    idx = img.getpixel((x,y))
+                    palette.add(idx)
+                    pixels.append(idx)
+
+
+            #uniq_colors = gather_colors_in_block(img, x, y, 128, 128)
+            #print(uniq_colors)
+            #assert len(uniq_colors) <= 4, "Block {},{}".format(x, y)
+            #cur_palette = uniq_colors 
+
+            
+            rle_block(block_x, block_y, 128, 128)
+
 
     (x,y) = img.size
     unique_colors_map = {}
@@ -127,28 +165,12 @@ def process_quantized_image(img, tex_name):
     print("};")
     print("#endif")
 
-    #print("#ifndef TEXTURE_{}_H".format(tex_name))
-    #print("#define TEXTURE_{}_H".format(tex_name))
-    #print("u8 texture_{}[{}*{}] = ".format(tex_name, x,y) + "{")
-    #for py in range(y):
-    #    for px in range(x):
-    #        pix = img.getpixel((px,py))
-    #        #print(pix, end=", ")
-    #        #if px % 32 == 0:
-    #        #    print("")
-    #        unique_colors.add(pix)
-    #    #print("")
-    ##print("};")
-    ##print("#endif")
-    #print("unique colors {}".format(unique_colors))
-
-    #assert len(unique_colors) <= 4
 
 
 
 if __name__ == '__main__':
 
-    file_name = sys.argv[1]
-    tex_name = sys.argv[2]
+    file_name = "assets/tiles/atlas.bmp" #sys.argv[1]
+    tex_name = "tile_atlas" #sys.argv[2]
     img = Image.open(file_name)
     process_quantized_image(img, tex_name)

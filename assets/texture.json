@@ -1,0 +1,442 @@
+{
+  "version": 3,
+  "patterns": [
+    {
+      "filename": "pattern0.png",
+      "placements": [
+        {
+          "x": 260,
+          "y": 4,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": true,
+          "red": false
+        },
+        {
+          "x": 392,
+          "y": 5,
+          "hmirror": true,
+          "vmirror": true,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 518,
+          "y": 5,
+          "hmirror": true,
+          "vmirror": true,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 647,
+          "y": 5,
+          "hmirror": true,
+          "vmirror": true,
+          "dmirror": false,
+          "red": true
+        },
+        {
+          "x": 678,
+          "y": 43,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": true
+        },
+        {
+          "x": 391,
+          "y": 128,
+          "hmirror": true,
+          "vmirror": true,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 548,
+          "y": 128,
+          "hmirror": false,
+          "vmirror": true,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 548,
+          "y": 173,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern1.png",
+      "placements": [
+        {
+          "x": 294,
+          "y": 44,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 550,
+          "y": 44,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern10.png",
+      "placements": [
+        {
+          "x": 154,
+          "y": 2,
+          "hmirror": false,
+          "vmirror": true,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern11.png",
+      "placements": [
+        {
+          "x": 659,
+          "y": 136,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern12.png",
+      "placements": [
+        {
+          "x": 18,
+          "y": 265,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern13.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern14.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern15.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern16.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern17.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern18.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern19.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern2.png",
+      "placements": [
+        {
+          "x": 656,
+          "y": 167,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 17,
+          "y": 302,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern20.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern21.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern22.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern23.png",
+      "placements": [
+        {
+          "x": 0,
+          "y": 640,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern24.png",
+      "placements": [
+        {
+          "x": 128,
+          "y": 640,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern25.png",
+      "placements": [
+        {
+          "x": 256,
+          "y": 640,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern26.png",
+      "placements": [
+        {
+          "x": 384,
+          "y": 640,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern27.png",
+      "placements": [
+        {
+          "x": 512,
+          "y": 640,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern28.png",
+      "placements": [
+        {
+          "x": 640,
+          "y": 640,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern29.png",
+      "placements": [
+        {
+          "x": 145,
+          "y": 183,
+          "hmirror": true,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 17,
+          "y": 183,
+          "hmirror": true,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 273,
+          "y": 187,
+          "hmirror": true,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern3.png",
+      "placements": []
+    },
+    {
+      "filename": "pattern30.png",
+      "placements": [
+        {
+          "x": 63,
+          "y": 215,
+          "hmirror": true,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 191,
+          "y": 215,
+          "hmirror": true,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 319,
+          "y": 220,
+          "hmirror": true,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern31.png",
+      "placements": [
+        {
+          "x": 333,
+          "y": 158,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern4.png",
+      "placements": [
+        {
+          "x": 652,
+          "y": 56,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern5.png",
+      "placements": [
+        {
+          "x": 19,
+          "y": 136,
+          "hmirror": true,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 512,
+          "y": 128,
+          "hmirror": true,
+          "vmirror": true,
+          "dmirror": false,
+          "red": false
+        },
+        {
+          "x": 512,
+          "y": 173,
+          "hmirror": true,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern6.png",
+      "placements": [
+        {
+          "x": 391,
+          "y": 163,
+          "hmirror": true,
+          "vmirror": true,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern7.png",
+      "placements": [
+        {
+          "x": 256,
+          "y": 128,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern8.png",
+      "placements": [
+        {
+          "x": 295,
+          "y": 142,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    },
+    {
+      "filename": "pattern9.png",
+      "placements": [
+        {
+          "x": 1,
+          "y": 18,
+          "hmirror": false,
+          "vmirror": false,
+          "dmirror": false,
+          "red": false
+        }
+      ]
+    }
+  ]
+}
